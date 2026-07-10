@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #45</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F2F0EC; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/45">#45</a> &mdash; sub-agent 编排 + skills + slash-commands（US-027/028/029）&mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <!-- PLACEHOLDER-DESIGN -->
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Sub-agent is just another AgentTool</h3>
+      <p><strong>Ambiguity:</strong> The spec said "父 agent 通过普通的 tool call 触发子 agent" without prescribing the integration seam.</p>
+      <p><strong>Choice:</strong> <code>SubAgentTool</code> implements the existing <code>AgentTool</code> interface; <code>Execute</code> spins up a child <code>StartRun</code> over an independent <code>AgentContext</code> and returns the child's final assistant text as the tool result.</p>
+      <p><strong>Rationale:</strong> Reuses the batch executor, tool-result plumbing, and streaming machinery unchanged. Concurrency comes for free — the batch executor already runs parallel tool calls in separate goroutines, so multiple sub-agents run concurrently with no new orchestration code.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Drain events, then read Result</h3>
+      <p><strong>Ambiguity:</strong> How to consume the child's <code>LoopEventStream</code> (buffer 0, synchronous back-pressure) without deadlocking.</p>
+      <p><strong>Choice:</strong> <code>Execute</code> ranges <code>stream.Events()</code> to channel close (forwarding streamed text via <code>onUpdate</code> when a sink is set), then calls <code>stream.Result(ctx)</code>.</p>
+      <p><strong>Rationale:</strong> <code>runLoop.finish()</code> calls <code>SetResult</code> before <code>Close</code>, and <code>Result</code> resolves via its own channel independent of event draining — so draining to close then reading the result is deadlock-free. Draining also unblocks the buffer-0 producer.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Skills reuse the sub-agent abstraction</h3>
+      <p><strong>Ambiguity:</strong> How a declarative SKILL.md becomes an executable capability.</p>
+      <p><strong>Choice:</strong> A <code>Skill</code> materializes into a <code>SubAgentSpec</code> — the markdown body becomes the child's system prompt, <code>allowed-tools</code> filters the tool set, and <code>description</code> is surfaced to the parent.</p>
+      <p><strong>Rationale:</strong> A skill is conceptually a pre-configured sub-agent; layering it on <code>SubAgentTool</code> avoids a second execution path.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Built-in slash-commands win over user commands</h3>
+      <p><strong>Ambiguity:</strong> Conflict resolution when a user <code>~/.pigo/commands/*.md</code> template shares a name with a compile-time built-in.</p>
+      <p><strong>Choice:</strong> Built-in wins; the shadowed user command is recorded and reported on stderr. Built-ins register from <code>init()</code> via <code>RegisterBuiltin</code>.</p>
+      <p><strong>Rationale:</strong> Matches the spec's "冲突时 built-in 优先" and keeps a fork's guarantees stable regardless of user files on disk.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <!-- PLACEHOLDER-DEVIATION -->
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> No standalone plugin mechanism</h3>
+      <p><strong>Spec:</strong> The PRD's capability list mentions a plugin surface alongside skills and commands.</p>
+      <p><strong>Implemented:</strong> No separate plugin registry. Fork authors extend via <code>init()</code> registration (built-in commands/tools); external/third-party extension is deferred to MCP.</p>
+      <p><strong>Why:</strong> A bespoke in-process plugin loader would duplicate what <code>init()</code>-time registration and (future) MCP already cover, adding a maintenance surface with no distinct use case in v1.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Failed child surfaced as a tool error (added in review)</h3>
+      <p><strong>Spec:</strong> Silent on how a child's failed run should appear to the parent.</p>
+      <p><strong>Implemented:</strong> When the child's final turn stops on <code>error</code>/<code>aborted</code>, <code>Execute</code> returns a non-nil Go error (tool executor marks it <code>IsError</code>), carrying the child's diagnostic text.</p>
+      <p><strong>Why:</strong> The codebase convention is "failures are terminal messages, not Go errors," which meant a failed delegation reached the parent as a <em>successful</em> tool result. Surfacing it as an error gives the parent model a signal to react to. Covered by <code>TestSubAgentFailedChildErrors</code>.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <!-- PLACEHOLDER-TRADEOFF -->
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Single-process goroutines vs cross-process RPC</h3>
+      <p><strong>Alternatives:</strong> (a) sub-agents as goroutines sharing the parent process; (b) spawn child agents as separate OS processes over RPC.</p>
+      <p><strong>Chosen:</strong> (a). <strong>Pros:</strong> zero serialization, shared credential store, trivial cancellation via the parent <code>ctx</code>, no transport code. <strong>Cons:</strong> no hard memory/crash isolation between parent and child.</p>
+      <p><strong>Why it won:</strong> The spec explicitly decided "单进程 goroutine"; isolation is not a v1 requirement and RPC would add a large surface for no current benefit.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Lockless <code>builtinCommands</code> global vs guarded map</h3>
+      <p><strong>Alternatives:</strong> (a) plain package-level map with an init-only contract; (b) a <code>sync.RWMutex</code>-guarded registry.</p>
+      <p><strong>Chosen:</strong> (a), with a comment reaffirming the init-only discipline (added in review).</p>
+      <p><strong>Why it won:</strong> Registration happens only from <code>init()</code> (single-threaded, before <code>main</code>) and reads happen only afterward, so no concurrent access occurs. A mutex would add ceremony without preventing any real race.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <!-- PLACEHOLDER-QUESTION -->
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should sub-agent nesting depth be bounded?</h3>
+      <p>A sub-agent's tool set could itself contain sub-agent tools, allowing recursive delegation. There is currently no depth guard. Verify whether a max-depth or cycle limit is wanted before enabling nested sub-agent tool sets in practice.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Streaming sub-agent text into the transcript</h3>
+      <p><code>Execute</code> forwards child <code>MessageUpdateEvent</code> text via <code>onUpdate</code> as tool-execution updates, but the TUI currently renders tool results as a one-line gist. Confirm whether live sub-agent progress should be shown more prominently in the interactive transcript.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

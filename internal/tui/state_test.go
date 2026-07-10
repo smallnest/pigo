@@ -239,6 +239,33 @@ func TestFenceBufferClosesDanglingFence(t *testing.T) {
 	}
 }
 
+// TestAbortStartedRunClearsRunning verifies abortStartedRun (used when an
+// unknown slash-command is submitted) clears running and records a system line,
+// so the started-but-never-launched run does not wedge the UI (US-029).
+func TestAbortStartedRunClearsRunning(t *testing.T) {
+	s := newUIState()
+	s.input = "/nope"
+	if _, start := s.submit(); !start {
+		t.Fatal("submit should start a run before slash resolution")
+	}
+	if !s.running {
+		t.Fatal("running should be true after submit")
+	}
+	s.abortStartedRun(`unknown command "/nope"`)
+	if s.running {
+		t.Error("running must be false after abortStartedRun")
+	}
+	last := s.transcript[len(s.transcript)-1]
+	if last.Kind != entrySystem || last.Text != `unknown command "/nope"` {
+		t.Errorf("expected system line with reason, got %+v", last)
+	}
+	// A subsequent submit starts a fresh run (state is not wedged).
+	s.input = "hi"
+	if _, start := s.submit(); !start {
+		t.Error("submit after abort should start a run")
+	}
+}
+
 // TestReplaySeedsTranscript verifies replay reconstructs the transcript from a
 // persisted session's messages (US-024): user text, assistant text, tool
 // calls, and tool results appear in order, so a resumed session renders its

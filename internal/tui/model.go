@@ -53,7 +53,15 @@ type Model struct {
 	program *tea.Program
 	// quitting is set once the user confirms quit, so View can render a farewell.
 	quitting bool
+
+	// slash optionally resolves "/name" input into prompt text before a run is
+	// started (US-029). When nil, input is submitted verbatim.
+	slash *agent.SlashRegistry
 }
+
+// SetSlashRegistry wires a slash-command registry so typed "/name" input is
+// expanded before a run starts. Optional; when unset, input runs verbatim.
+func (m *Model) SetSlashRegistry(r *agent.SlashRegistry) { m.slash = r }
 
 // NewModel builds a Model driven by run.
 func NewModel(run RunFn) *Model {
@@ -122,6 +130,19 @@ func (m *Model) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		prompt, start := m.state.submit()
 		if start {
+			// Expand a slash-command into its prompt text before running. An
+			// unknown "/name" is surfaced as a local system line and no run
+			// starts; a non-command prompt passes through unchanged.
+			if m.slash != nil {
+				expanded, handled, err := m.slash.Resolve(prompt)
+				if err != nil {
+					m.state.abortStartedRun(err.Error())
+					return m, nil
+				}
+				if handled {
+					prompt = expanded
+				}
+			}
 			return m, m.startRun(prompt)
 		}
 		return m, nil
