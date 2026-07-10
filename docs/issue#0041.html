@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0041</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/41">#41</a> &mdash; [impl] 交互式 TUI（bubbletea v2）（US-022）&mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 纯 state machine 与 bubbletea Model 分层</h3>
+      <p><strong>Ambiguity:</strong> 验收要求「内部 state machine 单测（runID guard/steering 队列/两阶段 Ctrl+C），不做 golden-frame 快照」，但未说明如何让状态可测而不触碰终端。</p>
+      <p><strong>Choice:</strong> 把所有交互状态与转移抽到无框架依赖的 <code>uiState</code>（state.go），bubbletea <code>Model</code>（model.go）只做键盘分发与渲染包装。单测直接调用 <code>submit/pressCtrlC/applyEvent/finishRun</code> 断言转移。</p>
+      <p><strong>Rationale:</strong> state machine 不 import bubbletea、不需要伪终端即可用表驱动测试覆盖全部分支；渲染交给 bubbletea 的 View 差分，符合「不自研差分渲染」。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> runID stale-guard 用单调递增计数器</h3>
+      <p><strong>Ambiguity:</strong> 验收要求「runID stale-guard」，但未定义 runID 生成方式与判定点。</p>
+      <p><strong>Choice:</strong> 每次 idle 状态下 <code>submit</code> 使 <code>runID++</code>；<code>applyEvent(runID, ev)</code> 与 <code>finishRun(runID, err)</code> 在 <code>runID != s.runID</code> 时丢弃。桥接 goroutine 把事件用启动时的 runID 打标后 <code>Program.Send</code> 回 Update。</p>
+      <p><strong>Rationale:</strong> 中断旧 run 后立即开新 run 时，旧 run 的滞后事件必须不能污染新 run 的 transcript——计数器比较是最小且确定的判定。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 运行中输入即 steering，经 GetSteeringMessages 注入</h3>
+      <p><strong>Ambiguity:</strong> 验收要「运行中输入 steering（pi per-turn 语义）」，但未说明队列如何对接 loop。</p>
+      <p><strong>Choice:</strong> 运行中 <code>submit</code> 把文本入 <code>steering</code> 队列并回显；<code>cmd/pigo</code> 把 TUI 的 <code>drainSteering</code> 包装成 loop 的 <code>GetSteeringMessages</code> 钩子，loop 在每轮工具执行后拉取并在下一轮前注入。</p>
+      <p><strong>Rationale:</strong> 复用既有 loop per-turn steering 机制（#23），无需 TUI 自造注入路径；drain 语义保证同一条 steering 不重复注入。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 新增导出入口 <code>agent.StartRun</code>/<code>ContinueRun</code></h3>
+      <p><strong>Spec:</strong> #41 只要求把 agent 回调桥接进 Update loop。</p>
+      <p><strong>Implemented:</strong> 顺带在 loop.go 导出 <code>StartRun</code>（包 <code>agentLoop</code>）与 <code>ContinueRun</code>（包 <code>agentLoopContinue</code>），因为原入口是包内未导出的。</p>
+      <p><strong>Why:</strong> TUI 在 <code>internal/tui</code> 包，需要跨包启动 run；保持 loop 内部实现不导出的同时，仅暴露两个薄封装。<code>ContinueRun</code> 也为 #43 会话续跑预留。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 桥接用 Program.Send vs tea.Cmd 阻塞读取</h3>
+      <p><strong>Alternatives:</strong> (A) 启动 goroutine 消费 EventStream，每事件 <code>Program.Send</code> 回 Update；(B) 用返回 <code>tea.Cmd</code> 每次阻塞读一个事件再回投。</p>
+      <p><strong>Pros/Cons:</strong> B 与 bubbletea 命令模型贴合但每事件一次往返、流式增量延迟高，且难处理不定长事件流；A 让 unbuffered EventStream 被单 goroutine 完整 drain（无 producer 泄漏），所有状态变更仍集中在 Update goroutine。</p>
+      <p><strong>Winner:</strong> A——流式渲染顺滑，且 -race 测试通过验证无数据竞争。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 真实终端多轮含工具调用对话尚未在 CI 中自动验证</h3>
+      <p><strong>Assumption:</strong> 验收含「真实终端验证：完成一次含工具调用的多轮对话」。当前用 state machine 单测 + -race 覆盖逻辑，真实终端交互需人工执行 <code>pigo</code>（无参数、TTY）验证。</p>
+      <p><strong>Verify:</strong> 请在真实终端跑一次带工具调用的对话，确认流式渲染、steering、两阶段 Ctrl+C 行为符合预期。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 输入行未处理多字节/组合键与光标编辑</h3>
+      <p><strong>Assumption:</strong> 当前输入仅支持单 rune 追加与 backspace 删除，未做光标移动/中间插入/宽字符。</p>
+      <p><strong>Verify:</strong> 若需完整行编辑体验，可后续引入 bubbles/textarea 组件；本 issue 范围内的最小可用输入已满足验收。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

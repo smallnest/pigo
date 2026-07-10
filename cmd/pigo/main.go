@@ -40,9 +40,32 @@ func main() {
 	if prompt == "" {
 		prompt = strings.TrimSpace(strings.Join(flag.Args(), " "))
 	}
+
+	// No prompt + an interactive terminal → start the TUI (US-022). No prompt
+	// with a non-terminal stdout (pipe/CI) is an error, since there is nothing
+	// to run and nothing to interact with.
 	if prompt == "" {
-		fmt.Fprintln(os.Stderr, "pigo: no prompt (use -p \"...\" or positional args)")
-		os.Exit(2)
+		if !stdoutIsTerminal() {
+			fmt.Fprintln(os.Stderr, "pigo: no prompt (use -p \"...\" or positional args)")
+			os.Exit(2)
+		}
+		cwd, _ := os.Getwd()
+		tools := builtinTools(cwd, noTools)
+		provider, providerName, err := resolveProvider(model, baseURL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "pigo: %v\n", err)
+			os.Exit(1)
+		}
+		sysPrompt, err := agent.BuildSystemPrompt(agent.PromptConfig{WorkingDir: cwd, Root: cwd})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "pigo: %v\n", err)
+			os.Exit(1)
+		}
+		if err := runInteractive(model, providerName, provider, tools, sysPrompt); err != nil {
+			fmt.Fprintf(os.Stderr, "pigo: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	mode := agent.PrintMode
