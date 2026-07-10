@@ -51,7 +51,7 @@ type ConfigLayer struct {
 // DefaultConfigLayer is the base layer applied before all others. It gives a
 // usable configuration out of the box.
 func DefaultConfigLayer() ConfigLayer {
-	model := "openai/gpt-4o"
+	model := "openrouter/free"
 	provider := "openrouter"
 	mode := string(agentcore.ToolExecutionParallel)
 	level := string(agentcore.ThinkingMedium)

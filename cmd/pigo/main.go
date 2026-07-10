@@ -36,7 +36,7 @@ func main() {
 	)
 	flag.StringVar(&prompt, "p", "", "prompt to run in headless print mode")
 	flag.StringVar(&prompt, "print", "", "prompt to run in headless print mode")
-	flag.StringVar(&model, "model", "openai/gpt-4o", "model id to run against")
+	flag.StringVar(&model, "model", "openrouter/free", "model id to run against")
 	flag.StringVar(&baseURL, "base-url", "", "override provider base URL (e.g. local Ollama)")
 	flag.StringVar(&outputFmt, "output-format", "text", "output format: text | stream-json")
 	flag.BoolVar(&noTools, "no-tools", false, "disable the built-in file/shell tools")
