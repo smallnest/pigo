@@ -85,6 +85,10 @@ type Model struct {
 	// theme holds the resolved lipgloss styles (#89) applied to transcript
 	// entries, tool cards, and the spinner/running status.
 	theme tuiTheme
+	// md renders assistant Markdown into styled, width-wrapped terminal output
+	// (#94). It is bound to the viewport width and NO_COLOR mode, re-created only
+	// when those change.
+	md *mdRenderer
 
 	// cancel interrupts the in-flight run's context (set while running).
 	cancel context.CancelFunc
@@ -122,7 +126,7 @@ func newSpinner(th tuiTheme) spinner.Model {
 // NewModel builds a Model driven by run.
 func NewModel(run RunFn) *Model {
 	th := buildTheme(themeDark)
-	return &Model{state: newUIState(), run: run, input: newComposer(), viewport: viewport.New(), follow: true, spinner: newSpinner(th), theme: th}
+	return &Model{state: newUIState(), run: run, input: newComposer(), viewport: viewport.New(), follow: true, spinner: newSpinner(th), theme: th, md: newMDRenderer()}
 }
 
 // NewModelWithHistory builds a Model whose transcript is pre-seeded from a
@@ -131,7 +135,7 @@ func NewModel(run RunFn) *Model {
 // submit continues the session via the injected run func.
 func NewModelWithHistory(run RunFn, history []agentcore.AgentMessage) *Model {
 	th := buildTheme(themeDark)
-	m := &Model{state: newUIState(), run: run, input: newComposer(), viewport: viewport.New(), follow: true, spinner: newSpinner(th), theme: th}
+	m := &Model{state: newUIState(), run: run, input: newComposer(), viewport: viewport.New(), follow: true, spinner: newSpinner(th), theme: th, md: newMDRenderer()}
 	m.state.replay(history)
 	return m
 }
@@ -203,13 +207,26 @@ func (m *Model) refreshViewport() {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		line := wrapWidth(renderEntry(e, m.viewport.Width()), m.viewport.Width())
-		b.WriteString(m.styleEntry(e.Kind, line))
+		b.WriteString(m.renderTranscriptEntry(e, m.viewport.Width()))
 	}
 	m.viewport.SetContent(b.String())
 	if m.follow {
 		m.viewport.GotoBottom()
 	}
+}
+
+// renderTranscriptEntry produces the final styled, width-folded text for one
+// entry at the given width. Assistant text (#94) is rendered as Markdown via
+// glamour, which owns both its word-wrapping (bound to width so CJK stays
+// aligned) and coloring — so it is NOT run through wrapWidth/styleEntry. Every
+// other kind keeps the #91/#93 path: fold to width on rune boundaries, then
+// apply the theme style after wrapping so display-width math stays on raw runes.
+func (m *Model) renderTranscriptEntry(e transcriptEntry, width int) string {
+	if e.Kind == entryAssistant {
+		return m.md.render(fenceBuffer(e.Text), width, noColor())
+	}
+	line := wrapWidth(renderEntry(e, width), width)
+	return m.styleEntry(e.Kind, line)
 }
 
 // styleEntry applies the theme style for an entry kind to its already-rendered,
@@ -354,7 +371,7 @@ func (m *Model) View() tea.View {
 		b.WriteByte('\n')
 	} else {
 		for _, e := range m.state.transcript {
-			b.WriteString(m.styleEntry(e.Kind, wrapWidth(renderEntry(e, m.width), m.width)))
+			b.WriteString(m.renderTranscriptEntry(e, m.width))
 			b.WriteByte('\n')
 		}
 	}

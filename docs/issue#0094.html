@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0094</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F2F0EC; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/94">#94</a> &mdash; TUI: assistant 输出 Markdown 渲染 &mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 用 glamour 做 Markdown 渲染，仅对 assistant entry 生效</h3>
+      <p><strong>Ambiguity:</strong> AC 举例「如 glamour，或与主题配套的渲染」，未强制具体库。</p>
+      <p><strong>Choice:</strong> 引入 <code>github.com/charmbracelet/glamour</code>，新增 <code>markdown.go</code> 的 <code>mdRenderer</code>；<code>renderTranscriptEntry</code> 只在 <code>e.Kind == entryAssistant</code> 时走 Markdown 路径，其余 entry 保持 #91/#93 的 wrapWidth+styleEntry 路径。</p>
+      <p><strong>Rationale:</strong> glamour 是 charm 生态的成熟 Markdown 终端渲染器（goldmark + chroma 高亮），代码块高亮/边框开箱即用。只对 assistant 生效，避免把 user/tool/system 行误当 Markdown 解析（如 user 输入的 <code>#</code> 不该变成标题）。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> glamour 渲染宽度绑定 viewport，NO_COLOR 切 notty 样式</h3>
+      <p><strong>Ambiguity:</strong> AC 要求「渲染宽度与视口一致」「NO_COLOR 降级朴素渲染」，未规定实现方式。</p>
+      <p><strong>Choice:</strong> <code>NewTermRenderer(WithStandardStyle(style), WithWordWrap(width))</code>，style 在 <code>noColor()</code> 时取 <code>"notty"</code> 否则 <code>"dark"</code>。renderer 按 (width, noColor) 缓存，仅在其变化（终端 resize / 测试切换 NO_COLOR）时重建。</p>
+      <p><strong>Rationale:</strong> 宽度随 viewport 传入使 CJK 折行与视口对齐（US-003）；notty 样式是 glamour 官方的无色降级；缓存避免每帧重建 renderer（glamour 构造较重）。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 保留 fenceBuffer：渲染前先补齐未闭合围栏</h3>
+      <p><strong>Ambiguity:</strong> AC 要求「保留原 fenceBuffer 语义，流式未闭合 ``` 优雅呈现」。</p>
+      <p><strong>Choice:</strong> assistant 分支调用 <code>m.md.render(fenceBuffer(e.Text), width, noColor())</code>——先用既有 <code>fenceBuffer</code> 补一个收尾 ```，再交给 glamour。</p>
+      <p><strong>Rationale:</strong> glamour 对未闭合代码块的处理不稳定；先补齐让它当作完整 fenced block 解析，代码内容不丢、布局不破，复用而非重写 #91 已验证的 fenceBuffer。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">None</span> 实现遵循 spec</h3>
+      <p>AC 五项（Markdown 渲染 + 代码块高亮、fenceBuffer 语义保留、渲染宽度随视口且中文不错位、NO_COLOR 降级纯文本、build+test 全绿）均满足。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> glamour 折行之上再叠一层硬字符折行（reflow/wrap）</h3>
+      <p><strong>Alternatives:</strong> (a) 仅靠 glamour 的 <code>WithWordWrap</code>；(b) glamour 之后再用 <code>reflow/wrap</code> 按显示宽度硬折。</p>
+      <p><strong>Chosen:</strong> (b)。</p>
+      <p><strong>Why it won:</strong> glamour 的 word-wrap 按空格断行，一长串无空格的中文（CJK 无空格可断）不会被折，仍会溢出视口——测试 <code>TestAssistantMarkdownRespectsWidth</code> 实测 72 列超出 20 列限制。叠加 <code>reflow/wrap.String</code> 做 rune 边界的强制硬折（保留 ANSI 转义），CJK 长串才真正落在 width 内。代价是两层折行，但 word-wrap 仍优先处理英文的语义断行，硬折只作兜底。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 为接入 glamour 升级了若干依赖</h3>
+      <p><strong>Alternatives:</strong> (a) 保持依赖不动，手写轻量 Markdown 渲染；(b) 引入 glamour 并升级其要求的传递依赖。</p>
+      <p><strong>Chosen:</strong> (b)。</p>
+      <p><strong>Why it won:</strong> glamour v1.0.0 依赖较新的 <code>charmbracelet/x/cellbuf</code>（0.0.13→0.0.15）与 <code>golang.org/x/text</code>（0.14→0.30），旧 cellbuf 与新 ansi.Style API 冲突导致编译失败；升级后全仓库 <code>go build/vet/test ./...</code> 全绿，无回归。手写渲染器达不到 chroma 语法高亮的质量且维护成本高。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 流式逐 token 重渲染的性能</h3>
+      <p>当前每次 <code>refreshViewport</code> 对每条 assistant entry 全量重渲染 Markdown。长回复 + 高频 token 事件下，glamour 全量渲染可能有开销。renderer 已按 (width,noColor) 缓存，但 <code>Render(src)</code> 本身每次都跑。若后续出现卡顿，可考虑对未变化的历史 entry 缓存渲染结果。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> glamour 样式与 #89 主题的一致性</h3>
+      <p>glamour 用自带的 <code>"dark"</code> 标准样式，与 #89 <code>tuiTheme</code> 的调色板是两套独立配色。是否需要把主题色注入 glamour 的 <code>ansi.StyleConfig</code> 以统一观感，留待样式体系收敛（#95 之后）确认。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
