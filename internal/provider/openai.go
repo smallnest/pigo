@@ -18,13 +18,15 @@
 // Per the dual failure model (FR-13) the decoder never panics: malformed
 // payloads surface as a returned error which the transport turns into a
 // terminal StreamErrorEvent.
-package agent
+package provider
 
 import (
 	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // openaiToolCall accumulates one streamed tool call, keyed by its delta index.
@@ -167,16 +169,16 @@ func (d *OpenAIDecoder) finishDone() []StreamEvent {
 	d.done = true
 	msg := d.partial()
 	if msg.StopReason == "" {
-		msg.StopReason = StopReasonEndTurn
+		msg.StopReason = agentcore.StopReasonEndTurn
 	}
 	return []StreamEvent{StreamDoneEvent{Message: msg}}
 }
 
 // partial materializes the accumulated state into an AssistantMessage: the text
 // block first (if any), then tool-call blocks in first-seen index order.
-func (d *OpenAIDecoder) partial() AssistantMessage {
-	msg := AssistantMessage{
-		RoleField:     RoleAssistant,
+func (d *OpenAIDecoder) partial() agentcore.AssistantMessage {
+	msg := agentcore.AssistantMessage{
+		RoleField:     agentcore.RoleAssistant,
 		API:           "openai",
 		Provider:      "openai",
 		StopReason:    d.stopReason,
@@ -184,10 +186,10 @@ func (d *OpenAIDecoder) partial() AssistantMessage {
 		ResponseModel: d.responseModel,
 	}
 	if d.inputTokens != 0 || d.outputTokens != 0 {
-		msg.Usage = &Usage{InputTokens: d.inputTokens, OutputTokens: d.outputTokens}
+		msg.Usage = &agentcore.Usage{InputTokens: d.inputTokens, OutputTokens: d.outputTokens}
 	}
 	if d.text.Len() > 0 {
-		msg.Content = append(msg.Content, NewTextContent(d.text.String()))
+		msg.Content = append(msg.Content, agentcore.NewTextContent(d.text.String()))
 	}
 
 	idx := make([]int, len(d.toolOrder))
@@ -202,7 +204,7 @@ func (d *OpenAIDecoder) partial() AssistantMessage {
 		if len(args) == 0 {
 			args = json.RawMessage("{}")
 		}
-		msg.Content = append(msg.Content, NewToolCallContent(call.id, call.name, args))
+		msg.Content = append(msg.Content, agentcore.NewToolCallContent(call.id, call.name, args))
 	}
 	return msg
 }
@@ -212,12 +214,12 @@ func (d *OpenAIDecoder) partial() AssistantMessage {
 func mapOpenAIFinishReason(reason string) string {
 	switch reason {
 	case "length":
-		return StopReasonLength
+		return agentcore.StopReasonLength
 	case "tool_calls", "function_call":
-		return StopReasonToolUse
+		return agentcore.StopReasonToolUse
 	case "stop":
-		return StopReasonEndTurn
+		return agentcore.StopReasonEndTurn
 	default:
-		return StopReasonEndTurn
+		return agentcore.StopReasonEndTurn
 	}
 }

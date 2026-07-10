@@ -9,9 +9,13 @@
 //
 // Model carries provider-agnostic capability metadata so the loop and UI can
 // reason about a model without knowing the concrete provider.
-package agent
+package provider
 
-import "context"
+import (
+	"context"
+
+	"github.com/smallnest/pigo/internal/agentcore"
+)
 
 // Model is provider-agnostic metadata describing a single model's identity and
 // capabilities. Providers construct these; the loop/UI consume them.
@@ -34,7 +38,7 @@ type Model struct {
 	SupportsTools bool `json:"supportsTools,omitempty"`
 	// ThinkingLevels maps unified thinking levels to this model's wire values.
 	// nil when the model does not support thinking (decision #10).
-	ThinkingLevels ThinkingLevelMap `json:"-"`
+	ThinkingLevels agentcore.ThinkingLevelMap `json:"-"`
 }
 
 // CompletionRequest is the provider-agnostic input to StreamCompletion: the

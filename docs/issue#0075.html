@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0075</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F2F0EC; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/75">#75</a> &mdash; (2/6) 抽出 provider 子包 &mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Qualify leaf symbols with agentcore. rather than dot-import</h3>
+      <p><strong>Ambiguity:</strong> The moved provider files referenced leaf types (<code>ContentList</code>, <code>AssistantMessage</code>, <code>AgentTool</code>…) by bare name, resolved through package agent. In package provider they need a source; the PRD doesn't say whether to dot-import agentcore or qualify.</p>
+      <p><strong>Choice:</strong> Explicit <code>agentcore.</code> qualification on every moved-leaf reference; no dot-import.</p>
+      <p><strong>Rationale:</strong> Dot-imports are discouraged in Go (obscure symbol origin, vet-unfriendly). Explicit qualification makes the agentcore dependency legible at every use site — exactly the layering the split is meant to make visible.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Separate provider_shim.go from the existing agentcore_shim.go</h3>
+      <p><strong>Ambiguity:</strong> Package agent already carries <code>agentcore_shim.go</code> from step 1. The new provider re-exports could go there or in a new file.</p>
+      <p><strong>Choice:</strong> A dedicated <code>internal/agent/provider_shim.go</code>, one shim file per extracted package.</p>
+      <p><strong>Rationale:</strong> Each shim's lifetime is tied to its package's caller-migration step; keeping them separate makes each independently deletable and keeps the diff for each US self-contained.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Shim surface is larger than the 7 symbols named in the AC</h3>
+      <p><strong>Spec:</strong> US-002 lists <code>Provider</code>, <code>StreamFn</code>, <code>StreamFnFromProvider</code>, <code>Model</code>, <code>NewOpenRouterProvider</code>, <code>NewOllamaProvider</code>, <code>NewCredentialStore</code> as the symbols to export "correctly".</p>
+      <p><strong>Implemented:</strong> The shim re-exports the full moved surface (~40 symbols: all <code>Stream*Event</code> types, decoders, <code>TransportConfig</code>, <code>ModelRegistry</code>, thinking translators, auth loaders, etc.).</p>
+      <p><strong>Why:</strong> The AC list is illustrative ("等" / "etc."), not exhaustive. Every exported symbol the remaining agent files reference must be aliased or package agent won't compile — the build itself dictates the complete set. Narrowing to 7 would break the build.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Build-driven shim enumeration vs manual audit</h3>
+      <p><strong>Alternatives:</strong> (a) enumerate the exported decls by reading each moved file, then add aliases; (b) move files, let <code>go build</code> surface every "undefined: X", add aliases reactively.</p>
+      <p><strong>Chosen:</strong> a hybrid — read the files to seed the shim, then let the compiler prove completeness.</p>
+      <p><strong>Why it won:</strong> The compiler is the ground truth for "what does package agent still need." Relying on it guarantees no missing alias and no over-exporting of symbols that aren't actually referenced.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Some shimmed symbols may be dead once callers migrate</h3>
+      <p>The shim re-exports everything the current agent files use, but after US-005 migrates <code>cmd/</code>/<code>tui</code>/<code>session</code> to reference <code>provider.</code> directly, some of these aliases (e.g. decoder constructors used only internally) may no longer be needed. Confirm the shim is fully deleted in US-004/005 and none of these become an accidental long-lived public surface.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> faux_provider test seam still lives in package agent</h3>
+      <p><code>provider</code>'s own <code>_test.go</code> files moved with it and pass, but the <code>faux_provider_test.go</code> seam (used by loop/orchestration tests) stays in package agent for now and migrates to <code>runtime</code> in US-004. Verify no provider test silently depended on that seam (build confirms it did not, but worth a human glance).</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

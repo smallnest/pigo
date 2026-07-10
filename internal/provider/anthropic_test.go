@@ -1,10 +1,12 @@
-package agent
+package provider
 
 import (
 	"context"
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // A recorded Anthropic Messages API SSE stream covering a text block, a
@@ -64,7 +66,7 @@ data: {"type":"message_stop"}
 // feedSSE splits a recorded SSE body into events (blank-line separated),
 // extracts each `data:` payload, and drives the decoder exactly as the
 // transport pump would, returning all emitted events plus the final message.
-func feedSSE(t *testing.T, dec Decoder, body string) ([]StreamEvent, AssistantMessage) {
+func feedSSE(t *testing.T, dec Decoder, body string) ([]StreamEvent, agentcore.AssistantMessage) {
 	t.Helper()
 	var events []StreamEvent
 	for _, block := range strings.Split(body, "\n\n") {
@@ -94,7 +96,7 @@ func feedSSE(t *testing.T, dec Decoder, body string) ([]StreamEvent, AssistantMe
 	}
 	events = append(events, finalEvents...)
 
-	var final AssistantMessage
+	var final agentcore.AssistantMessage
 	for _, ev := range events {
 		if d, ok := ev.(StreamDoneEvent); ok {
 			final = d.Message
@@ -117,7 +119,7 @@ func TestAnthropicDecoderToolUseStream(t *testing.T) {
 	}
 
 	// Stop reason: tool_use.
-	if final.StopReason != StopReasonToolUse {
+	if final.StopReason != agentcore.StopReasonToolUse {
 		t.Errorf("stop reason = %q, want tool_use", final.StopReason)
 	}
 	// Usage: input from message_start, output from message_delta.
@@ -133,18 +135,18 @@ func TestAnthropicDecoderToolUseStream(t *testing.T) {
 	if len(final.Content) != 3 {
 		t.Fatalf("expected 3 content blocks, got %d: %+v", len(final.Content), final.Content)
 	}
-	th, ok := final.Content[0].(ThinkingContent)
+	th, ok := final.Content[0].(agentcore.ThinkingContent)
 	if !ok || th.Thinking != "Let me think. Use the tool." {
 		t.Errorf("thinking block = %+v", final.Content[0])
 	}
 	if th.ThinkingSignature != "sigABC" {
 		t.Errorf("thinking signature = %q, want sigABC", th.ThinkingSignature)
 	}
-	txt, ok := final.Content[1].(TextContent)
+	txt, ok := final.Content[1].(agentcore.TextContent)
 	if !ok || txt.Text != "I'll check the weather." {
 		t.Errorf("text block = %+v", final.Content[1])
 	}
-	tool, ok := final.Content[2].(ToolCallContent)
+	tool, ok := final.Content[2].(agentcore.ToolCallContent)
 	if !ok || tool.Name != "get_weather" || tool.ID != "toolu_01" {
 		t.Fatalf("tool block = %+v", final.Content[2])
 	}
@@ -176,13 +178,13 @@ data: {"type":"message_stop"}
 `
 	dec := NewAnthropicDecoder()
 	_, final := feedSSE(t, dec, body)
-	if final.StopReason != StopReasonEndTurn {
+	if final.StopReason != agentcore.StopReasonEndTurn {
 		t.Errorf("stop reason = %q, want end_turn", final.StopReason)
 	}
 	if len(final.Content) != 1 {
 		t.Fatalf("expected 1 content block, got %d", len(final.Content))
 	}
-	txt, ok := final.Content[0].(TextContent)
+	txt, ok := final.Content[0].(agentcore.TextContent)
 	if !ok || txt.Text != "Hello world" {
 		t.Errorf("text = %+v", final.Content[0])
 	}
@@ -204,7 +206,7 @@ data: {"type":"message_stop"}
 `
 	dec := NewAnthropicDecoder()
 	_, final := feedSSE(t, dec, body)
-	if final.StopReason != StopReasonLength {
+	if final.StopReason != agentcore.StopReasonLength {
 		t.Errorf("max_tokens must map to length, got %q", final.StopReason)
 	}
 }
@@ -248,7 +250,7 @@ data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text
 		t.Fatalf("Finish must emit a terminal done event, got %v", eventKinds(events))
 	}
 	// No message_delta arrived → default end_turn.
-	if final.StopReason != StopReasonEndTurn {
+	if final.StopReason != agentcore.StopReasonEndTurn {
 		t.Errorf("cut-short stream should default to end_turn, got %q", final.StopReason)
 	}
 	if len(final.Content) != 1 {
@@ -277,7 +279,7 @@ func TestAnthropicDecoderThroughTransport(t *testing.T) {
 	if resErr != nil {
 		t.Fatalf("result: %v", resErr)
 	}
-	if final.StopReason != StopReasonToolUse {
+	if final.StopReason != agentcore.StopReasonToolUse {
 		t.Errorf("stop reason via transport = %q, want tool_use", final.StopReason)
 	}
 	if len(final.Content) != 3 {

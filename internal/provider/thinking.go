@@ -2,17 +2,19 @@
 // decision #10): a unified ThinkingLevel → per-model ThinkingLevelMap → per-
 // provider wire format. ThinkingLevel and ThinkingLevelMap live in hooks.go;
 // this file adds the resolution + per-provider translation + budget fallback.
-package agent
+package provider
+
+import "github.com/smallnest/pigo/internal/agentcore"
 
 // thinkingOrder ranks levels from lowest to highest effort. It backs
 // clampReasoning and any level-comparison logic.
-var thinkingOrder = map[ThinkingLevel]int{
-	ThinkingOff:     0,
-	ThinkingMinimal: 1,
-	ThinkingLow:     2,
-	ThinkingMedium:  3,
-	ThinkingHigh:    4,
-	ThinkingXHigh:   5,
+var thinkingOrder = map[agentcore.ThinkingLevel]int{
+	agentcore.ThinkingOff:     0,
+	agentcore.ThinkingMinimal: 1,
+	agentcore.ThinkingLow:     2,
+	agentcore.ThinkingMedium:  3,
+	agentcore.ThinkingHigh:    4,
+	agentcore.ThinkingXHigh:   5,
 }
 
 // ResolveThinking maps a unified level through a model's ThinkingLevelMap.
@@ -25,7 +27,7 @@ var thinkingOrder = map[ThinkingLevel]int{
 //
 // A nil *string value in the map is treated as "supported but disabled": it
 // resolves to ("", true).
-func ResolveThinking(m ThinkingLevelMap, level ThinkingLevel) (string, bool) {
+func ResolveThinking(m agentcore.ThinkingLevelMap, level agentcore.ThinkingLevel) (string, bool) {
 	if m == nil {
 		return "", false
 	}
@@ -43,7 +45,7 @@ func ResolveThinking(m ThinkingLevelMap, level ThinkingLevel) (string, bool) {
 // walking down the effort order. xhigh→high is the common case (decision #10:
 // xhigh falls back to high when a model tops out there). Returns the clamped
 // level and whether any supported level was found.
-func clampReasoning(m ThinkingLevelMap, level ThinkingLevel) (ThinkingLevel, bool) {
+func clampReasoning(m agentcore.ThinkingLevelMap, level agentcore.ThinkingLevel) (agentcore.ThinkingLevel, bool) {
 	if m == nil {
 		return level, false
 	}
@@ -53,7 +55,7 @@ func clampReasoning(m ThinkingLevelMap, level ThinkingLevel) (ThinkingLevel, boo
 	// Walk down from the requested level to the lowest, returning the first
 	// supported level (highest supported ≤ requested).
 	want := thinkingOrder[level]
-	best := ThinkingLevel("")
+	best := agentcore.ThinkingLevel("")
 	bestRank := -1
 	for lvl := range m {
 		r := thinkingOrder[lvl]
@@ -70,11 +72,11 @@ func clampReasoning(m ThinkingLevelMap, level ThinkingLevel) (ThinkingLevel, boo
 // defaultBudgets is the fallback token budget per level for providers that
 // express thinking as a token budget (e.g. Anthropic budgetTokens) when a model
 // does not carry an explicit wire value. off/minimal have no budget.
-var defaultBudgets = map[ThinkingLevel]int{
-	ThinkingLow:    4096,
-	ThinkingMedium: 8192,
-	ThinkingHigh:   16384,
-	ThinkingXHigh:  32768,
+var defaultBudgets = map[agentcore.ThinkingLevel]int{
+	agentcore.ThinkingLow:    4096,
+	agentcore.ThinkingMedium: 8192,
+	agentcore.ThinkingHigh:   16384,
+	agentcore.ThinkingXHigh:  32768,
 }
 
 // AnthropicThinking is the Anthropic wire shape: either a token budget
@@ -87,8 +89,8 @@ type AnthropicThinking struct {
 // TranslateAnthropicThinking maps a unified level to Anthropic's wire form. When
 // the model's map carries no explicit budget, it falls back to defaultBudgets,
 // clamping xhigh→high style down to a supported level first.
-func TranslateAnthropicThinking(m ThinkingLevelMap, level ThinkingLevel) AnthropicThinking {
-	if level == ThinkingOff {
+func TranslateAnthropicThinking(m agentcore.ThinkingLevelMap, level agentcore.ThinkingLevel) AnthropicThinking {
+	if level == agentcore.ThinkingOff {
 		return AnthropicThinking{Enabled: false}
 	}
 	resolved, ok := clampReasoning(m, level)
@@ -96,7 +98,7 @@ func TranslateAnthropicThinking(m ThinkingLevelMap, level ThinkingLevel) Anthrop
 		// Model does not support thinking at all → disabled.
 		return AnthropicThinking{Enabled: false}
 	}
-	if resolved == ThinkingOff || resolved == ThinkingMinimal {
+	if resolved == agentcore.ThinkingOff || resolved == agentcore.ThinkingMinimal {
 		return AnthropicThinking{Enabled: false}
 	}
 	budget := defaultBudgets[resolved]
@@ -111,8 +113,8 @@ type GoogleThinking struct {
 // TranslateGoogleThinking maps a unified level to Google's thinkingConfig. It
 // prefers the model's explicit wire value; when absent it clamps to a supported
 // level and uses the unified level string as the wire value.
-func TranslateGoogleThinking(m ThinkingLevelMap, level ThinkingLevel) GoogleThinking {
-	if level == ThinkingOff {
+func TranslateGoogleThinking(m agentcore.ThinkingLevelMap, level agentcore.ThinkingLevel) GoogleThinking {
+	if level == agentcore.ThinkingOff {
 		return GoogleThinking{}
 	}
 	if wire, ok := ResolveThinking(m, level); ok {

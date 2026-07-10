@@ -20,7 +20,7 @@
 //
 // Security (US-012 / US-026): API keys are referenced by provider name in any
 // error; secret values are never logged or embedded in error text.
-package agent
+package provider
 
 import (
 	"bytes"
@@ -29,6 +29,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // providerBaseURLs holds the default endpoint per built-in provider. A base URL
@@ -118,16 +120,16 @@ func encodeOpenAIRequest(req CompletionRequest) ([]byte, error) {
 // encodeOpenAIMessage maps one pigo message onto the OpenAI wire shape. An
 // assistant message may expand to content + tool_calls in a single entry; a
 // tool result becomes a role:"tool" entry keyed by tool_call_id.
-func encodeOpenAIMessage(m Message) []map[string]any {
+func encodeOpenAIMessage(m agentcore.Message) []map[string]any {
 	switch msg := m.(type) {
-	case UserMessage:
-		return []map[string]any{{"role": "user", "content": contentToText(msg.Content)}}
-	case AssistantMessage:
+	case agentcore.UserMessage:
+		return []map[string]any{{"role": "user", "content": agentcore.ContentToText(msg.Content)}}
+	case agentcore.AssistantMessage:
 		entry := map[string]any{"role": "assistant"}
-		entry["content"] = contentToText(msg.Content)
+		entry["content"] = agentcore.ContentToText(msg.Content)
 		var toolCalls []map[string]any
 		for _, c := range msg.Content {
-			if tc, ok := c.(ToolCallContent); ok {
+			if tc, ok := c.(agentcore.ToolCallContent); ok {
 				toolCalls = append(toolCalls, map[string]any{
 					"id":   tc.ID,
 					"type": "function",
@@ -142,11 +144,11 @@ func encodeOpenAIMessage(m Message) []map[string]any {
 			entry["tool_calls"] = toolCalls
 		}
 		return []map[string]any{entry}
-	case ToolResultMessage:
+	case agentcore.ToolResultMessage:
 		return []map[string]any{{
 			"role":         "tool",
 			"tool_call_id": msg.ToolCallID,
-			"content":      contentToText(msg.Content),
+			"content":      agentcore.ContentToText(msg.Content),
 		}}
 	default:
 		return nil
@@ -154,7 +156,7 @@ func encodeOpenAIMessage(m Message) []map[string]any {
 }
 
 // encodeOpenAITools maps AgentTools onto the OpenAI function-tool schema.
-func encodeOpenAITools(tools []AgentTool) []map[string]any {
+func encodeOpenAITools(tools []agentcore.AgentTool) []map[string]any {
 	if len(tools) == 0 {
 		return nil
 	}
@@ -258,17 +260,17 @@ func encodeAnthropicRequest(req CompletionRequest) ([]byte, error) {
 // encodeAnthropicMessage maps one pigo message onto the Anthropic Messages
 // wire shape. Assistant tool calls become tool_use blocks; tool results become
 // a user message carrying a tool_result block (Anthropic's convention).
-func encodeAnthropicMessage(m Message) map[string]any {
+func encodeAnthropicMessage(m agentcore.Message) map[string]any {
 	switch msg := m.(type) {
-	case UserMessage:
-		return map[string]any{"role": "user", "content": contentToText(msg.Content)}
-	case AssistantMessage:
+	case agentcore.UserMessage:
+		return map[string]any{"role": "user", "content": agentcore.ContentToText(msg.Content)}
+	case agentcore.AssistantMessage:
 		var blocks []map[string]any
 		for _, c := range msg.Content {
 			switch b := c.(type) {
-			case TextContent:
+			case agentcore.TextContent:
 				blocks = append(blocks, map[string]any{"type": "text", "text": b.Text})
-			case ToolCallContent:
+			case agentcore.ToolCallContent:
 				var input any
 				_ = json.Unmarshal(b.Arguments, &input)
 				blocks = append(blocks, map[string]any{
@@ -280,11 +282,11 @@ func encodeAnthropicMessage(m Message) map[string]any {
 			blocks = []map[string]any{{"type": "text", "text": ""}}
 		}
 		return map[string]any{"role": "assistant", "content": blocks}
-	case ToolResultMessage:
+	case agentcore.ToolResultMessage:
 		return map[string]any{"role": "user", "content": []map[string]any{{
 			"type":        "tool_result",
 			"tool_use_id": msg.ToolCallID,
-			"content":     contentToText(msg.Content),
+			"content":     agentcore.ContentToText(msg.Content),
 		}}}
 	default:
 		return nil
@@ -292,7 +294,7 @@ func encodeAnthropicMessage(m Message) map[string]any {
 }
 
 // encodeAnthropicTools maps AgentTools onto the Anthropic tool schema.
-func encodeAnthropicTools(tools []AgentTool) []map[string]any {
+func encodeAnthropicTools(tools []agentcore.AgentTool) []map[string]any {
 	if len(tools) == 0 {
 		return nil
 	}
