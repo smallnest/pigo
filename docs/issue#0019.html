@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0019</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/19">#19</a> &mdash; 工具注册表 + JSON Schema 校验（US-014） &mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 注册时预编译 Schema，坏 Schema 早失败</h3>
+      <p><strong>Ambiguity:</strong> 验收只要求 "每工具声明 JSON Schema 并校验"，未规定编译时机。</p>
+      <p><strong>Choice:</strong> <code>Register</code> 时即 <code>Compile</code> 并缓存 <code>*jsonschema.Schema</code>；非法 Schema 在注册即报错。</p>
+      <p><strong>Rationale:</strong> 每次调用重编译浪费且把配置错误推迟到运行时；预编译让 Schema 错误在启动期暴露，运行时校验零编译开销。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 空/缺失参数按空对象 <code>{}</code> 校验</h3>
+      <p><strong>Ambiguity:</strong> 模型可能对无参工具发 <code>""</code> 或省略 arguments，Schema 校验对 nil 行为未定义。</p>
+      <p><strong>Choice:</strong> <code>nonEmptyJSON</code> 把空参数归一为 <code>{}</code> 再校验。</p>
+      <p><strong>Rationale:</strong> 使 "只含可选属性" 的 Schema 通过，同时让 required 缺失仍被正确报错，行为可预测。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 校验失败返回 tool result 而非 Go error</h3>
+      <p><strong>Spec:</strong> 验收写 "校验失败产出字段级 error tool result"。</p>
+      <p><strong>Implemented:</strong> <code>Validate</code> 返回 <code>[]FieldError</code>，<code>ValidationErrorResult</code> 组装成 <code>AgentToolResult</code>（Details 携带结构化 <code>[]FieldError</code>，Terminate 留 nil）。</p>
+      <p><strong>Why:</strong> 契合 provider 层 "运行时失败编码进结果而非抛错" 的地基约定——校验失败应回喂给模型自我修正，不是中断循环。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 只收集叶子 cause 做字段级错误</h3>
+      <p><strong>Alternatives:</strong> (A) 只返回顶层 error.Error() 字符串；(B) 递归 ValidationError.Causes 取最具体的叶子。</p>
+      <p><strong>Pros/Cons:</strong> A 简单但信息笼统（"validation failed"）；B 需遍历树，但能给出 <code>/age: got string, want integer</code> 这类可定位反馈。</p>
+      <p><strong>Winner:</strong> B——验收明确要 "字段级"，叶子 cause 的 InstanceLocation 正好映射为 JSON pointer。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 每工具用独立 mem:// URL 编译</h3>
+      <p><strong>Alternatives:</strong> 共享一个 compiler/URL vs 每工具独立 resource URL。</p>
+      <p><strong>Pros/Cons:</strong> 共享省对象但 $id/$ref 可能冲突；独立 URL（<code>mem:///{name}.json</code>）隔离彻底。</p>
+      <p><strong>Winner:</strong> 独立 URL，避免跨工具 Schema 命名冲突，代价仅是每工具一个 compiler。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 校验用英文 message.Printer 输出</h3>
+      <p><strong>Assumption:</strong> <code>LocalizedString</code> 需非 nil printer，当前固定 <code>language.English</code>。</p>
+      <p><strong>Verify:</strong> 面向模型的错误文案用英文即可（模型无关语言）；若后续要中文面向用户展示，可换 printer。请确认英文错误文案可接受。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
