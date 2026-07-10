@@ -78,6 +78,10 @@ func feedSSE(t *testing.T, dec Decoder, body string) ([]StreamEvent, AssistantMe
 		if payload.Len() == 0 {
 			continue
 		}
+		// [DONE] is a transport-level terminator, not a decoder payload.
+		if payload.String() == "[DONE]" {
+			continue
+		}
 		evs, err := dec.Decode([]byte(payload.String()))
 		if err != nil {
 			t.Fatalf("decode %q: %v", payload.String(), err)
