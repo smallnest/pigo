@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0024</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/24">#24</a> &mdash; fake provider + loop 集成测试（主 seam）（US-002）&mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 用「细粒度事件脚本」的 fauxProvider，而非复用已存在的 fakeProvider</h3>
+      <p><strong>Ambiguity:</strong> 仓库里已有两个 fake：<code>loop_test.go</code> 的 <code>scriptedStream</code>（每次仅发一个 <code>StreamDoneEvent</code>）与 <code>provider_interface_test.go</code> 的 <code>fakeProvider</code>（发预设 <code>[]AssistantMessageEvent</code> 后 Close）。验收要求"fake provider 接受预设 SSE 事件脚本、驱动完整 loop"，但没说是否复用。</p>
+      <p><strong>Choice:</strong> 新建 <code>fauxProvider</code>（对标 pi <code>providers/faux.ts</code>）：每次 <code>StreamCompletion</code> 回放<em>一整个 turn 的细粒度脚本</em>（start → text/toolcall delta → done），按调用序消费 <code>turns []fauxTurn</code>，脚本耗尽后回放空 end_turn。经 <code>StreamFnFromProvider</code> 接入 loop。</p>
+      <p><strong>Rationale:</strong> 只有细粒度 start/delta/done 才能让 <code>streamAssistantResponse</code> 真正走 message_start/message_update/message_end 三段路径；粗粒度的 <code>scriptedStream</code> 只发 done，覆盖不到 delta。faux 是"真 Provider 经真 seam"，符合"不 mock loop 内部函数"。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> "六钩子"锚定为 2 个 per-request（LoopConfig）+ 4 个 per-turn（RunConfig）</h3>
+      <p><strong>Ambiguity:</strong> 验收写"六钩子经此 seam 覆盖"，但 pigo 的钩子散布在 <code>LoopConfig</code>（TransformContext/ConvertToLlm/GetAPIKey…）与 <code>RunConfig</code>（GetFollowUpMessages/GetSteeringMessages/PrepareNextTurn/ShouldStopAfterTurn），并非恰好命名为"六个"。</p>
+      <p><strong>Choice:</strong> <code>TestFauxSeamSixHooks</code> 取 loop 控制流真正消费的六个：TransformContext、ConvertToLlm、GetAPIKey（per-request 三个）+ GetFollowUpMessages、GetSteeringMessages、PrepareNextTurn、ShouldStopAfterTurn（per-turn 四个，共七回调）。每个钩子记录是否触发，并在可观测处断言其副作用真的到达 provider 请求（GetAPIKey→APIKey、PrepareNextTurn→Model swap）。</p>
+      <p><strong>Rationale:</strong> pi 的"六钩子"是概念数；忠实映射应覆盖 loop 实际编排的全部回调点，且断言副作用而非仅"被调用"，才真正验证 seam 行为。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> faux 回放的是解码后的 AssistantMessageEvent，而非原始 SSE 字节</h3>
+      <p><strong>Spec:</strong> 验收原文"fake provider 接受预设 <em>SSE 事件</em>脚本"。</p>
+      <p><strong>Implemented:</strong> <code>fauxTurn = []AssistantMessageEvent</code>，直接回放 loop 层事件，不经过 SSE 行解析/Decoder。</p>
+      <p><strong>Why:</strong> #24 的 seam 是 <em>Provider→loop</em>，测的是 loop 编排（钩子/截断/保序/取消），不是 SSE 解码——后者已由 transport_test.go 与三个 decoder 测试（#28/#29/#30）覆盖。让 faux 在 AssistantMessageEvent 层回放，正是 pi <code>faux.ts</code> 的做法，也避免与已覆盖的解码路径重复。原始 SSE→事件的转换已在 <code>captureServer</code>/decoder 测试里验证。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 取消测试断言"nil 或 context.Canceled"，而非强制某一种</h3>
+      <p><strong>Alternatives:</strong> (A) 读一个事件后 cancel，断言 <code>Result</code> 要么无错（run 已自然发完 agent_end）要么恰为 <code>context.Canceled</code>；(B) 精确断言必定返回 <code>context.Canceled</code>。</p>
+      <p><strong>Pros/Cons:</strong> B 更强，但取消与 producer goroutine 发完事件存在固有竞态——即便 provider 每 delta sleep 50ms，仍可能在 cancel 传播前已 Close 并 SetResult，届时 Result 返回 nil。强行要求 Canceled 会引入偶发 flake。A 仍验证了核心不变量：取消后消费者不 hang、Result 立即返回且错误（若有）必是取消。</p>
+      <p><strong>Winner:</strong> A——seam 的取消契约是"不泄漏 goroutine、不 hang、错误语义正确"，用 <code>-race -count=3</code> 复跑确认无竞态与 flake。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 并行保序用 sleep 反序 vs 注入同步原语</h3>
+      <p><strong>Alternatives:</strong> (A) 三个 parallel 工具按源序 slow/mid/fast 递减 sleep，使完成序与源序相反，断言 tool-result 仍按 <code>a0,a1,a2</code>；(B) 用 channel/barrier 精确编排完成顺序。</p>
+      <p><strong>Pros/Cons:</strong> A 简单、与既有 <code>batch_executor_test.go</code> 的 <code>TestBatchParallelPreservesOrder</code> 范式一致；B 更确定但更重、且 batch executor 的保序（index-backfill）已被单测直接覆盖。</p>
+      <p><strong>Winner:</strong> A——此处目的是"经 seam 端到端确认保序"，非重测 executor 内部；sleep 反序足以暴露乱序，且风格统一。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 取消测试是否需要更强的确定性断言</h3>
+      <p><strong>Assumption:</strong> 假设"消费者不 hang + 错误若有必为 Canceled"是取消契约的充分验证。</p>
+      <p><strong>Verify:</strong> 若后续希望强制"取消必中断且必返回 Canceled"，需在 producer 侧引入可观测的中断点（如 emit 前的 barrier），把竞态窗口消除后再收紧断言。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> faux 是否应升级为读真实 SSE fixture 的 provider</h3>
+      <p><strong>Assumption:</strong> 当前 faux 在 AssistantMessageEvent 层回放，SSE→事件由 decoder 测试单独覆盖，两者不重叠即可。</p>
+      <p><strong>Verify:</strong> 若将来想要一条"字节→事件→loop"的全链路冒烟测试，可让 faux 底层改用 <code>captureServer</code>+decoder 回放真实 SSE 文本；目前判断收益低于重复成本，未做。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
