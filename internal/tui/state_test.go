@@ -238,3 +238,45 @@ func TestFenceBufferClosesDanglingFence(t *testing.T) {
 		t.Error("balanced fences must be left unchanged")
 	}
 }
+
+// TestReplaySeedsTranscript verifies replay reconstructs the transcript from a
+// persisted session's messages (US-024): user text, assistant text, tool
+// calls, and tool results appear in order, so a resumed session renders its
+// prior conversation. A resumed session starts idle (running=false, runID=0).
+func TestReplaySeedsTranscript(t *testing.T) {
+	s := newUIState()
+	history := []agent.AgentMessage{
+		agent.UserMessage{RoleField: agent.RoleUser, Content: agent.ContentList{agent.NewTextContent("read main.go")}},
+		agent.AssistantMessage{
+			RoleField: agent.RoleAssistant,
+			Content:   agent.ContentList{agent.NewTextContent("Reading."), agent.NewToolCallContent("c1", "read", json.RawMessage(`{}`))},
+		},
+		agent.ToolResultMessage{RoleField: agent.RoleToolResult, ToolCallID: "c1", ToolName: "read", Content: agent.ContentList{agent.NewTextContent("package main")}},
+		agent.AssistantMessage{RoleField: agent.RoleAssistant, Content: agent.ContentList{agent.NewTextContent("It is package main.")}},
+	}
+	s.replay(history)
+
+	if s.running || s.runID != 0 {
+		t.Errorf("resumed session must start idle: running=%v runID=%d", s.running, s.runID)
+	}
+	kinds := []entryKind{entryUser, entryAssistant, entryToolCall, entryToolResult, entryAssistant}
+	if len(s.transcript) != len(kinds) {
+		t.Fatalf("transcript len = %d, want %d: %+v", len(s.transcript), len(kinds), s.transcript)
+	}
+	for i, want := range kinds {
+		if s.transcript[i].Kind != want {
+			t.Errorf("transcript[%d].Kind = %d, want %d", i, s.transcript[i].Kind, want)
+		}
+	}
+	if s.transcript[0].Text != "read main.go" {
+		t.Errorf("first entry text = %q", s.transcript[0].Text)
+	}
+	if s.transcript[2].Text != "read" {
+		t.Errorf("tool call entry text = %q, want read", s.transcript[2].Text)
+	}
+	// After replay, a submit starts a fresh run at runID 1 (continues session).
+	s.input = "and now?"
+	if _, start := s.submit(); !start || s.runID != 1 {
+		t.Errorf("submit after replay should start run 1, got runID=%d", s.runID)
+	}
+}

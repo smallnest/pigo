@@ -22,11 +22,14 @@ import (
 
 func main() {
 	var (
-		prompt    string
-		model     string
-		baseURL   string
-		outputFmt string
-		noTools   bool
+		prompt       string
+		model        string
+		baseURL      string
+		outputFmt    string
+		noTools      bool
+		listSessions bool
+		resumeID     string
+		continueLast bool
 	)
 	flag.StringVar(&prompt, "p", "", "prompt to run in headless print mode")
 	flag.StringVar(&prompt, "print", "", "prompt to run in headless print mode")
@@ -34,18 +37,45 @@ func main() {
 	flag.StringVar(&baseURL, "base-url", "", "override provider base URL (e.g. local Ollama)")
 	flag.StringVar(&outputFmt, "output-format", "text", "output format: text | stream-json")
 	flag.BoolVar(&noTools, "no-tools", false, "disable the built-in file/shell tools")
+	flag.BoolVar(&listSessions, "list-sessions", false, "list stored interactive sessions and exit")
+	flag.StringVar(&resumeID, "resume", "", "resume the interactive session with this id")
+	flag.BoolVar(&continueLast, "continue", false, "resume the most recent interactive session")
 	flag.Parse()
+
+	// --list-sessions is a standalone action: print and exit.
+	if listSessions {
+		if err := printSessions(); err != nil {
+			fmt.Fprintf(os.Stderr, "pigo: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// --continue resolves to the most recently updated session id.
+	if continueLast && resumeID == "" {
+		id, err := mostRecentSessionID()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "pigo: %v\n", err)
+			os.Exit(1)
+		}
+		if id == "" {
+			fmt.Fprintln(os.Stderr, "pigo: no sessions to continue")
+			os.Exit(1)
+		}
+		resumeID = id
+	}
 
 	// A prompt may also be supplied as positional args.
 	if prompt == "" {
 		prompt = strings.TrimSpace(strings.Join(flag.Args(), " "))
 	}
 
-	// No prompt + an interactive terminal → start the TUI (US-022). No prompt
-	// with a non-terminal stdout (pipe/CI) is an error, since there is nothing
-	// to run and nothing to interact with.
+	// No prompt + an interactive terminal → start the TUI (US-022). A --resume id
+	// also enters the TUI to continue an existing session. No prompt with a
+	// non-terminal stdout (pipe/CI) and no resume is an error, since there is
+	// nothing to run and nothing to interact with.
 	if prompt == "" {
-		if !stdoutIsTerminal() {
+		if resumeID == "" && !stdoutIsTerminal() {
 			fmt.Fprintln(os.Stderr, "pigo: no prompt (use -p \"...\" or positional args)")
 			os.Exit(2)
 		}
@@ -61,7 +91,14 @@ func main() {
 			fmt.Fprintf(os.Stderr, "pigo: %v\n", err)
 			os.Exit(1)
 		}
-		if err := runInteractive(model, providerName, provider, tools, sysPrompt); err != nil {
+		if err := runInteractive(interactiveOptions{
+			model:        model,
+			providerName: providerName,
+			provider:     provider,
+			tools:        tools,
+			sysPrompt:    sysPrompt,
+			resumeID:     resumeID,
+		}); err != nil {
 			fmt.Fprintf(os.Stderr, "pigo: %v\n", err)
 			os.Exit(1)
 		}

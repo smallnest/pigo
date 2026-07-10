@@ -60,6 +60,16 @@ func NewModel(run RunFn) *Model {
 	return &Model{state: newUIState(), run: run}
 }
 
+// NewModelWithHistory builds a Model whose transcript is pre-seeded from a
+// resumed session's messages (US-024). The replayed transcript renders the
+// prior conversation before any new input; the model starts idle so the next
+// submit continues the session via the injected run func.
+func NewModelWithHistory(run RunFn, history []agent.AgentMessage) *Model {
+	m := &Model{state: newUIState(), run: run}
+	m.state.replay(history)
+	return m
+}
+
 // SetProgram wires the running Program so the bridge goroutine can Send events.
 // Must be called before Run (the cmd/pigo entry point does this).
 func (m *Model) SetProgram(p *tea.Program) { m.program = p }

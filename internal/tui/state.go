@@ -69,6 +69,32 @@ func newUIState() *uiState {
 	return &uiState{runID: 0}
 }
 
+// replay seeds the transcript from a persisted session's messages so a resumed
+// session renders its prior conversation before any new input. It maps each
+// message role to the matching transcript entries: user text, assistant text,
+// assistant tool calls, and tool results — the same shapes applyEvent produces
+// for a live run, so a replayed transcript is indistinguishable from one built
+// turn-by-turn. It does not touch runID/running (a resumed session starts idle).
+func (s *uiState) replay(messages []agent.AgentMessage) {
+	for _, m := range messages {
+		switch msg := m.(type) {
+		case agent.UserMessage:
+			if text := userText(msg); text != "" {
+				s.transcript = append(s.transcript, transcriptEntry{Kind: entryUser, Text: text})
+			}
+		case agent.AssistantMessage:
+			if text := assistantText(msg); text != "" {
+				s.transcript = append(s.transcript, transcriptEntry{Kind: entryAssistant, Text: text})
+			}
+			for _, c := range msg.ToolCalls() {
+				s.transcript = append(s.transcript, transcriptEntry{Kind: entryToolCall, Text: c.Name})
+			}
+		case agent.ToolResultMessage:
+			s.transcript = append(s.transcript, transcriptEntry{Kind: entryToolResult, Text: toolResultText(msg)})
+		}
+	}
+}
+
 // submit handles the user pressing Enter. When idle it starts a new run and
 // returns (prompt, true): the caller launches the agent loop under the new
 // runID. When a run is in flight it queues the text as steering and returns
@@ -199,6 +225,18 @@ func (s *uiState) finalizeStreaming() {
 func assistantText(a agent.AssistantMessage) string {
 	var b strings.Builder
 	for _, c := range a.Content {
+		if tc, ok := c.(agent.TextContent); ok {
+			b.WriteString(tc.Text)
+		}
+	}
+	return b.String()
+}
+
+// userText extracts the plain text of a user message (used when replaying a
+// persisted session into the transcript).
+func userText(u agent.UserMessage) string {
+	var b strings.Builder
+	for _, c := range u.Content {
 		if tc, ok := c.(agent.TextContent); ok {
 			b.WriteString(tc.Text)
 		}
