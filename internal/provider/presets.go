@@ -64,6 +64,16 @@ var PresetCatalog = []PresetModel{
 	{Provider: "openrouter", ID: "mistralai/mistral-large", DisplayName: "Mistral Large (OpenRouter)"},
 	{Provider: "openrouter", ID: "x-ai/grok-2-1212", DisplayName: "Grok 2 (OpenRouter)"},
 
+	// --- OpenRouter free tier (":free" ids are rate-limited but cost nothing) ---
+	{Provider: "openrouter", ID: "deepseek/deepseek-r1:free", DisplayName: "DeepSeek R1 · free (OpenRouter)"},
+	{Provider: "openrouter", ID: "deepseek/deepseek-chat-v3-0324:free", DisplayName: "DeepSeek V3 · free (OpenRouter)"},
+	{Provider: "openrouter", ID: "meta-llama/llama-3.3-70b-instruct:free", DisplayName: "Llama 3.3 70B · free (OpenRouter)"},
+	{Provider: "openrouter", ID: "google/gemini-2.0-flash-exp:free", DisplayName: "Gemini 2.0 Flash · free (OpenRouter)"},
+	{Provider: "openrouter", ID: "qwen/qwen-2.5-72b-instruct:free", DisplayName: "Qwen 2.5 72B · free (OpenRouter)"},
+	{Provider: "openrouter", ID: "qwen/qwq-32b:free", DisplayName: "QwQ 32B · free (OpenRouter)"},
+	{Provider: "openrouter", ID: "mistralai/mistral-small-3.1-24b-instruct:free", DisplayName: "Mistral Small 3.1 24B · free (OpenRouter)"},
+	{Provider: "openrouter", ID: "meta-llama/llama-4-maverick:free", DisplayName: "Llama 4 Maverick · free (OpenRouter)"},
+
 	// --- NVIDIA NIM (hosted, OpenAI-compatible) ---
 	{Provider: "nvidia", ID: "meta/llama-3.3-70b-instruct", DisplayName: "Llama 3.3 70B (NVIDIA)"},
 	{Provider: "nvidia", ID: "meta/llama-3.1-405b-instruct", DisplayName: "Llama 3.1 405B (NVIDIA)"},
@@ -71,6 +81,13 @@ var PresetCatalog = []PresetModel{
 	{Provider: "nvidia", ID: "qwen/qwen2.5-coder-32b-instruct", DisplayName: "Qwen 2.5 Coder 32B (NVIDIA)"},
 	{Provider: "nvidia", ID: "nvidia/llama-3.1-nemotron-70b-instruct", DisplayName: "Nemotron 70B (NVIDIA)"},
 	{Provider: "nvidia", ID: "mistralai/mixtral-8x22b-instruct-v0.1", DisplayName: "Mixtral 8x22B (NVIDIA)"},
+	// NVIDIA's hosted NIM endpoint is free to call with a build.nvidia.com key.
+	{Provider: "nvidia", ID: "meta/llama-3.1-8b-instruct", DisplayName: "Llama 3.1 8B (NVIDIA)"},
+	{Provider: "nvidia", ID: "meta/llama-3.1-70b-instruct", DisplayName: "Llama 3.1 70B (NVIDIA)"},
+	{Provider: "nvidia", ID: "deepseek-ai/deepseek-v3", DisplayName: "DeepSeek V3 (NVIDIA)"},
+	{Provider: "nvidia", ID: "qwen/qwen2.5-7b-instruct", DisplayName: "Qwen 2.5 7B (NVIDIA)"},
+	{Provider: "nvidia", ID: "google/gemma-2-9b-it", DisplayName: "Gemma 2 9B (NVIDIA)"},
+	{Provider: "nvidia", ID: "microsoft/phi-3.5-mini-instruct", DisplayName: "Phi-3.5 Mini (NVIDIA)"},
 
 	// --- Ollama (local, no API key) ---
 	{Provider: "ollama", ID: "ollama/llama3.3", DisplayName: "Llama 3.3 (local Ollama)"},
