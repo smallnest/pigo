@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0037</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/37">#37</a> &mdash; bash 工具（US-018）&mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 非零退出码返回 Go error 以触发 <code>isError</code></h3>
+      <p><strong>Ambiguity:</strong> 验收要"退出码非 0 标记 isError 并携带输出"，但 executor 只在工具返回 Go error 时才置 <code>isError=true</code>；普通 <code>errorResult</code> 结果不会。</p>
+      <p><strong>Choice:</strong> 非零退出时返回 <code>(AgentToolResult{output, Details.exitCode}, fmt.Errorf(...))</code>——走 Go-error 路径，让 <code>runTool</code> 自动标记 isError；错误信息内嵌退出码与完整输出。</p>
+      <p><strong>Rationale:</strong> 与既有 executor 契约一致，无需改动 tool_executor.go；输出同时进入 result content（供流式展示）与 error（供 isError 语义）。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> stdout/stderr 合并到单一缓冲，经并发安全 <code>streamWriter</code> 流式回传</h3>
+      <p><strong>Ambiguity:</strong> 验收要"流式返回 stdout/stderr"，未规定二者是否分流。</p>
+      <p><strong>Choice:</strong> 定义 <code>streamWriter{mu, buf, onUpdate}</code>，stdout 与 stderr 共享同一互斥锁与 buffer；每次写入用累积快照调用 <code>onUpdate</code>，映射为 <code>tool_execution_update</code> 的增长型 partial。</p>
+      <p><strong>Rationale:</strong> 终端交互中 stdout/stderr 交错是自然预期；共享锁保证两 goroutine 写入不竞态；累积快照契合 pi 的 partial 语义（每次更新是完整当前输出，而非增量片段）。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 默认 2 分钟超时，上限 10 分钟；<code>exec.CommandContext</code> 负责杀进程</h3>
+      <p><strong>Ambiguity:</strong> 验收要"支持超时与取消（context 取消杀子进程）"，未给具体时长。</p>
+      <p><strong>Choice:</strong> <code>bashDefaultTimeout=2min</code>、<code>bashMaxTimeout=10min</code>；用 <code>context.WithTimeout</code> 包裹传入 ctx，交给 <code>exec.CommandContext</code>，超时/取消时由标准库杀子进程。区分 <code>DeadlineExceeded</code>（超时）与 <code>Canceled</code>（取消）给出不同错误信息。</p>
+      <p><strong>Rationale:</strong> 沿用 pi 的默认量级；<code>CommandContext</code> 是标准且可靠的取消杀进程机制，无需手写信号处理。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 取消时杀单个进程而非整个进程组</h3>
+      <p><strong>Spec:</strong> "context 取消杀子进程"。</p>
+      <p><strong>Implemented:</strong> 依赖 <code>exec.CommandContext</code> 默认行为，仅杀直接子进程，未设置 <code>Setpgid</code> 后 kill 负 PID 杀整个进程组。</p>
+      <p><strong>Why:</strong> 标准库默认行为满足绝大多数场景，且跨平台可移植；进程组管理需 <code>SysProcAttr</code> 平台特化代码，对 MVP 属过度设计。若发现命令派生的孙进程残留，可后续增强（见 Open Questions）。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 合并 stdout/stderr vs 分流</h3>
+      <p><strong>Alternatives:</strong> (A) stdout/stderr 合并到一个 buffer；(B) 分别缓冲，result 中带两个字段。</p>
+      <p><strong>Pros/Cons:</strong> A 保留时序交错、贴近终端体验、实现简单；B 可区分来源便于程序化处理，但丢失交错时序且 partial 结构更复杂。</p>
+      <p><strong>Winner:</strong> A——bash 工具面向 agent 观察命令输出，交错时序比来源区分更有价值；与 pi 的合并输出一致。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 是否需要进程组级 kill 以清理孙进程</h3>
+      <p><strong>Assumption:</strong> 大多数命令取消时 <code>CommandContext</code> 杀直接子进程即可。</p>
+      <p><strong>Verify:</strong> 若命令形如 <code>foo &amp; bar &amp;</code> 派生后台孙进程，取消后可能残留；是否需要 <code>SysProcAttr{Setpgid:true}</code> + 杀进程组？</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 输出是否需要大小上限</h3>
+      <p><strong>Assumption:</strong> 命令输出可全量缓冲进内存。</p>
+      <p><strong>Verify:</strong> 高产出命令（如 <code>cat 大文件</code>）会无界占用内存；是否需要按字节数截断并加省略提示（类比 read 工具的 2000 行上限）？</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
