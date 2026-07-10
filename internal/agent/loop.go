@@ -86,6 +86,20 @@ func agentLoop(ctx context.Context, agentCtx *AgentContext, cfg RunConfig) *Loop
 	return stream
 }
 
+// StartRun is the exported entry point for a fresh run, used by out-of-package
+// drivers (the interactive TUI, US-022). It is a thin wrapper over agentLoop so
+// the loop internals stay unexported while callers outside the package can
+// still launch a run and consume its event stream.
+func StartRun(ctx context.Context, agentCtx *AgentContext, cfg RunConfig) *LoopEventStream {
+	return agentLoop(ctx, agentCtx, cfg)
+}
+
+// ContinueRun is the exported entry point for resuming an existing context
+// (session continuation, US-024). It wraps agentLoopContinue.
+func ContinueRun(ctx context.Context, agentCtx *AgentContext, cfg RunConfig) *LoopEventStream {
+	return agentLoopContinue(ctx, agentCtx, cfg)
+}
+
 // agentLoopContinue resumes an existing context. It validates that the last
 // message is not an assistant message before running; on violation it returns a
 // stream that yields ErrContinueLastAssistant with no events.
