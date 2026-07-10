@@ -1,5 +1,7 @@
-// Package agent defines the core data types and control flow for the pigo
-// agent harness, a Go reimplementation of the pi agent loop.
+// Package agentcore defines the core "leaf" data types and control flow for the
+// pigo agent harness, a Go reimplementation of the pi agent loop. It is the
+// foundation package that every other agent sub-package depends on and imports
+// nothing from them.
 //
 // This file defines the Content model: a sealed interface implemented by the
 // four content block kinds (text, thinking, toolCall, image). Because Go's
@@ -7,7 +9,7 @@
 // containers holding []Content implement custom UnmarshalJSON that peeks at the
 // "type" field and decodes into the concrete struct. Mirrors pi's discriminated
 // union (packages/ai/src/types.ts) as interface + type switch.
-package agent
+package agentcore
 
 import (
 	"encoding/json"

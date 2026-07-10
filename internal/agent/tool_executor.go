@@ -16,28 +16,6 @@ import (
 	"fmt"
 )
 
-// PrepareArgumentsFunc optionally rewrites a tool's raw arguments before schema
-// validation (e.g. injecting defaults). An error aborts the call with an error
-// result. Optional (nil = identity).
-type PrepareArgumentsFunc func(ctx context.Context, toolName string, args json.RawMessage) (json.RawMessage, error)
-
-// BeforeToolCallDecision is the optional result of the beforeToolCall hook. When
-// Block is true the tool is not executed and an error result is produced;
-// Content/Details override the default block message when set.
-type BeforeToolCallDecision struct {
-	Block   bool
-	Content *ContentList
-	Details *any
-}
-
-// BeforeToolCallFunc runs after validation and may block the call (permission /
-// sandbox checks, FR-4/FR-26). Returning nil allows the call. Optional.
-type BeforeToolCallFunc func(ctx context.Context, call AgentToolCall) *BeforeToolCallDecision
-
-// AfterToolCallFunc runs after execution and may override the result
-// field-by-field via AfterToolCallResult (FR-5, no deep merge). Optional.
-type AfterToolCallFunc func(ctx context.Context, call AgentToolCall, result AgentToolResult, isError bool) *AfterToolCallResult
-
 // ToolExecutorConfig holds the registry and the optional per-phase hooks. Every
 // hook is optional (nil = default behavior).
 type ToolExecutorConfig struct {
