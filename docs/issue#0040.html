@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0040</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/40">#40</a> &mdash; [impl] 系统提示词 + AGENTS.md 注入（US-021）&mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> AGENTS.md 遍历以显式 Root 为上界，而非无限向上到文件系统根</h3>
+      <p><strong>Ambiguity:</strong> 验收说"从根到子目录按通用→具体注入"，但"根"指仓库根还是文件系统根未定义。</p>
+      <p><strong>Choice:</strong> <code>PromptConfig.Root</code> 显式界定遍历上界；从 <code>WorkingDir</code> 向上收集到 <code>Root</code>（含）再反转成 root-first。<code>Root</code> 为空时只看 <code>WorkingDir</code> 自身，不做祖先遍历。</p>
+      <p><strong>Rationale:</strong> "根"= 仓库根，由调用方（<code>cmd/pigo</code> 传 cwd）决定，避免误读用户 HOME 或 <code>/</code> 下的无关 AGENTS.md；显式边界也让行为可测、可预期。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 缺失的 AGENTS.md 静默跳过，仅真实 I/O 错误上报</h3>
+      <p><strong>Ambiguity:</strong> 验收未提"某层没有 AGENTS.md"或"文件不可读"该如何处理。</p>
+      <p><strong>Choice:</strong> <code>os.IsNotExist</code> → 跳过并继续；其它错误（如权限）→ 包装后返回。空内容文件也跳过。</p>
+      <p><strong>Rationale:</strong> monorepo 中大多数目录本就没有 AGENTS.md，缺失是常态而非错误；但"文件存在却读不了"是需暴露的真实故障。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 注入 Now/ReadFile 依赖以支持确定性单测</h3>
+      <p><strong>Ambiguity:</strong> 验收要"单测验证注入顺序"，但顺序依赖真实磁盘布局与时钟，难以稳定断言。</p>
+      <p><strong>Choice:</strong> <code>PromptConfig</code> 暴露可选 <code>Now func() time.Time</code> 与 <code>ReadFile func(path)([]byte,error)</code>，默认 <code>time.Now</code>/<code>os.ReadFile</code>。测试用 map 伪造 AGENTS.md 布局。</p>
+      <p><strong>Rationale:</strong> 让顺序断言不触碰磁盘、不受当天日期影响，测试稳定且快速——与仓库既有"注入 seam"风格一致。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 移除 cmd/pigo 内联 systemPrompt，改调用库函数</h3>
+      <p><strong>Spec:</strong> #40 只要求实现装配能力。</p>
+      <p><strong>Implemented:</strong> 顺带删除了 #39 在 <code>cmd/pigo/main.go</code> 里的临时 <code>systemPrompt</code>（当时注明"fuller assembly lands in US-021"），改为调用新的 <code>agent.BuildSystemPrompt</code>。</p>
+      <p><strong>Why:</strong> 该临时函数正是本 issue 要替代的对象；不删会造成两处提示词逻辑漂移。删除兑现了 #39 note 里记下的 Open Question。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 向上收集再反转 vs 先算深度再自上而下</h3>
+      <p><strong>Alternatives:</strong> (A) 从 wd 用 <code>filepath.Dir</code> 逐级上行到 root，收集后反转成 root-first；(B) 用字符串前缀/分隔符计数直接自上而下构造路径。</p>
+      <p><strong>Pros/Cons:</strong> B 需处理分隔符、卷标、<code>..</code> 等平台差异，易错；A 复用 <code>filepath.Dir</code>/<code>Clean</code> 的既有语义，且天然处理"wd 不在 root 之下"（走到文件系统根仍未命中 → 回退 wd 独一）。</p>
+      <p><strong>Winner:</strong> A——更少的手写路径运算，边界条件由标准库兜底。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 文件名是否只认 AGENTS.md</h3>
+      <p><strong>Assumption:</strong> 当前只注入 <code>AGENTS.md</code>（对标 zero/pi）。</p>
+      <p><strong>Verify:</strong> 若需兼容 <code>CLAUDE.md</code>/<code>.agentsrc</code> 等别名，应扩展 <code>agentsFileName</code> 为候选列表；目前判断超出 US-021 范围。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 基础指令是否应随交互/headless 模式而异</h3>
+      <p><strong>Assumption:</strong> <code>DefaultBaseInstruction</code> 对 headless 与未来 TUI（US-022）通用。</p>
+      <p><strong>Verify:</strong> 若 TUI 需要不同语气/能力说明，可由调用方传 <code>BaseInstruction</code> 覆盖，无需改库。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

@@ -15,9 +15,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"runtime"
 	"strings"
-	"time"
 
 	"github.com/smallnest/pigo/internal/agent"
 )
@@ -66,8 +64,13 @@ func main() {
 
 	cwd, _ := os.Getwd()
 	tools := builtinTools(cwd, noTools)
+	sysPrompt, err := agent.BuildSystemPrompt(agent.PromptConfig{WorkingDir: cwd, Root: cwd})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "pigo: %v\n", err)
+		os.Exit(1)
+	}
 	agentCtx := &agent.AgentContext{
-		SystemPrompt: systemPrompt(cwd),
+		SystemPrompt: sysPrompt,
 		Messages: agent.MessageList{
 			agent.UserMessage{RoleField: agent.RoleUser, Content: agent.ContentList{agent.NewTextContent(prompt)}},
 		},
@@ -138,18 +141,4 @@ func toolRegistry(tools []agent.AgentTool) *agent.ToolRegistry {
 		_ = reg.Register(t)
 	}
 	return reg
-}
-
-// systemPrompt assembles the base instruction plus environment info (cwd, OS,
-// time), a minimal version of pi's system-prompt assembly (fuller context
-// assembly lands in US-021).
-func systemPrompt(cwd string) string {
-	var b strings.Builder
-	b.WriteString("You are pigo, a helpful coding agent running headlessly. ")
-	b.WriteString("Use the available tools to inspect files and answer the user's request concisely.\n\n")
-	b.WriteString("Environment:\n")
-	fmt.Fprintf(&b, "- Working directory: %s\n", cwd)
-	fmt.Fprintf(&b, "- OS: %s/%s\n", runtime.GOOS, runtime.GOARCH)
-	fmt.Fprintf(&b, "- Date: %s\n", time.Now().Format("2006-01-02"))
-	return b.String()
 }
