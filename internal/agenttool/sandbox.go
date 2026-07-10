@@ -5,7 +5,7 @@
 // workspace jail, .git is protected, and symlinks are resolved before the
 // boundary check so a link cannot escape the jail. The gate NEVER fails open:
 // on any ambiguity it denies (or prompts) rather than allowing.
-package agent
+package agenttool
 
 import (
 	"context"

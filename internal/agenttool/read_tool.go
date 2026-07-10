@@ -2,7 +2,7 @@
 // with optional line offset/limit, numbered output, and large-file truncation.
 // Paths are resolved against a Root and rejected if they escape it (path
 // traversal guard) or do not exist.
-package agent
+package agenttool
 
 import (
 	"bufio"
@@ -13,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // readToolMaxLines caps how many lines a single read returns before truncating
@@ -64,7 +66,9 @@ func (t *ReadTool) Schema() json.RawMessage {
 }
 
 // ExecutionMode implements AgentTool. Reads are side-effect free → parallel.
-func (t *ReadTool) ExecutionMode() ToolExecutionMode { return ToolExecutionParallel }
+func (t *ReadTool) ExecutionMode() agentcore.ToolExecutionMode {
+	return agentcore.ToolExecutionParallel
+}
 
 // resolvePath resolves p against Root and verifies it stays within Root.
 func (t *ReadTool) resolvePath(p string) (string, error) {
@@ -97,7 +101,7 @@ func (t *ReadTool) resolvePath(p string) (string, error) {
 // Execute implements AgentTool. It never returns a Go error for a read failure
 // (bad path, missing file); those are encoded as error results so the model can
 // react. The returned error is reserved for argument decode failures.
-func (t *ReadTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
+func (t *ReadTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 	var a readToolArgs
 	if err := json.Unmarshal(args, &a); err != nil {
 		return errorResult(fmt.Sprintf("read: invalid arguments: %v", err)), nil
@@ -130,7 +134,7 @@ func (t *ReadTool) Execute(ctx context.Context, id string, args json.RawMessage,
 	if truncated {
 		text += fmt.Sprintf("\n... (output truncated at %d lines; use offset to read more)", readToolMaxLines)
 	}
-	return AgentToolResult{Content: ContentList{NewTextContent(text)}}, nil
+	return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(text)}}, nil
 }
 
 // readNumbered reads lines from r starting at 1-based offset, returning at most

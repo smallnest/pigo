@@ -1,4 +1,4 @@
-package agent
+package agenttool
 
 import (
 	"context"
@@ -7,10 +7,12 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // registerAll builds a registry containing every tool given.
-func registerAll(t *testing.T, tools ...AgentTool) *ToolRegistry {
+func registerAll(t *testing.T, tools ...agentcore.AgentTool) *ToolRegistry {
 	t.Helper()
 	r := NewToolRegistry()
 	for _, tool := range tools {
@@ -22,21 +24,21 @@ func registerAll(t *testing.T, tools ...AgentTool) *ToolRegistry {
 }
 
 // echoTool returns its name as text; optionally terminates.
-func echoTool(name string, mode ToolExecutionMode, terminate bool) execTool {
+func echoTool(name string, mode agentcore.ToolExecutionMode, terminate bool) execTool {
 	return execTool{
 		name: name,
 		mode: mode,
-		run: func(ctx context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
+		run: func(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 			term := terminate
-			return AgentToolResult{Content: ContentList{NewTextContent(name)}, Terminate: &term}, nil
+			return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(name)}, Terminate: &term}, nil
 		},
 	}
 }
 
-func callsFor(names ...string) []AgentToolCall {
-	calls := make([]AgentToolCall, len(names))
+func callsFor(names ...string) []agentcore.AgentToolCall {
+	calls := make([]agentcore.AgentToolCall, len(names))
 	for i, n := range names {
-		calls[i] = AgentToolCall{ID: fmt.Sprintf("c%d", i), Name: n, Arguments: json.RawMessage(`{}`)}
+		calls[i] = agentcore.AgentToolCall{ID: fmt.Sprintf("c%d", i), Name: n, Arguments: json.RawMessage(`{}`)}
 	}
 	return calls
 }
@@ -49,17 +51,17 @@ func TestBatchParallelPreservesOrder(t *testing.T) {
 	mk := func(name string, delay time.Duration) execTool {
 		return execTool{
 			name: name,
-			mode: ToolExecutionParallel,
-			run: func(ctx context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
+			mode: agentcore.ToolExecutionParallel,
+			run: func(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 				time.Sleep(delay)
-				return AgentToolResult{Content: ContentList{NewTextContent(name)}}, nil
+				return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(name)}}, nil
 			},
 		}
 	}
 	reg := registerAll(t, mk("t0", 30*time.Millisecond), mk("t1", 15*time.Millisecond), mk("t2", 1*time.Millisecond))
 	cfg := BatchConfig{ToolExecutorConfig: ToolExecutorConfig{Registry: reg}}
 
-	results, term := executeToolCalls(context.Background(), cfg, callsFor("t0", "t1", "t2"), nil)
+	results, term := ExecuteToolCalls(context.Background(), cfg, callsFor("t0", "t1", "t2"), nil)
 	if term {
 		t.Errorf("no tool terminates; batch must not terminate")
 	}
@@ -83,8 +85,8 @@ func TestBatchParallelRunsConcurrently(t *testing.T) {
 	mk := func(name string) execTool {
 		return execTool{
 			name: name,
-			mode: ToolExecutionParallel,
-			run: func(ctx context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
+			mode: agentcore.ToolExecutionParallel,
+			run: func(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 				mu.Lock()
 				running++
 				if running > maxConcurrent {
@@ -96,7 +98,7 @@ func TestBatchParallelRunsConcurrently(t *testing.T) {
 				mu.Lock()
 				running--
 				mu.Unlock()
-				return AgentToolResult{Content: ContentList{NewTextContent(name)}}, nil
+				return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(name)}}, nil
 			},
 		}
 	}
@@ -107,7 +109,7 @@ func TestBatchParallelRunsConcurrently(t *testing.T) {
 		started.Wait()
 		close(block)
 	}()
-	executeToolCalls(context.Background(), cfg, callsFor("a", "b", "c"), nil)
+	ExecuteToolCalls(context.Background(), cfg, callsFor("a", "b", "c"), nil)
 
 	if maxConcurrent < 3 {
 		t.Errorf("expected 3 concurrent tools, saw max %d", maxConcurrent)
@@ -119,23 +121,23 @@ func TestBatchParallelRunsConcurrently(t *testing.T) {
 func TestBatchSequentialWhenAnyToolSequential(t *testing.T) {
 	var mu sync.Mutex
 	var order []string
-	mk := func(name string, mode ToolExecutionMode) execTool {
+	mk := func(name string, mode agentcore.ToolExecutionMode) execTool {
 		return execTool{
 			name: name,
 			mode: mode,
-			run: func(ctx context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
+			run: func(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 				mu.Lock()
 				order = append(order, name)
 				mu.Unlock()
-				return AgentToolResult{Content: ContentList{NewTextContent(name)}}, nil
+				return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(name)}}, nil
 			},
 		}
 	}
 	// "b" is sequential → whole batch runs serially in source order.
-	reg := registerAll(t, mk("a", ToolExecutionParallel), mk("b", ToolExecutionSequential), mk("c", ToolExecutionParallel))
+	reg := registerAll(t, mk("a", agentcore.ToolExecutionParallel), mk("b", agentcore.ToolExecutionSequential), mk("c", agentcore.ToolExecutionParallel))
 	cfg := BatchConfig{ToolExecutorConfig: ToolExecutorConfig{Registry: reg}}
 
-	executeToolCalls(context.Background(), cfg, callsFor("a", "b", "c"), nil)
+	ExecuteToolCalls(context.Background(), cfg, callsFor("a", "b", "c"), nil)
 	want := []string{"a", "b", "c"}
 	for i, w := range want {
 		if order[i] != w {
@@ -152,19 +154,19 @@ func TestBatchForceSequential(t *testing.T) {
 	mk := func(name string) execTool {
 		return execTool{
 			name: name,
-			mode: ToolExecutionParallel,
-			run: func(ctx context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
+			mode: agentcore.ToolExecutionParallel,
+			run: func(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 				mu.Lock()
 				order = append(order, name)
 				mu.Unlock()
-				return AgentToolResult{Content: ContentList{NewTextContent(name)}}, nil
+				return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(name)}}, nil
 			},
 		}
 	}
 	reg := registerAll(t, mk("a"), mk("b"))
 	cfg := BatchConfig{ToolExecutorConfig: ToolExecutorConfig{Registry: reg}, ForceSequential: true}
 
-	executeToolCalls(context.Background(), cfg, callsFor("a", "b"), nil)
+	ExecuteToolCalls(context.Background(), cfg, callsFor("a", "b"), nil)
 	if len(order) != 2 || order[0] != "a" || order[1] != "b" {
 		t.Errorf("force-sequential order = %v, want [a b]", order)
 	}
@@ -173,17 +175,17 @@ func TestBatchForceSequential(t *testing.T) {
 // TestBatchTerminateOnlyWhenAll checks the whole-batch terminate semantics.
 func TestBatchTerminateOnlyWhenAll(t *testing.T) {
 	// Mixed: one terminates, one does not → batch must NOT terminate.
-	reg := registerAll(t, echoTool("term", ToolExecutionParallel, true), echoTool("noterm", ToolExecutionParallel, false))
+	reg := registerAll(t, echoTool("term", agentcore.ToolExecutionParallel, true), echoTool("noterm", agentcore.ToolExecutionParallel, false))
 	cfg := BatchConfig{ToolExecutorConfig: ToolExecutorConfig{Registry: reg}}
-	_, term := executeToolCalls(context.Background(), cfg, callsFor("term", "noterm"), nil)
+	_, term := ExecuteToolCalls(context.Background(), cfg, callsFor("term", "noterm"), nil)
 	if term {
 		t.Errorf("batch with one non-terminating tool must not terminate")
 	}
 
 	// All terminate → batch terminates.
-	reg2 := registerAll(t, echoTool("t1", ToolExecutionParallel, true), echoTool("t2", ToolExecutionParallel, true))
+	reg2 := registerAll(t, echoTool("t1", agentcore.ToolExecutionParallel, true), echoTool("t2", agentcore.ToolExecutionParallel, true))
 	cfg2 := BatchConfig{ToolExecutorConfig: ToolExecutorConfig{Registry: reg2}}
-	_, term2 := executeToolCalls(context.Background(), cfg2, callsFor("t1", "t2"), nil)
+	_, term2 := ExecuteToolCalls(context.Background(), cfg2, callsFor("t1", "t2"), nil)
 	if !term2 {
 		t.Errorf("batch with all terminating tools must terminate")
 	}
@@ -196,17 +198,17 @@ func TestBatchSequentialAbort(t *testing.T) {
 	mk := func(name string) execTool {
 		return execTool{
 			name: name,
-			mode: ToolExecutionSequential,
-			run: func(c context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
+			mode: agentcore.ToolExecutionSequential,
+			run: func(c context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 				cancel() // abort after the first tool starts
-				return AgentToolResult{Content: ContentList{NewTextContent(name)}}, nil
+				return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(name)}}, nil
 			},
 		}
 	}
-	reg := registerAll(t, mk("first"), echoTool("second", ToolExecutionSequential, false))
+	reg := registerAll(t, mk("first"), echoTool("second", agentcore.ToolExecutionSequential, false))
 	cfg := BatchConfig{ToolExecutorConfig: ToolExecutorConfig{Registry: reg}}
 
-	results, _ := executeToolCalls(ctx, cfg, callsFor("first", "second"), nil)
+	results, _ := ExecuteToolCalls(ctx, cfg, callsFor("first", "second"), nil)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
@@ -218,7 +220,7 @@ func TestBatchSequentialAbort(t *testing.T) {
 // TestBatchEmpty covers the empty-batch fast path.
 func TestBatchEmpty(t *testing.T) {
 	cfg := BatchConfig{ToolExecutorConfig: ToolExecutorConfig{Registry: NewToolRegistry()}}
-	results, term := executeToolCalls(context.Background(), cfg, nil, nil)
+	results, term := ExecuteToolCalls(context.Background(), cfg, nil, nil)
 	if results != nil || term {
 		t.Errorf("empty batch must return (nil, false), got (%v, %v)", results, term)
 	}

@@ -1,4 +1,4 @@
-package agent
+package agenttool
 
 import (
 	"context"
@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
-func runWrite(t *testing.T, tool *WriteTool, args map[string]any) AgentToolResult {
+func runWrite(t *testing.T, tool *WriteTool, args map[string]any) agentcore.AgentToolResult {
 	t.Helper()
 	raw, err := json.Marshal(args)
 	if err != nil {
@@ -108,7 +110,7 @@ func TestWriteToolMode(t *testing.T) {
 	if tool.Name() != "write" {
 		t.Errorf("name = %q", tool.Name())
 	}
-	if tool.ExecutionMode() != ToolExecutionSequential {
+	if tool.ExecutionMode() != agentcore.ToolExecutionSequential {
 		t.Error("write should be sequential")
 	}
 	var schema map[string]any

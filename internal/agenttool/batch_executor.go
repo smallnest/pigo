@@ -11,11 +11,13 @@
 //
 // The whole batch signals termination only when every finalized result has
 // terminate=true, matching pi.
-package agent
+package agenttool
 
 import (
 	"context"
 	"sync"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // ForceSequential, when true, makes the whole batch run serially regardless of
@@ -25,15 +27,15 @@ type BatchConfig struct {
 	ForceSequential bool
 }
 
-// executeToolCalls runs a batch of tool calls belonging to one assistant
+// ExecuteToolCalls runs a batch of tool calls belonging to one assistant
 // message. It returns the tool-result messages in source order and whether the
 // whole batch requests termination (only when every result terminates).
-func executeToolCalls(ctx context.Context, cfg BatchConfig, calls []AgentToolCall, emit emitFunc) ([]ToolResultMessage, bool) {
+func ExecuteToolCalls(ctx context.Context, cfg BatchConfig, calls []agentcore.AgentToolCall, emit agentcore.EmitFunc) ([]agentcore.ToolResultMessage, bool) {
 	if len(calls) == 0 {
 		return nil, false
 	}
 
-	results := make([]ToolResultMessage, len(calls))
+	results := make([]agentcore.ToolResultMessage, len(calls))
 	terminates := make([]bool, len(calls))
 
 	if cfg.ForceSequential || batchRequiresSequential(cfg.Registry, calls) {
@@ -53,7 +55,7 @@ func executeToolCalls(ctx context.Context, cfg BatchConfig, calls []AgentToolCal
 		var wg sync.WaitGroup
 		for i, call := range calls {
 			wg.Add(1)
-			go func(i int, call AgentToolCall) {
+			go func(i int, call agentcore.AgentToolCall) {
 				defer wg.Done()
 				results[i], terminates[i] = executeToolCall(ctx, cfg.ToolExecutorConfig, call, emit)
 			}(i, call)
@@ -74,9 +76,9 @@ func executeToolCalls(ctx context.Context, cfg BatchConfig, calls []AgentToolCal
 
 // batchRequiresSequential reports whether any tool in the batch declares
 // ExecutionMode sequential, which forces the whole batch to run serially.
-func batchRequiresSequential(reg *ToolRegistry, calls []AgentToolCall) bool {
+func batchRequiresSequential(reg *ToolRegistry, calls []agentcore.AgentToolCall) bool {
 	for _, call := range calls {
-		if tool, ok := reg.Get(call.Name); ok && tool.ExecutionMode() == ToolExecutionSequential {
+		if tool, ok := reg.Get(call.Name); ok && tool.ExecutionMode() == agentcore.ToolExecutionSequential {
 			return true
 		}
 	}

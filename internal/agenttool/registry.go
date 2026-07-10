@@ -3,7 +3,7 @@
 // (santhosh-tekuri/jsonschema v6) before execution. Validation failures are
 // turned into a field-level error tool result rather than a Go error, so the
 // model receives actionable feedback in the loop.
-package agent
+package agenttool
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/smallnest/pigo/internal/agentcore"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )
@@ -26,14 +27,14 @@ var schemaPrinter = message.NewPrinter(language.English)
 // tool's declared JSON Schema. It is safe for concurrent use.
 type ToolRegistry struct {
 	mu       sync.RWMutex
-	tools    map[string]AgentTool
+	tools    map[string]agentcore.AgentTool
 	compiled map[string]*jsonschema.Schema
 }
 
 // NewToolRegistry returns an empty registry.
 func NewToolRegistry() *ToolRegistry {
 	return &ToolRegistry{
-		tools:    make(map[string]AgentTool),
+		tools:    make(map[string]agentcore.AgentTool),
 		compiled: make(map[string]*jsonschema.Schema),
 	}
 }
@@ -41,7 +42,7 @@ func NewToolRegistry() *ToolRegistry {
 // Register adds a tool, compiling its JSON Schema up front so bad schemas fail
 // at registration rather than on first call. A duplicate name is an error. A
 // tool whose Schema() is empty is registered with no validation.
-func (r *ToolRegistry) Register(tool AgentTool) error {
+func (r *ToolRegistry) Register(tool agentcore.AgentTool) error {
 	name := tool.Name()
 	if name == "" {
 		return fmt.Errorf("registry: tool has empty name")
@@ -63,7 +64,7 @@ func (r *ToolRegistry) Register(tool AgentTool) error {
 }
 
 // Get returns the tool registered under name and whether it was found.
-func (r *ToolRegistry) Get(name string) (AgentTool, bool) {
+func (r *ToolRegistry) Get(name string) (agentcore.AgentTool, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	t, ok := r.tools[name]
@@ -72,10 +73,10 @@ func (r *ToolRegistry) Get(name string) (AgentTool, bool) {
 
 // List returns all registered tools sorted by name (stable ordering for
 // deterministic provider tool declarations).
-func (r *ToolRegistry) List() []AgentTool {
+func (r *ToolRegistry) List() []agentcore.AgentTool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]AgentTool, 0, len(r.tools))
+	out := make([]agentcore.AgentTool, 0, len(r.tools))
 	for _, t := range r.tools {
 		out = append(out, t)
 	}
@@ -130,7 +131,7 @@ func (r *ToolRegistry) Validate(name string, args json.RawMessage) []FieldError 
 // ValidationErrorResult builds an error AgentToolResult describing the given
 // field errors, for the loop to hand back to the model (FR: field-level error
 // tool result). Terminate is left nil (a validation failure never ends the run).
-func ValidationErrorResult(toolName string, errs []FieldError) AgentToolResult {
+func ValidationErrorResult(toolName string, errs []FieldError) agentcore.AgentToolResult {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Invalid arguments for tool %q:\n", toolName)
 	for _, e := range errs {
@@ -140,8 +141,8 @@ func ValidationErrorResult(toolName string, errs []FieldError) AgentToolResult {
 		}
 		fmt.Fprintf(&b, "  - %s: %s\n", field, e.Message)
 	}
-	return AgentToolResult{
-		Content: ContentList{NewTextContent(strings.TrimRight(b.String(), "\n"))},
+	return agentcore.AgentToolResult{
+		Content: agentcore.ContentList{agentcore.NewTextContent(strings.TrimRight(b.String(), "\n"))},
 		Details: errs,
 	}
 }

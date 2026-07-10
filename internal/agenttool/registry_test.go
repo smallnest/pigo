@@ -1,9 +1,11 @@
-package agent
+package agenttool
 
 import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // stubTool is a minimal AgentTool for registry tests.
@@ -12,12 +14,12 @@ type stubTool struct {
 	schema string
 }
 
-func (s stubTool) Name() string                     { return s.name }
-func (s stubTool) Description() string              { return "stub" }
-func (s stubTool) Schema() json.RawMessage          { return json.RawMessage(s.schema) }
-func (s stubTool) ExecutionMode() ToolExecutionMode { return ToolExecutionParallel }
-func (s stubTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
-	return AgentToolResult{Content: ContentList{NewTextContent("ok")}}, nil
+func (s stubTool) Name() string                               { return s.name }
+func (s stubTool) Description() string                        { return "stub" }
+func (s stubTool) Schema() json.RawMessage                    { return json.RawMessage(s.schema) }
+func (s stubTool) ExecutionMode() agentcore.ToolExecutionMode { return agentcore.ToolExecutionParallel }
+func (s stubTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
+	return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent("ok")}}, nil
 }
 
 const personSchema = `{

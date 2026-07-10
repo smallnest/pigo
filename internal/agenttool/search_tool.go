@@ -3,7 +3,7 @@
 // (list a directory, distinguishing files from directories). All three resolve
 // paths against a Root with the same boundary guard as the other tools and skip
 // paths ignored by the workspace .gitignore. They are read-only → parallel.
-package agent
+package agenttool
 
 import (
 	"bufio"
@@ -15,6 +15,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // searchMaxResults caps the number of matches/entries any single search returns
@@ -156,7 +158,9 @@ func (t *GrepTool) Description() string {
 	return "Search file contents by regular expression under the workspace, " +
 		"optionally filtering files by glob. Skips .gitignore'd paths."
 }
-func (t *GrepTool) ExecutionMode() ToolExecutionMode { return ToolExecutionParallel }
+func (t *GrepTool) ExecutionMode() agentcore.ToolExecutionMode {
+	return agentcore.ToolExecutionParallel
+}
 func (t *GrepTool) Schema() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
@@ -170,7 +174,7 @@ func (t *GrepTool) Schema() json.RawMessage {
 }`)
 }
 
-func (t *GrepTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
+func (t *GrepTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 	var a grepToolArgs
 	if err := json.Unmarshal(args, &a); err != nil {
 		return errorResult(fmt.Sprintf("grep: invalid arguments: %v", err)), nil
@@ -256,8 +260,8 @@ func (t *GrepTool) Execute(ctx context.Context, id string, args json.RawMessage,
 	if count >= searchMaxResults {
 		msg += fmt.Sprintf("\n[truncated at %d matches]", searchMaxResults)
 	}
-	return AgentToolResult{
-		Content: ContentList{NewTextContent(msg)},
+	return agentcore.AgentToolResult{
+		Content: agentcore.ContentList{agentcore.NewTextContent(msg)},
 		Details: map[string]any{"matches": len(matches)},
 	}, nil
 }
@@ -279,7 +283,9 @@ func (t *FindTool) Name() string { return "find" }
 func (t *FindTool) Description() string {
 	return "Find files by base-name glob under the workspace. Skips .gitignore'd paths."
 }
-func (t *FindTool) ExecutionMode() ToolExecutionMode { return ToolExecutionParallel }
+func (t *FindTool) ExecutionMode() agentcore.ToolExecutionMode {
+	return agentcore.ToolExecutionParallel
+}
 func (t *FindTool) Schema() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
@@ -292,7 +298,7 @@ func (t *FindTool) Schema() json.RawMessage {
 }`)
 }
 
-func (t *FindTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
+func (t *FindTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 	var a findToolArgs
 	if err := json.Unmarshal(args, &a); err != nil {
 		return errorResult(fmt.Sprintf("find: invalid arguments: %v", err)), nil
@@ -353,8 +359,8 @@ func (t *FindTool) Execute(ctx context.Context, id string, args json.RawMessage,
 	if len(found) > 0 {
 		msg += "\n" + strings.Join(found, "\n")
 	}
-	return AgentToolResult{
-		Content: ContentList{NewTextContent(msg)},
+	return agentcore.AgentToolResult{
+		Content: agentcore.ContentList{agentcore.NewTextContent(msg)},
 		Details: map[string]any{"count": len(found)},
 	}, nil
 }
@@ -374,7 +380,7 @@ func (t *LsTool) Name() string { return "ls" }
 func (t *LsTool) Description() string {
 	return "List a directory's entries, marking directories with a trailing slash."
 }
-func (t *LsTool) ExecutionMode() ToolExecutionMode { return ToolExecutionParallel }
+func (t *LsTool) ExecutionMode() agentcore.ToolExecutionMode { return agentcore.ToolExecutionParallel }
 func (t *LsTool) Schema() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
@@ -385,7 +391,7 @@ func (t *LsTool) Schema() json.RawMessage {
 }`)
 }
 
-func (t *LsTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
+func (t *LsTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 	var a lsToolArgs
 	if err := json.Unmarshal(args, &a); err != nil {
 		return errorResult(fmt.Sprintf("ls: invalid arguments: %v", err)), nil
@@ -429,8 +435,8 @@ func (t *LsTool) Execute(ctx context.Context, id string, args json.RawMessage, o
 	if len(lines) > 0 {
 		msg += "\n" + strings.Join(lines, "\n")
 	}
-	return AgentToolResult{
-		Content: ContentList{NewTextContent(msg)},
+	return agentcore.AgentToolResult{
+		Content: agentcore.ContentList{agentcore.NewTextContent(msg)},
 		Details: map[string]any{"dirs": len(dirs), "files": len(files)},
 	}, nil
 }

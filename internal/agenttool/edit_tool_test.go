@@ -1,4 +1,4 @@
-package agent
+package agenttool
 
 import (
 	"context"
@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
-func runEdit(t *testing.T, tool *EditTool, args map[string]any) AgentToolResult {
+func runEdit(t *testing.T, tool *EditTool, args map[string]any) agentcore.AgentToolResult {
 	t.Helper()
 	raw, err := json.Marshal(args)
 	if err != nil {
@@ -121,7 +123,7 @@ func TestEditToolMode(t *testing.T) {
 	if tool.Name() != "edit" {
 		t.Errorf("name = %q", tool.Name())
 	}
-	if tool.ExecutionMode() != ToolExecutionSequential {
+	if tool.ExecutionMode() != agentcore.ToolExecutionSequential {
 		t.Error("edit should be sequential")
 	}
 	var schema map[string]any
