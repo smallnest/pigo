@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0038</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/38">#38</a> &mdash; grep/find/ls 搜索工具（US-019）&mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 自实现最小化 .gitignore 匹配器</h3>
+      <p><strong>Ambiguity:</strong> 验收要"尊重 .gitignore"，未规定支持哪些语法子集。</p>
+      <p><strong>Choice:</strong> 实现常见子集——注释/空行、前导 <code>/</code> 锚定、尾随 <code>/</code> 仅目录、<code>!</code> 反选、按 base name 或路径 <code>filepath.Match</code>；非锚定 pattern 匹配任意路径段（目录被忽略则其下全部隐藏）。后规则覆盖前规则。</p>
+      <p><strong>Rationale:</strong> 覆盖绝大多数真实 .gitignore；坚持零外部依赖（不引入 go-gitignore 库）；显式记录不支持 <code>**</code> 跨段与嵌套 .gitignore。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 三工具共享 <code>resolveWithin</code> 边界策略，均为 parallel</h3>
+      <p><strong>Ambiguity:</strong> 验收未提路径边界与并发模式。</p>
+      <p><strong>Choice:</strong> 复用与 ReadTool 一致的 Root + <code>filepath.Rel</code> 越界拒绝；grep/find/ls 只读 → <code>ToolExecutionParallel</code>。</p>
+      <p><strong>Rationale:</strong> 与既有工具（read/write/edit）一致的边界与并发语义，减少认知负担；只读工具并发安全可提升批量效率。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 结果上限 <code>searchMaxResults=1000</code></h3>
+      <p><strong>Ambiguity:</strong> 验收未提结果规模上限。</p>
+      <p><strong>Choice:</strong> grep 匹配、find 命中均在达到 1000 时经 <code>filepath.SkipAll</code> 提前终止，grep 附 <code>[truncated]</code> 提示。</p>
+      <p><strong>Rationale:</strong> 防止宽泛查询淹没模型上下文；与 read 工具的 2000 行上限同理。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 仅读取 Root 级单个 .gitignore，不支持嵌套/全局 gitignore</h3>
+      <p><strong>Spec:</strong> "尊重 .gitignore"。</p>
+      <p><strong>Implemented:</strong> 只加载 <code>root/.gitignore</code>；不递归读取子目录 .gitignore，不读全局 core.excludesfile，不解析 <code>**</code> 跨段。始终额外硬跳过 <code>.git/</code>。</p>
+      <p><strong>Why:</strong> 单文件覆盖工具级搜索的主要场景；完整 gitignore 语义（嵌套、全局、**）复杂度高，对 MVP 属过度设计，可后续增强。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 三个独立工具 vs 单一多模式工具</h3>
+      <p><strong>Alternatives:</strong> (A) grep/find/ls 各自独立工具；(B) 单 search 工具带 mode 参数。</p>
+      <p><strong>Pros/Cons:</strong> A schema 清晰、模型选型直观、与 pi 工具粒度一致；B 工具数少但参数条件耦合、schema 复杂。</p>
+      <p><strong>Winner:</strong> A——独立工具边界清晰，共享 helper（resolveWithin/gitignore）已消除重复。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 是否需要嵌套/全局 .gitignore 支持</h3>
+      <p><strong>Assumption:</strong> Root 级单一 .gitignore 足够。</p>
+      <p><strong>Verify:</strong> 若仓库大量使用子目录 .gitignore 或全局 excludesfile，搜索结果可能包含本应忽略的文件；是否需要升级匹配器？</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> grep 是否需要二进制文件检测</h3>
+      <p><strong>Assumption:</strong> 逐行扫描所有非忽略文件。</p>
+      <p><strong>Verify:</strong> 二进制文件（图片/可执行）会被逐行扫描且可能产生乱码匹配；是否需要 NUL 字节嗅探跳过二进制？</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
