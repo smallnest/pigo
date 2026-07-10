@@ -166,19 +166,39 @@ func main() {
 	}
 }
 
-// resolveProvider maps a model id to a built-in provider. A model id prefixed
-// with "ollama/" (or an explicit local base URL) uses the local Ollama gateway;
-// everything else defaults to OpenRouter, the reference OpenAI-compatible layer.
+// resolveProvider maps a model id to a built-in provider. Resolution order:
+//
+//  1. If the id is in the preset catalog, use its declared provider (this is how
+//     OpenRouter/NVIDIA/Ollama presets pick the right gateway).
+//  2. An "ollama/" prefix (or a base URL on the Ollama port) → local Ollama.
+//  3. An "nvidia/" prefix → NVIDIA NIM (strips the prefix for the wire id).
+//  4. Everything else → OpenRouter, the reference OpenAI-compatible gateway.
 func resolveProvider(model, baseURL string) (provider.Provider, string, error) {
-	models := []provider.Model{{ID: model}}
+	// 1. Preset catalog wins: a curated id knows its own provider.
+	if p, ok := provider.LookupPreset(model); ok {
+		switch p.Provider {
+		case "nvidia":
+			return provider.NewNvidiaProvider(baseURL, []provider.Model{{Provider: "nvidia", ID: model}}), "nvidia", nil
+		case "ollama":
+			id := strings.TrimPrefix(model, "ollama/")
+			return provider.NewOllamaProvider(baseURL, []provider.Model{{Provider: "ollama", ID: id}}), "ollama", nil
+		default: // openrouter and any OpenAI-compatible upstream
+			return provider.NewOpenRouterProvider(baseURL, []provider.Model{{Provider: "openrouter", ID: model}}), "openrouter", nil
+		}
+	}
+
+	// 2. Local Ollama by prefix or port.
 	if strings.HasPrefix(model, "ollama/") || strings.Contains(baseURL, "11434") {
 		id := strings.TrimPrefix(model, "ollama/")
 		return provider.NewOllamaProvider(baseURL, []provider.Model{{Provider: "ollama", ID: id}}), "ollama", nil
 	}
-	for i := range models {
-		models[i].Provider = "openrouter"
+	// 3. NVIDIA NIM by prefix.
+	if strings.HasPrefix(model, "nvidia/") {
+		id := strings.TrimPrefix(model, "nvidia/")
+		return provider.NewNvidiaProvider(baseURL, []provider.Model{{Provider: "nvidia", ID: id}}), "nvidia", nil
 	}
-	return provider.NewOpenRouterProvider(baseURL, models), "openrouter", nil
+	// 4. Default: OpenRouter.
+	return provider.NewOpenRouterProvider(baseURL, []provider.Model{{Provider: "openrouter", ID: model}}), "openrouter", nil
 }
 
 // builtinTools returns the default file/shell tool set rooted at cwd, or nil

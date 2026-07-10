@@ -39,6 +39,9 @@ import (
 const (
 	openRouterBaseURL = "https://openrouter.ai/api/v1"
 	ollamaBaseURL     = "http://localhost:11434/v1"
+	// nvidiaBaseURL is NVIDIA's hosted NIM endpoint. It speaks the OpenAI
+	// Chat Completions wire format, so it rides openAICompatDriver unchanged.
+	nvidiaBaseURL = "https://integrate.api.nvidia.com/v1"
 	// bedrockBaseURL is a placeholder default; real Bedrock endpoints are
 	// region-specific (bedrock-runtime.<region>.amazonaws.com) and supplied at
 	// construction. It is exported as a field so callers set the resolved URL.
@@ -362,6 +365,22 @@ func NewOllamaProvider(baseURL string, models []Model) Provider {
 		baseURL:      baseURL,
 		models:       models,
 		requiresAuth: false,
+	}
+}
+
+// NewNvidiaProvider builds the NVIDIA provider (hosted NIM, OpenAI-compatible,
+// Bearer auth). baseURL defaults to the public integrate endpoint when empty.
+// The API key is resolved by the "nvidia" provider name (NVIDIA_API_KEY);
+// secret values are never logged.
+func NewNvidiaProvider(baseURL string, models []Model) Provider {
+	if baseURL == "" {
+		baseURL = nvidiaBaseURL
+	}
+	return &openAICompatDriver{
+		name:         "nvidia",
+		baseURL:      baseURL,
+		models:       models,
+		requiresAuth: true,
 	}
 }
 

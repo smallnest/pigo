@@ -184,6 +184,48 @@ func TestBedrockMissingKeyIsEarlyError(t *testing.T) {
 	}
 }
 
+// TestNvidiaProviderStreamsChatCompletions verifies the NVIDIA NIM provider
+// rides the OpenAI-compatible driver: it POSTs to /chat/completions with a
+// Bearer token and streams through OpenAIDecoder, exactly like OpenRouter.
+func TestNvidiaProviderStreamsChatCompletions(t *testing.T) {
+	cs := newCaptureServer(t, openaiToolCallSSE)
+	p := NewNvidiaProvider(cs.srv.URL, []Model{{Provider: "nvidia", ID: "meta/llama-3.3-70b-instruct"}})
+	if p.Name() != "nvidia" {
+		t.Errorf("name = %q, want nvidia", p.Name())
+	}
+	stream, err := p.StreamCompletion(context.Background(), CompletionRequest{
+		Model:   "meta/llama-3.3-70b-instruct",
+		Context: LlmContext{Messages: agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("hi")}}}},
+		Config:  StreamConfig{APIKey: "nvapi-test"},
+	})
+	if err != nil {
+		t.Fatalf("StreamCompletion: %v", err)
+	}
+	kinds, _ := drainStream(t, stream)
+	if kinds[len(kinds)-1] != StreamEventDone {
+		t.Errorf("last event = %q, want done", kinds[len(kinds)-1])
+	}
+	if cs.path != "/chat/completions" {
+		t.Errorf("path = %q, want /chat/completions", cs.path)
+	}
+	if got := cs.headers.Get("Authorization"); got != "Bearer nvapi-test" {
+		t.Errorf("auth header = %q, want Bearer nvapi-test", got)
+	}
+}
+
+// TestNvidiaMissingKeyIsEarlyError verifies NVIDIA requires an API key and
+// reports the missing key as an early error naming the provider (never a value).
+func TestNvidiaMissingKeyIsEarlyError(t *testing.T) {
+	p := NewNvidiaProvider("", nil)
+	_, err := p.StreamCompletion(context.Background(), CompletionRequest{Model: "m"})
+	if err == nil {
+		t.Fatal("missing API key must return an early error")
+	}
+	if !strings.Contains(err.Error(), "nvidia") {
+		t.Errorf("error should name the provider, got %v", err)
+	}
+}
+
 // TestProvidersRegisterInModelRegistry verifies the shared driver providers plug
 // into the model registry (US-011) and resolve their models.
 func TestProvidersRegisterInModelRegistry(t *testing.T) {

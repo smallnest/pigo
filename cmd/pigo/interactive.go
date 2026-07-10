@@ -278,11 +278,11 @@ type liveRunConfig struct {
 func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
 	reg.AddBuiltin(runtime.SlashCommand{
 		Name:        "model",
-		Description: "view or switch the active model: /model [model-id]",
+		Description: "view or switch the active model: /model [model-id] (see /models for presets)",
 		Action: func(args string) string {
 			id := strings.TrimSpace(args)
 			if id == "" {
-				return fmt.Sprintf("model: %s (provider: %s)", live.model, live.providerName)
+				return fmt.Sprintf("model: %s (provider: %s)\nrun /models to see presets, or /model <id> to switch", live.model, live.providerName)
 			}
 			prov, providerName, err := resolveProvider(id, live.baseURL)
 			if err != nil {
@@ -293,6 +293,11 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
 			live.provider = prov
 			return fmt.Sprintf("model switched to %s (provider: %s)", id, providerName)
 		},
+	})
+	reg.AddBuiltin(runtime.SlashCommand{
+		Name:        "models",
+		Description: "list preset providers and models you can switch to",
+		Action:      func(args string) string { return presetListing(strings.TrimSpace(args)) },
 	})
 	reg.AddBuiltin(runtime.SlashCommand{
 		Name:        "help",
@@ -311,4 +316,48 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
 			return b.String()
 		},
 	})
+}
+
+// presetListing renders the preset provider/model catalog for /models. With an
+// argument it filters to a single provider (e.g. "/models nvidia"). Providers
+// are grouped and shown with the env var their API key is read from (referenced
+// by name only, never a value). The output guides the user to `/model <id>`.
+func presetListing(filter string) string {
+	var b strings.Builder
+	b.WriteString("preset providers & models (switch with /model <id>):")
+	shown := 0
+	for _, pv := range provider.PresetProviders {
+		if filter != "" && !strings.EqualFold(filter, pv.Name) {
+			continue
+		}
+		models := provider.PresetsByProvider(pv.Name)
+		if len(models) == 0 {
+			continue
+		}
+		shown++
+		b.WriteString("\n\n")
+		b.WriteString(pv.Name)
+		if pv.EnvVar != "" {
+			b.WriteString(" (API key: $")
+			b.WriteString(pv.EnvVar)
+			b.WriteString(")")
+		} else {
+			b.WriteString(" (local, no API key)")
+		}
+		for _, m := range models {
+			b.WriteString("\n  ")
+			b.WriteString(m.ID)
+			if m.DisplayName != "" {
+				b.WriteString("  — ")
+				b.WriteString(m.DisplayName)
+			}
+		}
+	}
+	if shown == 0 {
+		if filter != "" {
+			return fmt.Sprintf("no preset provider named %q (try openrouter, nvidia, or ollama)", filter)
+		}
+		return "no presets configured"
+	}
+	return b.String()
 }
