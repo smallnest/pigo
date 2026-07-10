@@ -1,4 +1,4 @@
-package agent
+package agenttool
 
 import (
 	"context"
@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
-func runSearch(t *testing.T, tool AgentTool, args map[string]any) AgentToolResult {
+func runSearch(t *testing.T, tool agentcore.AgentTool, args map[string]any) agentcore.AgentToolResult {
 	t.Helper()
 	raw, err := json.Marshal(args)
 	if err != nil {
@@ -144,7 +146,7 @@ func TestSearchPathTraversal(t *testing.T) {
 	dir := seedTree(t)
 	for _, tc := range []struct {
 		name string
-		tool AgentTool
+		tool agentcore.AgentTool
 		args map[string]any
 	}{
 		{"grep", &GrepTool{Root: dir}, map[string]any{"pattern": "x", "path": "../"}},
@@ -161,8 +163,8 @@ func TestSearchPathTraversal(t *testing.T) {
 }
 
 func TestSearchToolModes(t *testing.T) {
-	for _, tool := range []AgentTool{&GrepTool{}, &FindTool{}, &LsTool{}} {
-		if tool.ExecutionMode() != ToolExecutionParallel {
+	for _, tool := range []agentcore.AgentTool{&GrepTool{}, &FindTool{}, &LsTool{}} {
+		if tool.ExecutionMode() != agentcore.ToolExecutionParallel {
 			t.Errorf("%s should be parallel", tool.Name())
 		}
 		var schema map[string]any

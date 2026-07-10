@@ -8,28 +8,30 @@
 // Every failure mode (unknown tool, validation failure, block, abort, tool
 // error/panic) is turned into an error tool result rather than a Go error, so
 // the loop always has a ToolResultMessage to feed back to the model.
-package agent
+package agenttool
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // ToolExecutorConfig holds the registry and the optional per-phase hooks. Every
 // hook is optional (nil = default behavior).
 type ToolExecutorConfig struct {
 	Registry         *ToolRegistry
-	PrepareArguments PrepareArgumentsFunc
-	BeforeToolCall   BeforeToolCallFunc
-	AfterToolCall    AfterToolCallFunc
+	PrepareArguments agentcore.PrepareArgumentsFunc
+	BeforeToolCall   agentcore.BeforeToolCallFunc
+	AfterToolCall    agentcore.AfterToolCallFunc
 }
 
 // executeToolCall runs one tool call through prepare → execute → finalize and
 // returns the resulting ToolResultMessage plus whether the batch should
 // terminate. emit may be nil (no events). It never returns a Go error: every
 // failure is encoded into the returned message with IsError=true.
-func executeToolCall(ctx context.Context, cfg ToolExecutorConfig, call AgentToolCall, emit emitFunc) (ToolResultMessage, bool) {
+func executeToolCall(ctx context.Context, cfg ToolExecutorConfig, call agentcore.AgentToolCall, emit agentcore.EmitFunc) (agentcore.ToolResultMessage, bool) {
 	// 1. prepare: lookup, prepareArguments, validate, beforeToolCall.
 	tool, args, prep, isError := prepareToolCall(ctx, cfg, call)
 	if prep != nil {
@@ -40,7 +42,7 @@ func executeToolCall(ctx context.Context, cfg ToolExecutorConfig, call AgentTool
 
 	// 2. execute.
 	if emit != nil {
-		if err := emit(ctx, ToolExecutionStartEvent{ToolCallID: call.ID, ToolName: call.Name, Args: args}); err != nil {
+		if err := emit(ctx, agentcore.ToolExecutionStartEvent{ToolCallID: call.ID, ToolName: call.Name, Args: args}); err != nil {
 			return errorToolResult(call, "aborted before execution: "+err.Error()), false
 		}
 	}
@@ -53,7 +55,7 @@ func executeToolCall(ctx context.Context, cfg ToolExecutorConfig, call AgentTool
 // prepareToolCall performs the prepare phase. On success it returns the tool and
 // the (possibly rewritten) arguments with a nil result. On any short-circuit it
 // returns a non-nil *AgentToolResult and the isError flag.
-func prepareToolCall(ctx context.Context, cfg ToolExecutorConfig, call AgentToolCall) (AgentTool, json.RawMessage, *AgentToolResult, bool) {
+func prepareToolCall(ctx context.Context, cfg ToolExecutorConfig, call agentcore.AgentToolCall) (agentcore.AgentTool, json.RawMessage, *agentcore.AgentToolResult, bool) {
 	if ctx.Err() != nil {
 		r := errorResult(fmt.Sprintf("tool %q aborted before execution", call.Name))
 		return nil, nil, &r, true
@@ -85,12 +87,12 @@ func prepareToolCall(ctx context.Context, cfg ToolExecutorConfig, call AgentTool
 
 	// beforeToolCall hook (may block).
 	if cfg.BeforeToolCall != nil {
-		if dec := cfg.BeforeToolCall(ctx, AgentToolCall{ID: call.ID, Name: call.Name, Arguments: args}); dec != nil && dec.Block {
-			r := AgentToolResult{}
+		if dec := cfg.BeforeToolCall(ctx, agentcore.AgentToolCall{ID: call.ID, Name: call.Name, Arguments: args}); dec != nil && dec.Block {
+			r := agentcore.AgentToolResult{}
 			if dec.Content != nil {
 				r.Content = *dec.Content
 			} else {
-				r.Content = ContentList{NewTextContent(fmt.Sprintf("tool %q blocked by beforeToolCall", call.Name))}
+				r.Content = agentcore.ContentList{agentcore.NewTextContent(fmt.Sprintf("tool %q blocked by beforeToolCall", call.Name))}
 			}
 			if dec.Details != nil {
 				r.Details = *dec.Details
@@ -104,7 +106,7 @@ func prepareToolCall(ctx context.Context, cfg ToolExecutorConfig, call AgentTool
 
 // runTool executes the tool, converting a returned error or a panic into an
 // error result instead of propagating it (FR: never panic).
-func runTool(ctx context.Context, tool AgentTool, call AgentToolCall, args json.RawMessage, emit emitFunc) (result AgentToolResult, isError bool) {
+func runTool(ctx context.Context, tool agentcore.AgentTool, call agentcore.AgentToolCall, args json.RawMessage, emit agentcore.EmitFunc) (result agentcore.AgentToolResult, isError bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			result = errorResult(fmt.Sprintf("tool %q panicked: %v", call.Name, r))
@@ -112,11 +114,11 @@ func runTool(ctx context.Context, tool AgentTool, call AgentToolCall, args json.
 		}
 	}()
 
-	onUpdate := func(partial AgentToolResult) {
+	onUpdate := func(partial agentcore.AgentToolResult) {
 		if emit == nil {
 			return
 		}
-		_ = emit(ctx, ToolExecutionUpdateEvent{ToolCallID: call.ID, ToolName: call.Name, PartialResult: partial})
+		_ = emit(ctx, agentcore.ToolExecutionUpdateEvent{ToolCallID: call.ID, ToolName: call.Name, PartialResult: partial})
 	}
 
 	res, err := tool.Execute(ctx, call.ID, args, onUpdate)
@@ -129,7 +131,7 @@ func runTool(ctx context.Context, tool AgentTool, call AgentToolCall, args json.
 // finalizeToolCall applies the afterToolCall hook (field-level override, no deep
 // merge), emits the tool_execution_end event, and builds the ToolResultMessage.
 // It returns the message and whether this result requests termination.
-func finalizeToolCall(ctx context.Context, cfg ToolExecutorConfig, call AgentToolCall, result AgentToolResult, isError bool, emit emitFunc) (ToolResultMessage, bool) {
+func finalizeToolCall(ctx context.Context, cfg ToolExecutorConfig, call agentcore.AgentToolCall, result agentcore.AgentToolResult, isError bool, emit agentcore.EmitFunc) (agentcore.ToolResultMessage, bool) {
 	if cfg.AfterToolCall != nil {
 		if ov := cfg.AfterToolCall(ctx, call, result, isError); ov != nil {
 			if ov.Content != nil {
@@ -148,12 +150,12 @@ func finalizeToolCall(ctx context.Context, cfg ToolExecutorConfig, call AgentToo
 	}
 
 	if emit != nil {
-		_ = emit(ctx, ToolExecutionEndEvent{ToolCallID: call.ID, ToolName: call.Name, Result: result, IsError: isError})
+		_ = emit(ctx, agentcore.ToolExecutionEndEvent{ToolCallID: call.ID, ToolName: call.Name, Result: result, IsError: isError})
 	}
 
 	terminate := result.Terminate != nil && *result.Terminate
-	return ToolResultMessage{
-		RoleField:  RoleToolResult,
+	return agentcore.ToolResultMessage{
+		RoleField:  agentcore.RoleToolResult,
 		ToolCallID: call.ID,
 		ToolName:   call.Name,
 		Content:    result.Content,
@@ -163,18 +165,18 @@ func finalizeToolCall(ctx context.Context, cfg ToolExecutorConfig, call AgentToo
 }
 
 // errorResult builds an error AgentToolResult carrying a single text block.
-func errorResult(msg string) AgentToolResult {
-	return AgentToolResult{Content: ContentList{NewTextContent(msg)}}
+func errorResult(msg string) agentcore.AgentToolResult {
+	return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(msg)}}
 }
 
 // errorToolResult builds an error ToolResultMessage directly (used when a call
 // is aborted outside the normal finalize path).
-func errorToolResult(call AgentToolCall, msg string) ToolResultMessage {
-	return ToolResultMessage{
-		RoleField:  RoleToolResult,
+func errorToolResult(call agentcore.AgentToolCall, msg string) agentcore.ToolResultMessage {
+	return agentcore.ToolResultMessage{
+		RoleField:  agentcore.RoleToolResult,
 		ToolCallID: call.ID,
 		ToolName:   call.Name,
-		Content:    ContentList{NewTextContent(msg)},
+		Content:    agentcore.ContentList{agentcore.NewTextContent(msg)},
 		IsError:    true,
 	}
 }

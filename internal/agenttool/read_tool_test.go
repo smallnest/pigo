@@ -1,4 +1,4 @@
-package agent
+package agenttool
 
 import (
 	"context"
@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
-func runRead(t *testing.T, tool *ReadTool, args map[string]any) (AgentToolResult, bool) {
+func runRead(t *testing.T, tool *ReadTool, args map[string]any) (agentcore.AgentToolResult, bool) {
 	t.Helper()
 	raw, err := json.Marshal(args)
 	if err != nil {
@@ -22,10 +24,10 @@ func runRead(t *testing.T, tool *ReadTool, args map[string]any) (AgentToolResult
 	return res, false
 }
 
-func resultText(res AgentToolResult) string {
+func resultText(res agentcore.AgentToolResult) string {
 	var b strings.Builder
 	for _, c := range res.Content {
-		if tc, ok := c.(TextContent); ok {
+		if tc, ok := c.(agentcore.TextContent); ok {
 			b.WriteString(tc.Text)
 		}
 	}
@@ -144,7 +146,7 @@ func TestReadToolSchemaAndMode(t *testing.T) {
 	if tool.Name() != "read" {
 		t.Errorf("name = %q", tool.Name())
 	}
-	if tool.ExecutionMode() != ToolExecutionParallel {
+	if tool.ExecutionMode() != agentcore.ToolExecutionParallel {
 		t.Errorf("read should be parallel")
 	}
 	var schema map[string]any

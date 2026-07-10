@@ -8,13 +8,15 @@
 // (values registered from the environment or config) with precision-first
 // regexes for well-known token shapes; matches are applied longest-first so a
 // broad pattern never clobbers a more specific redaction.
-package agent
+package agenttool
 
 import (
 	"context"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // secretPattern pairs a compiled regex with the label used in its redaction
@@ -117,13 +119,13 @@ func scrubResultSecrets(text string, reg *SecretRegistry) string {
 
 // scrubContentList returns a copy of list with every text block scrubbed. Non-
 // text blocks pass through unchanged.
-func scrubContentList(list ContentList, reg *SecretRegistry) ContentList {
+func scrubContentList(list agentcore.ContentList, reg *SecretRegistry) agentcore.ContentList {
 	if len(list) == 0 {
 		return list
 	}
-	out := make(ContentList, len(list))
+	out := make(agentcore.ContentList, len(list))
 	for i, c := range list {
-		if tc, ok := c.(TextContent); ok {
+		if tc, ok := c.(agentcore.TextContent); ok {
 			tc.Text = scrubResultSecrets(tc.Text, reg)
 			out[i] = tc
 			continue
@@ -144,16 +146,16 @@ type SandboxGate struct {
 	// Classify maps a tool call to a sandbox Request. When nil, no permission
 	// check is applied (redaction still runs) — callers that want enforcement
 	// must supply a classifier.
-	Classify func(call AgentToolCall) (Request, bool)
+	Classify func(call agentcore.AgentToolCall) (Request, bool)
 	// PromptApprover is consulted when the policy returns DecisionPrompt. It
 	// must return true to allow. When nil, a prompt decision Blocks (fail
 	// closed): we never allow a prompt-required action without approval.
-	PromptApprover func(ctx context.Context, call AgentToolCall, req Request) bool
+	PromptApprover func(ctx context.Context, call agentcore.AgentToolCall, req Request) bool
 }
 
 // BeforeHook is a BeforeToolCallFunc that enforces the policy. It Blocks on
 // deny, and on prompt-without-approver, and on any classification failure.
-func (g *SandboxGate) BeforeHook(ctx context.Context, call AgentToolCall) *BeforeToolCallDecision {
+func (g *SandboxGate) BeforeHook(ctx context.Context, call agentcore.AgentToolCall) *agentcore.BeforeToolCallDecision {
 	if g == nil || g.Policy == nil || g.Classify == nil {
 		return nil // no enforcement configured
 	}
@@ -176,17 +178,17 @@ func (g *SandboxGate) BeforeHook(ctx context.Context, call AgentToolCall) *Befor
 
 // AfterHook is an AfterToolCallFunc that scrubs secrets from the result content.
 // It preserves Details/Terminate/IsError (only Content is overridden).
-func (g *SandboxGate) AfterHook(ctx context.Context, call AgentToolCall, result AgentToolResult, isError bool) *AfterToolCallResult {
+func (g *SandboxGate) AfterHook(ctx context.Context, call agentcore.AgentToolCall, result agentcore.AgentToolResult, isError bool) *agentcore.AfterToolCallResult {
 	var reg *SecretRegistry
 	if g != nil {
 		reg = g.Secrets
 	}
 	scrubbed := scrubContentList(result.Content, reg)
-	return &AfterToolCallResult{Content: &scrubbed}
+	return &agentcore.AfterToolCallResult{Content: &scrubbed}
 }
 
 // blockDecision builds a BeforeToolCallDecision that blocks with msg.
-func blockDecision(msg string) *BeforeToolCallDecision {
-	cl := ContentList{NewTextContent(msg)}
-	return &BeforeToolCallDecision{Block: true, Content: &cl}
+func blockDecision(msg string) *agentcore.BeforeToolCallDecision {
+	cl := agentcore.ContentList{agentcore.NewTextContent(msg)}
+	return &agentcore.BeforeToolCallDecision{Block: true, Content: &cl}
 }

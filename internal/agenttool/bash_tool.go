@@ -2,7 +2,7 @@
 // stdout/stderr back as tool_execution_update partials, honoring a timeout and
 // context cancellation (which kills the child process group). A non-zero exit
 // is surfaced as an error (isError) whose message carries the captured output.
-package agent
+package agenttool
 
 import (
 	"bytes"
@@ -13,6 +13,8 @@ import (
 	"os/exec"
 	"sync"
 	"time"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // bashDefaultTimeout bounds a command that does not specify one.
@@ -61,7 +63,9 @@ func (t *BashTool) Schema() json.RawMessage {
 }
 
 // ExecutionMode implements AgentTool. Commands can have side effects → sequential.
-func (t *BashTool) ExecutionMode() ToolExecutionMode { return ToolExecutionSequential }
+func (t *BashTool) ExecutionMode() agentcore.ToolExecutionMode {
+	return agentcore.ToolExecutionSequential
+}
 
 func (t *BashTool) shell() string {
 	if t.Shell != "" {
@@ -76,7 +80,7 @@ func (t *BashTool) shell() string {
 type streamWriter struct {
 	mu       *sync.Mutex
 	buf      *bytes.Buffer
-	onUpdate ToolUpdateFunc
+	onUpdate agentcore.ToolUpdateFunc
 }
 
 func (w streamWriter) Write(p []byte) (int, error) {
@@ -85,7 +89,7 @@ func (w streamWriter) Write(p []byte) (int, error) {
 	snapshot := w.buf.String()
 	w.mu.Unlock()
 	if w.onUpdate != nil {
-		w.onUpdate(AgentToolResult{Content: ContentList{NewTextContent(snapshot)}})
+		w.onUpdate(agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(snapshot)}})
 	}
 	return len(p), nil
 }
@@ -93,7 +97,7 @@ func (w streamWriter) Write(p []byte) (int, error) {
 // Execute implements AgentTool. It streams combined stdout/stderr via onUpdate,
 // enforces a timeout, and kills the process on context cancellation. A non-zero
 // exit returns a Go error (→ isError) carrying the exit code and output.
-func (t *BashTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
+func (t *BashTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 	var a bashToolArgs
 	if err := json.Unmarshal(args, &a); err != nil {
 		return errorResult(fmt.Sprintf("bash: invalid arguments: %v", err)), nil
@@ -132,11 +136,11 @@ func (t *BashTool) Execute(ctx context.Context, id string, args json.RawMessage,
 
 	// Context cancellation / timeout takes precedence in the message.
 	if runCtx.Err() == context.DeadlineExceeded {
-		return AgentToolResult{Content: ContentList{NewTextContent(output)}},
+		return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(output)}},
 			fmt.Errorf("bash: command timed out after %s\n%s", timeout, output)
 	}
 	if ctx.Err() == context.Canceled {
-		return AgentToolResult{Content: ContentList{NewTextContent(output)}},
+		return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(output)}},
 			fmt.Errorf("bash: command canceled\n%s", output)
 	}
 
@@ -146,15 +150,15 @@ func (t *BashTool) Execute(ctx context.Context, id string, args json.RawMessage,
 		if errors.As(err, &ee) {
 			exitCode = ee.ExitCode()
 		}
-		return AgentToolResult{
-				Content: ContentList{NewTextContent(output)},
+		return agentcore.AgentToolResult{
+				Content: agentcore.ContentList{agentcore.NewTextContent(output)},
 				Details: map[string]any{"exitCode": exitCode},
 			},
 			fmt.Errorf("bash: command exited with code %d\n%s", exitCode, output)
 	}
 
-	return AgentToolResult{
-		Content: ContentList{NewTextContent(output)},
+	return agentcore.AgentToolResult{
+		Content: agentcore.ContentList{agentcore.NewTextContent(output)},
 		Details: map[string]any{"exitCode": 0},
 	}, nil
 }

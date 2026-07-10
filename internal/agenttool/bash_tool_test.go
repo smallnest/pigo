@@ -1,4 +1,4 @@
-package agent
+package agenttool
 
 import (
 	"context"
@@ -8,9 +8,11 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
-func runBash(t *testing.T, tool *BashTool, args map[string]any, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
+func runBash(t *testing.T, tool *BashTool, args map[string]any, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 	t.Helper()
 	raw, err := json.Marshal(args)
 	if err != nil {
@@ -67,7 +69,7 @@ func TestBashToolStreaming(t *testing.T) {
 	tool := &BashTool{}
 	var mu sync.Mutex
 	var updates []string
-	onUpdate := func(r AgentToolResult) {
+	onUpdate := func(r agentcore.AgentToolResult) {
 		mu.Lock()
 		updates = append(updates, resultText(r))
 		mu.Unlock()
@@ -143,7 +145,7 @@ func TestBashToolMode(t *testing.T) {
 	if tool.Name() != "bash" {
 		t.Errorf("name = %q", tool.Name())
 	}
-	if tool.ExecutionMode() != ToolExecutionSequential {
+	if tool.ExecutionMode() != agentcore.ToolExecutionSequential {
 		t.Error("bash should be sequential")
 	}
 	var schema map[string]any

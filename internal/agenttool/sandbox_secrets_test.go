@@ -1,9 +1,11 @@
-package agent
+package agenttool
 
 import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 func TestScrubRegisteredSecret(t *testing.T) {
@@ -66,13 +68,13 @@ func TestScrubNoSecrets(t *testing.T) {
 func TestScrubContentList(t *testing.T) {
 	reg := NewSecretRegistry()
 	reg.Register("KEY", "topsecret9999")
-	list := ContentList{NewTextContent("has topsecret9999"), NewImageContent("data", "image/png")}
+	list := agentcore.ContentList{agentcore.NewTextContent("has topsecret9999"), agentcore.NewImageContent("data", "image/png")}
 	out := scrubContentList(list, reg)
-	tc, ok := out[0].(TextContent)
+	tc, ok := out[0].(agentcore.TextContent)
 	if !ok || strings.Contains(tc.Text, "topsecret9999") {
 		t.Errorf("text block not scrubbed: %+v", out[0])
 	}
-	if _, ok := out[1].(ImageContent); !ok {
+	if _, ok := out[1].(agentcore.ImageContent); !ok {
 		t.Errorf("non-text block should pass through unchanged")
 	}
 }
@@ -80,11 +82,11 @@ func TestScrubContentList(t *testing.T) {
 func TestSandboxGateBeforeHookDenies(t *testing.T) {
 	gate := &SandboxGate{
 		Policy: NewPolicy(t.TempDir()),
-		Classify: func(call AgentToolCall) (Request, bool) {
+		Classify: func(call agentcore.AgentToolCall) (Request, bool) {
 			return Request{Kind: AccessExec, Command: "rm -rf /"}, true
 		},
 	}
-	dec := gate.BeforeHook(context.Background(), AgentToolCall{Name: "bash"})
+	dec := gate.BeforeHook(context.Background(), agentcore.AgentToolCall{Name: "bash"})
 	if dec == nil || !dec.Block {
 		t.Fatalf("expected block decision, got %+v", dec)
 	}
@@ -93,12 +95,12 @@ func TestSandboxGateBeforeHookDenies(t *testing.T) {
 func TestSandboxGateBeforeHookPromptNoApproverBlocks(t *testing.T) {
 	gate := &SandboxGate{
 		Policy: NewPolicy(t.TempDir()),
-		Classify: func(call AgentToolCall) (Request, bool) {
+		Classify: func(call agentcore.AgentToolCall) (Request, bool) {
 			return Request{Kind: AccessExec, Command: "git push"}, true
 		},
 	}
 	// No approver → prompt must fail closed (block).
-	dec := gate.BeforeHook(context.Background(), AgentToolCall{Name: "bash"})
+	dec := gate.BeforeHook(context.Background(), agentcore.AgentToolCall{Name: "bash"})
 	if dec == nil || !dec.Block {
 		t.Fatalf("prompt without approver must block (never fail-open), got %+v", dec)
 	}
@@ -107,12 +109,12 @@ func TestSandboxGateBeforeHookPromptNoApproverBlocks(t *testing.T) {
 func TestSandboxGateBeforeHookPromptApproved(t *testing.T) {
 	gate := &SandboxGate{
 		Policy: NewPolicy(t.TempDir()),
-		Classify: func(call AgentToolCall) (Request, bool) {
+		Classify: func(call agentcore.AgentToolCall) (Request, bool) {
 			return Request{Kind: AccessExec, Command: "git push"}, true
 		},
-		PromptApprover: func(ctx context.Context, call AgentToolCall, req Request) bool { return true },
+		PromptApprover: func(ctx context.Context, call agentcore.AgentToolCall, req Request) bool { return true },
 	}
-	if dec := gate.BeforeHook(context.Background(), AgentToolCall{Name: "bash"}); dec != nil {
+	if dec := gate.BeforeHook(context.Background(), agentcore.AgentToolCall{Name: "bash"}); dec != nil {
 		t.Fatalf("approved prompt should allow (nil), got %+v", dec)
 	}
 }
@@ -120,11 +122,11 @@ func TestSandboxGateBeforeHookPromptApproved(t *testing.T) {
 func TestSandboxGateBeforeHookAllows(t *testing.T) {
 	gate := &SandboxGate{
 		Policy: NewPolicy(t.TempDir()),
-		Classify: func(call AgentToolCall) (Request, bool) {
+		Classify: func(call agentcore.AgentToolCall) (Request, bool) {
 			return Request{Kind: AccessExec, Command: "ls"}, true
 		},
 	}
-	if dec := gate.BeforeHook(context.Background(), AgentToolCall{Name: "bash"}); dec != nil {
+	if dec := gate.BeforeHook(context.Background(), agentcore.AgentToolCall{Name: "bash"}); dec != nil {
 		t.Fatalf("safe command should allow (nil), got %+v", dec)
 	}
 }
@@ -133,12 +135,12 @@ func TestSandboxGateAfterHookScrubs(t *testing.T) {
 	reg := NewSecretRegistry()
 	reg.Register("KEY", "leakedsecret42")
 	gate := &SandboxGate{Secrets: reg}
-	res := AgentToolResult{Content: ContentList{NewTextContent("out leakedsecret42")}}
-	over := gate.AfterHook(context.Background(), AgentToolCall{}, res, false)
+	res := agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent("out leakedsecret42")}}
+	over := gate.AfterHook(context.Background(), agentcore.AgentToolCall{}, res, false)
 	if over == nil || over.Content == nil {
 		t.Fatalf("expected content override")
 	}
-	tc := (*over.Content)[0].(TextContent)
+	tc := (*over.Content)[0].(agentcore.TextContent)
 	if strings.Contains(tc.Text, "leakedsecret42") {
 		t.Errorf("secret leaked through AfterHook: %q", tc.Text)
 	}

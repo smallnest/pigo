@@ -6,7 +6,7 @@
 // the whole line takes the highest risk found. Parse failure yields riskRisky
 // (fail toward caution, never toward safe) so a command we cannot understand is
 // never silently allowed.
-package agent
+package agenttool
 
 import (
 	"os"

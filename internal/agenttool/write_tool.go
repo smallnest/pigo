@@ -2,7 +2,7 @@
 // given path, creating parent directories as needed. Overwrites are reported so
 // the caller/model knows an existing file was replaced (parity with pi's write
 // behavior). Paths resolve against a Root and are rejected if they escape it.
-package agent
+package agenttool
 
 import (
 	"context"
@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // WriteTool writes text files under Root, creating parent directories as needed.
@@ -52,7 +54,9 @@ func (t *WriteTool) Schema() json.RawMessage {
 
 // ExecutionMode implements AgentTool. Writes mutate the filesystem → sequential
 // so a batch does not race concurrent writes to the same tree.
-func (t *WriteTool) ExecutionMode() ToolExecutionMode { return ToolExecutionSequential }
+func (t *WriteTool) ExecutionMode() agentcore.ToolExecutionMode {
+	return agentcore.ToolExecutionSequential
+}
 
 // resolvePath resolves p against Root and verifies it stays within Root. It
 // mirrors ReadTool.resolvePath so the two tools share one boundary policy.
@@ -85,7 +89,7 @@ func (t *WriteTool) resolvePath(p string) (string, error) {
 // Execute implements AgentTool. Write failures are encoded as error results;
 // the returned Go error is reserved for nothing here (argument decode also
 // degrades to a result), matching the read tool's contract.
-func (t *WriteTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
+func (t *WriteTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 	var a writeToolArgs
 	if err := json.Unmarshal(args, &a); err != nil {
 		return errorResult(fmt.Sprintf("write: invalid arguments: %v", err)), nil
@@ -124,8 +128,8 @@ func (t *WriteTool) Execute(ctx context.Context, id string, args json.RawMessage
 		verb = "Overwrote"
 	}
 	msg := fmt.Sprintf("%s %s (%d bytes)", verb, a.Path, len(a.Content))
-	return AgentToolResult{
-		Content: ContentList{NewTextContent(msg)},
+	return agentcore.AgentToolResult{
+		Content: agentcore.ContentList{agentcore.NewTextContent(msg)},
 		Details: map[string]any{"path": a.Path, "bytes": len(a.Content), "overwrote": overwrote},
 	}, nil
 }

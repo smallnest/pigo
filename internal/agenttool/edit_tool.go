@@ -3,7 +3,7 @@
 // is false) the edit is rejected. A unified-style diff of the change is returned
 // for the UI to render. Paths resolve against a Root with the same traversal
 // guard as the read/write tools.
-package agent
+package agenttool
 
 import (
 	"context"
@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // EditTool performs exact string replacements in files under Root.
@@ -54,7 +56,9 @@ func (t *EditTool) Schema() json.RawMessage {
 }
 
 // ExecutionMode implements AgentTool. Edits mutate the filesystem → sequential.
-func (t *EditTool) ExecutionMode() ToolExecutionMode { return ToolExecutionSequential }
+func (t *EditTool) ExecutionMode() agentcore.ToolExecutionMode {
+	return agentcore.ToolExecutionSequential
+}
 
 // resolvePath mirrors ReadTool/WriteTool so the tools share one boundary policy.
 func (t *EditTool) resolvePath(p string) (string, error) {
@@ -85,7 +89,7 @@ func (t *EditTool) resolvePath(p string) (string, error) {
 
 // Execute implements AgentTool. Edit failures (no match, non-unique match,
 // missing file, out-of-root) are encoded as error results.
-func (t *EditTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
+func (t *EditTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 	var a editToolArgs
 	if err := json.Unmarshal(args, &a); err != nil {
 		return errorResult(fmt.Sprintf("edit: invalid arguments: %v", err)), nil
@@ -134,8 +138,8 @@ func (t *EditTool) Execute(ctx context.Context, id string, args json.RawMessage,
 		replaced = count
 	}
 	msg := fmt.Sprintf("Edited %s (%d replacement(s))\n%s", a.Path, replaced, diff)
-	return AgentToolResult{
-		Content: ContentList{NewTextContent(msg)},
+	return agentcore.AgentToolResult{
+		Content: agentcore.ContentList{agentcore.NewTextContent(msg)},
 		Details: map[string]any{"path": a.Path, "replacements": replaced, "diff": diff},
 	}, nil
 }
