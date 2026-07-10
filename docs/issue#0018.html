@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0018</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block; font-size: 0.6875rem; font-weight: 500;
+      padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/18">#18</a> &mdash; EventStream 事件流机制（US-002） &mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Result 与 error 用同一个 resolvedCh + sync.Once 兑现</h3>
+      <p><strong>Ambiguity:</strong> 研究文档只说 "用 sync.Once + closed channel 表示就绪"，未定义失败路径如何表达。</p>
+      <p><strong>Choice:</strong> <code>SetResult</code> 与 <code>SetError</code> 共用一个 <code>resultOnce</code>，谁先调用谁生效，都 close 同一个 <code>resultCh</code>；<code>Result(ctx)</code> 返回 <code>(R, error)</code>。</p>
+      <p><strong>Rationale:</strong> agent loop 的终态可能是正常结束（agent_end→messages）或中断（aborted/error）。用统一的 once 保证结果只兑现一次，且 Result 的调用方一次拿到成功值或失败原因，语义清晰。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 保留 IsComplete/ExtractResult 回调，但允许显式 SetResult</h3>
+      <p><strong>Ambiguity:</strong> 研究文档提出两种等价路径（回调自动捕获 vs loop 内显式设置），未强制其一。</p>
+      <p><strong>Choice:</strong> 两者都支持——回调设为可选字段，Emit 时若命中 IsComplete 则自动 ExtractResult；provider 层可用回调，agent loop 可显式 SetResult。</p>
+      <p><strong>Rationale:</strong> 验收条件明确要求 "保留 isComplete/extractResult 回调字段"，同时显式 SetResult 更符合 Go 习惯，两条路径共存不冲突（都走 once）。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Close 无结果时兜底为 ErrStreamIncomplete</h3>
+      <p><strong>Spec:</strong> pi 的 <code>end(result?)</code> 允许无结果关闭，async iterator 自然终止。</p>
+      <p><strong>Implemented:</strong> <code>Close()</code> 若结果未兑现，用 <code>ErrStreamIncomplete</code> 兜底再关闭 channel。</p>
+      <p><strong>Why:</strong> Go 的 <code>Result(ctx)</code> 是阻塞调用，若生产者忘记 SetResult 就 Close，消费者会永久阻塞。兜底把 "异常结束" 显式化为可观测的 error，避免死锁。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 结果不走事件 channel，单独 resultCh 兑现</h3>
+      <p><strong>Alternatives:</strong> (A) 把最终结果作为最后一个事件推入 channel；(B) 独立 resultCh + sync.Once。</p>
+      <p><strong>Pros/Cons:</strong> A 实现简单，但消费者若提前 break 就永远拿不到结果，且类型 T≠R 无法共用 channel；B 多一个 channel，但消费与取结果解耦。</p>
+      <p><strong>Winner:</strong> B——研究文档明确 "不要把 result 也塞进事件 channel"，且 Result 可在不读完事件的情况下获取。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 默认 buffer=0 提供同步背压</h3>
+      <p><strong>Alternatives:</strong> 无缓冲（同步） vs 带缓冲 channel。</p>
+      <p><strong>Pros/Cons:</strong> 无缓冲精确对应 pi 的顺序 <code>await emit</code>，消费者慢则生产者阻塞（想要的背压）；缓冲会让生产者跑在消费者前面，事件与状态可能失步。</p>
+      <p><strong>Winner:</strong> 默认 0，但 <code>NewEventStream(buffer)</code> 保留调参余地（测试与 provider 层可按需加缓冲）。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> "listener settle 才算 run 结束" 语义暂简化</h3>
+      <p><strong>Assumption:</strong> 首版把 "channel 关闭即结束" 作为终点，未实现 pi 里 "agent_end 的 async listener settle 后才算结束" 的语义。</p>
+      <p><strong>Verify:</strong> 后续 runLoop（#23）接入时，确认消费方副作用是否需要在 Close 前同步完成；若需要，可能要加 listener 完成信号。研究文档已把此列为 "简化点"。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
