@@ -211,13 +211,15 @@ func (m *Model) drain(runID int, stream *runtime.LoopEventStream) {
 
 // View implements tea.Model: it renders the transcript then the input line as a
 // plain string; bubbletea diffs and paints it (no custom incremental render).
+// Each transcript entry is folded to the terminal width on rune boundaries so
+// double-width CJK/emoji wrap without being split (#91).
 func (m *Model) View() tea.View {
 	if m.quitting {
 		return tea.NewView("bye\n")
 	}
 	var b strings.Builder
 	for _, e := range m.state.transcript {
-		b.WriteString(renderEntry(e))
+		b.WriteString(wrapWidth(renderEntry(e, m.width), m.width))
 		b.WriteByte('\n')
 	}
 	b.WriteString("\n")
@@ -233,8 +235,10 @@ func (m *Model) View() tea.View {
 
 // renderEntry formats one transcript entry with a role prefix. Assistant text
 // is passed through fenceBuffer so an unterminated code fence renders cleanly
-// (no half-open ``` breaking the layout mid-stream).
-func renderEntry(e transcriptEntry) string {
+// (no half-open ``` breaking the layout mid-stream). width is the terminal
+// width used to truncate a long tool-result summary on rune boundaries; a
+// non-positive width disables that truncation.
+func renderEntry(e transcriptEntry, width int) string {
 	switch e.Kind {
 	case entryUser:
 		return "you> " + e.Text
@@ -243,7 +247,13 @@ func renderEntry(e transcriptEntry) string {
 	case entryToolCall:
 		return "⚙ " + e.Text
 	case entryToolResult:
-		return "  ↳ " + firstLine(e.Text)
+		const prefix = "  ↳ "
+		gist := firstLine(e.Text)
+		if width > 0 {
+			// Reserve the prefix's display columns so the whole line fits.
+			gist = truncateWidth(gist, width-displayWidth(prefix))
+		}
+		return prefix + gist
 	case entrySystem:
 		return "· " + e.Text
 	default:
