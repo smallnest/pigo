@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0029</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/29">#29</a> &mdash; OpenAI 兼容 provider decoder（US-009）&mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 自定义 base URL 归为 transport 关注点，decoder 完全 base-URL 无关</h3>
+      <p><strong>Ambiguity:</strong> 验收要求"支持自定义 base URL"，但未规定该配置落在 decoder 还是 transport。</p>
+      <p><strong>Choice:</strong> <code>OpenAIDecoder</code> 只负责解析 wire 格式，不含任何 URL 概念；base URL 由 transport 的 <code>NewRequest</code>（构建 <code>*http.Request</code>）决定。同一个 decoder 因此可复用于所有 OpenAI 兼容网关（OpenRouter、Groq、together、本地 server）。</p>
+      <p><strong>Rationale:</strong> Chat Completions 的 SSE chunk 格式与端点无关；把 URL 选择留在 transport 层符合既有 <code>Decoder</code> 契约的职责边界，也让"兼容 provider"天然成立而无需 decoder 改动。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> tool_calls 按 delta <code>index</code> 归集，text 累积到单一 builder</h3>
+      <p><strong>Ambiguity:</strong> 验收只要求"解析 tool_calls 增量与文本增量"，未规定跨 chunk 的累积组织方式。</p>
+      <p><strong>Choice:</strong> 文本用单个 <code>strings.Builder</code>（OpenAI 单条 choice 的 content 顺序到达）；tool_calls 用 <code>map[int]*openaiToolCall</code> 按 delta <code>index</code> 归集，id/name 首片到达即记，arguments 逐片拼接；单独记录 <code>toolOrder</code> 保证首见顺序。</p>
+      <p><strong>Rationale:</strong> 复刻 <code>anthropic.go</code> 的 index 归集范式，天然处理并行 tool_calls 的交错分片；terminal 消息里 text 块在前、tool_call 块按 index 升序，顺序稳定可预期。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> finish_reason 映射表：<code>length→length</code>、<code>tool_calls/function_call→tool_use</code>、其余→<code>end_turn</code></h3>
+      <p><strong>Ambiguity:</strong> 验收要求"stopReason 映射正确"，但 OpenAI 还有 <code>content_filter</code>、legacy <code>function_call</code> 等值未列出。</p>
+      <p><strong>Choice:</strong> <code>length→StopReasonLength</code>、<code>tool_calls</code> 与 legacy <code>function_call→StopReasonToolUse</code>、<code>stop→StopReasonEndTurn</code>，未知值（含 content_filter）兜底 <code>end_turn</code>。</p>
+      <p><strong>Rationale:</strong> 与 <code>mapAnthropicStopReason</code> 对齐；legacy <code>function_call</code> 语义等同工具调用；未知值兜底为非 error 的自然停止，避免把新 wire 值误判为失败。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> <code>feedSSE</code> 测试辅助新增 <code>[DONE]</code> 跳过，而非改 decoder</h3>
+      <p><strong>Spec:</strong> OpenAI 流以 <code>data: [DONE]</code> 作为终止哨兵；dual failure model 要求 decoder 不因畸形 payload panic。</p>
+      <p><strong>Implemented:</strong> <code>[DONE]</code> 是 transport 层终止符（transport 的 SSE 解析已将其丢弃，不会喂给 <code>Decode</code>）。测试辅助 <code>feedSSE</code> 原先手工切分不识别 <code>[DONE]</code>，故在其中加一行跳过，与 transport 行为对齐；<code>OpenAIDecoder</code> 本身不需要、也不含对 <code>[DONE]</code> 的特判。</p>
+      <p><strong>Why:</strong> <code>[DONE]</code> 归属 transport 关注点；若在 decoder 里特判会把 transport 职责泄漏进 decoder。fixture 里保留 <code>[DONE]</code> 行是为了让录制流结构忠实于真实 wire，测试辅助对齐 transport 的丢弃行为即可。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 内联 <code>error</code> 对象表达为 <code>Decode</code> 返回 error</h3>
+      <p><strong>Alternatives:</strong> (A) 部分网关会在 SSE chunk 里内联 <code>{"error":{...}}</code>，decoder 检测到即返回 Go error，由 transport <code>flush()</code> 转成终态 <code>StreamErrorEvent</code>；(B) 忽略内联 error，仅依赖 HTTP 状态码/transport 层错误。</p>
+      <p><strong>Pros/Cons:</strong> A 覆盖 OpenRouter/Groq 等网关在 200 流中途报错的真实场景，与 <code>anthropic.go</code> 的 error 事件处理一致；B 更简单但会漏掉流内错误，让消费方拿到静默截断的空响应。</p>
+      <p><strong>Winner:</strong> A——兼容 provider 的错误常以流内 error 对象出现；统一走 transport 的单一失败落点（terminal StreamErrorEvent），语义与 Anthropic decoder 对齐。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 复用 <code>feedSSE</code>/<code>sseServer</code> 录制 fixture vs 新建独立测试骨架</h3>
+      <p><strong>Alternatives:</strong> (A) 复用 <code>anthropic_test.go</code> 的 <code>feedSSE</code>/<code>eventKinds</code> 与 <code>transport_test.go</code> 的 <code>sseServer</code>/<code>newReqFn</code>，一份 fixture 同时跑纯 decoder 单测与 transport 全链路；(B) 为 OpenAI 单独写一套测试驱动。</p>
+      <p><strong>Pros/Cons:</strong> A 零重复、与 Anthropic 测试范式一致、天然验证 <code>[DONE]</code> 经 transport 的处理；B 隔离性略好但重复造轮子、且要另建 SSE server。</p>
+      <p><strong>Winner:</strong> A——两个 decoder 共享 transport 契约，共享测试骨架保证行为一致性，只需为 <code>[DONE]</code> 在共享辅助里加一行跳过。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> OpenAI usage 是否需要 <code>stream_options:{include_usage:true}</code> 才下发</h3>
+      <p><strong>Assumption:</strong> 假设请求已带 <code>stream_options.include_usage=true</code>，故流末会出现 usage-only chunk（<code>choices:[]</code> + <code>usage</code>）；decoder 直接覆盖式记录 prompt/completion tokens。</p>
+      <p><strong>Verify:</strong> 该 flag 属请求构建（transport/provider 层）职责，需在 provider 实现里确保开启；否则某些网关流不含 usage，最终 <code>Usage</code> 为 nil。接入真实流量后核对 token 数。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 是否需要保留 OpenAI o系列的 reasoning/thinking 增量</h3>
+      <p><strong>Assumption:</strong> 当前 decoder 只解析 <code>content</code> 与 <code>tool_calls</code>，不处理 o1/o3 等模型可能下发的 reasoning 摘要字段。</p>
+      <p><strong>Verify:</strong> 若后续需支持 OpenAI 兼容端点的思考内容展示，需扩展 <code>openaiChunk</code> 与 delta 解析承载 reasoning 字段并映射到 <code>ThinkingContent</code>。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
