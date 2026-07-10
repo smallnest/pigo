@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0044</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/44">#44</a> &mdash; sandbox 进程内门 + secret redaction（US-026）&mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 纯函数 <code>Evaluate</code> 与运行时 <code>SandboxGate</code> 分离</h3>
+      <p><strong>Ambiguity:</strong> 验收要求 "<code>Evaluate(ctx, Request) Decision</code> 纯函数门经 beforeToolCall 接入"，但未规定策略引擎与 hook 适配层如何切分。</p>
+      <p><strong>Choice:</strong> <code>Policy.Evaluate</code> 是无副作用的纯函数（同一 Request 恒定返回同一 Decision）；<code>SandboxGate</code> 单独承担 hook 适配——<code>BeforeHook</code> 把 Decision 翻译成 Block、<code>AfterHook</code> 做 secret 擦除。二者放在 <code>sandbox.go</code> 与 <code>sandbox_secrets.go</code>。</p>
+      <p><strong>Rationale:</strong> 纯函数便于穷举单测（deny path / deny command / redaction 各自独立），运行时接入与策略判定解耦，符合 pi→pigo 的 "callback 变 struct func 字段" 映射。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>Decision</code> 零值 = <code>DecisionDeny</code>，全程 fail-closed</h3>
+      <p><strong>Ambiguity:</strong> 验收强调 "进程内门 + 逐命令审批绝不 fail-open"，但未规定各歧义分支的默认走向。</p>
+      <p><strong>Choice:</strong> 枚举顺序 <code>Deny=0, Prompt, Allow</code>，使遗漏赋值的路径天然 deny；路径解析失败、未知 AccessKind、prompt 无 approver、命令不可解析——全部落到 deny/prompt，绝不 allow。</p>
+      <p><strong>Rationale:</strong> 用类型系统的零值语义兜底安全默认，比依赖每个分支显式写对更可靠。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> secret 擦除接入 <code>AfterToolCall</code> 而非 registry defer</h3>
+      <p><strong>Ambiguity:</strong> 验收原文 "registry 单 choke-point <code>defer scrubResultSecrets</code>"，但 result 的最终裁定实际发生在 <code>tool_executor.go</code> 的 finalize 阶段，registry 只负责 schema 编译/校验。</p>
+      <p><strong>Choice:</strong> 把 <code>scrubContentList</code> 挂到 <code>AfterHook</code>（<code>AfterToolCallFunc</code>），它按字段覆盖 Content、保留 Details/Terminate/IsError，是所有 result 流向模型前的真正单一 choke-point。</p>
+      <p><strong>Rationale:</strong> AfterToolCall 已是执行器唯一的 result 收口，无需再在 registry 侧加 defer；擦除逻辑与既有 hook 契约天然契合。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 精度优先正则 + 已知 key 注册表 + longest-match-first</h3>
+      <p><strong>Ambiguity:</strong> "精度优先正则" 未给出具体 key 形态清单。</p>
+      <p><strong>Choice:</strong> 内置 8 类形态正则（openai/anthropic/aws/github/google/slack/bearer/PEM 私钥块），均以显著前缀+受限字符集锚定；外加 <code>SecretRegistry</code> 存环境/配置注册的明文值。所有命中按长度降序稳定排序后逐一替换，marker 仅含 label 不含值。</p>
+      <p><strong>Rationale:</strong> longest-first 确保宽泛 pattern 不会截断更长的具体命中；anthropic-key 在注册表中排在 openai-key 前，等长命中时稳定序保证更具体标签胜出。全程只输出 <code>[REDACTED:&lt;label&gt;]</code>，恪守 "secret 值绝不写日志" 约束。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> OS 级隔离不实现，仅进程内门</h3>
+      <p><strong>Spec:</strong> US-026 "降级带底线（OS 隔离不做，进程内门 + 逐命令审批绝不 fail-open）"。</p>
+      <p><strong>Implemented:</strong> 无 namespace/seccomp/容器隔离；安全边界完全由进程内 <code>Policy.Evaluate</code> + 逐命令 prompt 审批构成，且所有歧义分支 fail-closed。</p>
+      <p><strong>Why:</strong> 验收本身即把 OS 隔离列为不做项，明确以 "进程内门不 fail-open" 为底线；本实现严格落在该底线上。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 真 AST（mvdan.cc/sh/v3）vs 正则匹配命令</h3>
+      <p><strong>Alternatives:</strong> (A) 用 <code>mvdan.cc/sh/v3</code> 解析 shell AST 提取每个 CallExpr 的 argv[0]；(B) 正则切分命令行按关键字匹配。</p>
+      <p><strong>Pros/Cons:</strong> A 能结构化识别管道/子 shell/命令替换/重定向，且解析失败可 fail-toward-risky；B 零依赖但对 <code>a | rm b</code>、<code>$(...)</code>、引号嵌套等易漏判或误判。</p>
+      <p><strong>Winner:</strong> A——验收明确 "shell 命令风险分类用真 AST"；不可解析命令回退 <code>riskRisky</code>（绝不 safe），安全性优先于零依赖。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 符号链接解析 <code>evalSymlinksLenient</code> 处理不存在的写目标</h3>
+      <p><strong>Alternatives:</strong> (A) 直接 <code>filepath.EvalSymlinks</code>（对不存在路径报错）；(B) 宽松解析：解析最深已存在祖先再拼回剩余段。</p>
+      <p><strong>Pros/Cons:</strong> A 对尚未创建的写目标会失败、迫使 fail-closed 但过度拒绝；B 允许合法的新建写，同时仍能捕获 "jail 内软链指向 jail 外" 的越狱。</p>
+      <p><strong>Winner:</strong> B——写目标常不存在，需在保持越狱防护的前提下允许合法创建。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 网络访问门当前无实际拦截点</h3>
+      <p><strong>Assumption:</strong> <code>AccessNetwork</code> 的 allow-list 判定已就位，但目前没有工具产生 network Request（无 fetch/http 工具）。</p>
+      <p><strong>Verify:</strong> 后续新增网络类工具时，需在 <code>Classify</code> 中映射出 <code>AccessNetwork</code> Request 才能真正生效——是否需要现在就预留 classifier 骨架？</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> <code>SandboxGate.Classify</code> 的默认工具映射未内置</h3>
+      <p><strong>Assumption:</strong> gate 只提供 <code>Classify</code> 字段，调用方需自行把 bash/write/read/edit 工具映射到对应 Request。</p>
+      <p><strong>Verify:</strong> 是否应提供一个默认 classifier（如把 <code>bash</code>→AccessExec、<code>write/edit</code>→AccessWrite）以便开箱即用？当前留给装配层决定，避免 sandbox 层耦合具体工具名。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
