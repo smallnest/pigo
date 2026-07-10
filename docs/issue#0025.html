@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0025</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/25">#25</a> &mdash; Provider 接口 + dual failure model（US-007） &mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> StreamCompletion 返回 <code>*AssistantMessageEventStream</code> 而非裸 <code>&lt;-chan&gt;</code></h3>
+      <p><strong>Ambiguity:</strong> issue 验收写 <code>(&lt;-chan StreamEvent, error)</code>，但 #18/#20 已确立 EventStream 泛型作为流抽象。</p>
+      <p><strong>Choice:</strong> 返回 <code>(*AssistantMessageEventStream, error)</code>——EventStream 内部即含 <code>chan T</code>（Events() 暴露 <code>&lt;-chan&gt;</code>）外加 Result/Error 语义。</p>
+      <p><strong>Rationale:</strong> 与已落地的 StreamFn 契约完全一致，Provider 可经 <code>StreamFnFromProvider</code> 零成本适配进 loop，避免两套流类型。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 新增 CompletionRequest 聚合入参</h3>
+      <p><strong>Ambiguity:</strong> 验收要 "输入 model + context + options"，未规定是散参还是聚合。</p>
+      <p><strong>Choice:</strong> <code>CompletionRequest{Model, Context LlmContext, Config StreamConfig}</code> 聚合三者。</p>
+      <p><strong>Rationale:</strong> 单一结构体便于未来扩展字段而不破坏接口签名；与 StreamFn 的散参经 adapter 桥接。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 事件类型复用 AssistantMessageEvent，不新造 StreamEvent</h3>
+      <p><strong>Spec:</strong> 验收命名为 <code>StreamEvent</code> / <code>StreamEventError</code>。</p>
+      <p><strong>Implemented:</strong> 复用 #20 已建的 <code>AssistantMessageEvent</code>（含 <code>StreamErrorEvent</code> 终态事件）。</p>
+      <p><strong>Why:</strong> 同一套 delta 事件已在 provider.go 定义并被 loop 消费，另造一套会割裂类型系统；StreamErrorEvent 正是验收要的 "流内终态 error 事件"。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Model.ThinkingLevels 用 json:"-" 排除序列化</h3>
+      <p><strong>Alternatives:</strong> (A) 序列化 ThinkingLevelMap；(B) json:"-" 排除。</p>
+      <p><strong>Pros/Cons:</strong> A 让 Model 完整可 JSON 往返但 <code>map[level]*string</code> 序列化语义含糊（nil 指针 vs 缺键）；B 保持 Model JSON 干净，thinking 映射作为运行时能力表由 provider 代码持有。</p>
+      <p><strong>Winner:</strong> B——ThinkingLevelMap 的三态（nil/缺键/值）是内存语义，不适合走 JSON；Model 的 JSON 面向 UI 展示能力标记即可。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Model 能力字段集合是否够用</h3>
+      <p><strong>Assumption:</strong> 当前 Model 含 provider/id/displayName/contextWindow/maxOutputTokens/supportsThinking/supportsTools/thinkingLevels。</p>
+      <p><strong>Verify:</strong> 后续具体 provider（#26 Anthropic、#27 OpenAI）实现时若需更多能力标记（如 supportsVision、pricing），可增量补字段。请确认当前字段集覆盖近期需求。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
