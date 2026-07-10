@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0028</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/28">#28</a> &mdash; Anthropic provider decoder（US-008）&mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>AnthropicDecoder</code> 作为有状态 <code>Decoder</code>，按 content-block index 累积 partial</h3>
+      <p><strong>Ambiguity:</strong> 验收只要求"正确解析 text/thinking/tool_use 增量"，未规定 decoder 如何组织跨多个 SSE 事件的累积状态。</p>
+      <p><strong>Choice:</strong> 用 <code>map[int]*anthropicBlock</code> 按 Anthropic 的 content-block <code>index</code> 归集每个块的增量（text/thinking 各自 <code>strings.Builder</code>，tool_use 累积 partial JSON 字符串），并单独记录 <code>order</code> 保证首见顺序；每次 delta 后 <code>partial()</code> 物化出完整 <code>AssistantMessage</code> 随事件外发。</p>
+      <p><strong>Rationale:</strong> 复刻既有 transport <code>Decoder</code> 契约（<code>Decode</code>+<code>Finish</code>），与 <code>jsonDecoder</code> 测试范式一致；index 归集天然处理 Anthropic 交错到达的 block 事件，partial 物化让消费方每步都拿到可用快照。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>message_delta</code> 不产出独立事件，仅累积 stop_reason 与 usage</h3>
+      <p><strong>Ambiguity:</strong> AssistantMessageEvent 集合里没有"usage/stop 更新"这种 kind，验收也没要求为其单独发事件。</p>
+      <p><strong>Choice:</strong> <code>onMessageDelta</code> 只把 <code>stop_reason</code>（经 <code>mapAnthropicStopReason</code> 映射）与 output/input token 写入 decoder 状态，返回 <code>nil</code>（零事件）；这些值在终态 <code>StreamDoneEvent.Message</code> 里一并交付。</p>
+      <p><strong>Rationale:</strong> 事件集合是固定的 6 种（start/text/thinking/toolcall/done/error），不为 Anthropic 特有的中间态硬造事件；终态消息已携带 Usage 与 StopReason，消费方无需中途感知。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>stop_reason</code> 映射表：<code>max_tokens→length</code>、<code>tool_use→tool_use</code>、其余→<code>end_turn</code></h3>
+      <p><strong>Ambiguity:</strong> 验收要求"正确映射 stopReason（length/tool_use/end_turn）"，但 Anthropic 还有 <code>stop_sequence</code> 等值未列出。</p>
+      <p><strong>Choice:</strong> <code>max_tokens→StopReasonLength</code>、<code>tool_use→StopReasonToolUse</code>、<code>end_turn</code>/<code>stop_sequence→StopReasonEndTurn</code>，未知值兜底 <code>end_turn</code>。</p>
+      <p><strong>Rationale:</strong> <code>stop_sequence</code> 语义上是自然停止，归入 <code>end_turn</code> 最贴近 pi；未知值兜底为非 error 的自然停止，避免把新出现的 wire 值误判为失败。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Anthropic <code>error</code> 事件表达为 <code>Decode</code> 返回 error，而非自行发 <code>StreamErrorEvent</code></h3>
+      <p><strong>Spec:</strong> 验收要求"网络/限流/鉴权失败以流内终态 error 消息表达不 panic"。</p>
+      <p><strong>Implemented:</strong> decoder 遇到 <code>error</code> 事件或畸形 JSON 时返回 Go error；由 transport 的 <code>flush()</code> 统一转成终态 <code>StreamErrorEvent</code>（stopReason=error）。decoder 自身从不构造终态 error 事件、从不 panic。</p>
+      <p><strong>Why:</strong> transport 已拥有 dual failure model 的唯一落点（<code>fail()</code>），decoder 只需把失败上报为 error，职责单一；网络/限流/鉴权失败本就发生在 transport 层（连接/读循环），decoder 层的 error 事件与之走同一条终态路径，语义统一。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> tool_use 参数在 partial 中透传原始累积串，终态兜底 <code>{}</code></h3>
+      <p><strong>Alternatives:</strong> (A) partial 阶段直接透传 <code>toolJSON</code> 累积串（可能是不完整 JSON），终态若为空则兜底 <code>{}</code>；(B) 每次 delta 都尝试解析完整 JSON，未闭合则丢弃。</p>
+      <p><strong>Pros/Cons:</strong> A 简单、零解析开销、流式 partial 可展示"正在输入的参数"，代价是 partial 期 Arguments 可能非法 JSON（消费方本就应只在 done 后解析）；B 保证每个 partial 的 Arguments 恒合法，但要反复试解析、且丢弃中间态失去流式可见性。</p>
+      <p><strong>Winner:</strong> A——input_json_delta 是逐段拼接设计，闭合只在最后一段发生；下游（loop/executeToolCalls）只消费终态 done 的 Arguments，partial 的合法性非必需。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 录制 fixture SSE 单测 vs mock decoder 单元测试</h3>
+      <p><strong>Alternatives:</strong> (A) 内联一段结构忠实的录制 Anthropic SSE 常量，既做纯 decoder 单测（<code>feedSSE</code> 手工切分）又串 transport（<code>sseServer</code>）跑全链路；(B) 只测 <code>Decode</code> 逐事件返回。</p>
+      <p><strong>Pros/Cons:</strong> A 覆盖真实事件序列（message_start→block×3→message_delta→message_stop）与 transport 集成，贴合验收"录制 fixture 的 SSE 解析单测"；B 更细粒度但漏掉 transport 拼装/flush 路径。</p>
+      <p><strong>Winner:</strong> A——复用 <code>transport_test.go</code> 已有的 <code>sseServer</code>/<code>newReqFn</code> 范式，一份 fixture 同时验证 decoder 与端到端。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> <code>message_delta</code> 的 usage 是累积值还是增量值</h3>
+      <p><strong>Assumption:</strong> 假设 Anthropic 的 <code>message_delta.usage.output_tokens</code> 为累积总量，故直接覆盖（而非累加）decoder 的 <code>outputTokens</code>。</p>
+      <p><strong>Verify:</strong> 若某些 Anthropic API 版本按增量报 usage，需改为累加；接入真实流量后核对最终 token 数是否与账单一致。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> <code>redacted_thinking</code> 是否需要保留其密文载荷</h3>
+      <p><strong>Assumption:</strong> 当前只置 <code>Redacted=true</code> 标记，不保留 Anthropic 返回的加密 thinking 数据块内容。</p>
+      <p><strong>Verify:</strong> 若后续多轮对话需回传 redacted thinking 的原始 <code>data</code> 以维持推理连续性，需扩展 <code>anthropicBlock</code> 与 <code>ThinkingContent</code> 承载该密文。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
