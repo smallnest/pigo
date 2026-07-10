@@ -19,11 +19,14 @@
 // agentLoop starts a fresh run from a prompt already appended to the context;
 // agentLoopContinue resumes an existing context and validates that the last
 // message is not an assistant message (nothing to continue from otherwise).
-package agent
+package runtime
 
 import (
 	"context"
 	"errors"
+
+	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/agenttool"
 )
 
 // TurnUpdate is the optional result of PrepareNextTurn: any non-nil field
@@ -31,11 +34,11 @@ import (
 // a caller swap the trimmed context, system prompt, tool set, model, or
 // thinking level between turns (FR-6).
 type TurnUpdate struct {
-	Messages      *MessageList
+	Messages      *agentcore.MessageList
 	SystemPrompt  *string
-	Tools         *[]AgentTool
+	Tools         *[]agentcore.AgentTool
 	Model         *string
-	ThinkingLevel *ThinkingLevel
+	ThinkingLevel *agentcore.ThinkingLevel
 }
 
 // RunConfig is the full configuration for a loop run: the per-turn streaming
@@ -45,21 +48,21 @@ type RunConfig struct {
 	LoopConfig
 	// Batch holds the tool registry and the prepare/before/after hooks used to
 	// execute each assistant message's tool calls.
-	Batch BatchConfig
+	Batch agenttool.BatchConfig
 
 	// GetFollowUpMessages is consulted after the inner loop settles (an assistant
 	// message with no tool calls). Returning messages continues the outer loop
 	// with them as the next input; returning none ends the run (FR-9).
-	GetFollowUpMessages func(ctx context.Context, agentCtx *AgentContext) []AgentMessage
+	GetFollowUpMessages func(ctx context.Context, agentCtx *agentcore.AgentContext) []agentcore.AgentMessage
 	// GetSteeringMessages is pulled after each turn's tool execution and injected
 	// before the next turn (pi per-turn semantics, FR-8).
-	GetSteeringMessages func(ctx context.Context) []AgentMessage
+	GetSteeringMessages func(ctx context.Context) []agentcore.AgentMessage
 	// PrepareNextTurn runs after each turn_end and may swap context / model /
 	// thinkingLevel for the next turn (FR-6).
-	PrepareNextTurn func(ctx context.Context, agentCtx *AgentContext) *TurnUpdate
+	PrepareNextTurn func(ctx context.Context, agentCtx *agentcore.AgentContext) *TurnUpdate
 	// ShouldStopAfterTurn runs after each turn_end; true ends the run with an
 	// agent_end event (FR-7).
-	ShouldStopAfterTurn func(ctx context.Context, agentCtx *AgentContext) bool
+	ShouldStopAfterTurn func(ctx context.Context, agentCtx *agentcore.AgentContext) bool
 
 	// EventBuffer is the buffer size of the emitted EventStream. 0 gives fully
 	// synchronous back-pressure (matching pi's awaited emit).
@@ -68,7 +71,7 @@ type RunConfig struct {
 
 // LoopEventStream is the stream returned by the loop entry points: it carries
 // AgentEvents and yields the messages newly produced during the run.
-type LoopEventStream = EventStream[AgentEvent, []AgentMessage]
+type LoopEventStream = agentcore.EventStream[agentcore.AgentEvent, []agentcore.AgentMessage]
 
 // ErrContinueLastAssistant is the result error when agentLoopContinue is called
 // on a context whose last message is an assistant message (nothing to respond
@@ -80,8 +83,8 @@ var ErrContinueLastAssistant = errors.New("agent: cannot continue loop, last mes
 // user message(s) to agentCtx.Messages. It returns immediately with an
 // EventStream; a producer goroutine drives the loop and closes the stream when
 // the run ends.
-func agentLoop(ctx context.Context, agentCtx *AgentContext, cfg RunConfig) *LoopEventStream {
-	stream := NewEventStream[AgentEvent, []AgentMessage](cfg.EventBuffer)
+func agentLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfig) *LoopEventStream {
+	stream := agentcore.NewEventStream[agentcore.AgentEvent, []agentcore.AgentMessage](cfg.EventBuffer)
 	go runLoop(ctx, agentCtx, cfg, stream)
 	return stream
 }
@@ -90,23 +93,23 @@ func agentLoop(ctx context.Context, agentCtx *AgentContext, cfg RunConfig) *Loop
 // drivers (the interactive TUI, US-022). It is a thin wrapper over agentLoop so
 // the loop internals stay unexported while callers outside the package can
 // still launch a run and consume its event stream.
-func StartRun(ctx context.Context, agentCtx *AgentContext, cfg RunConfig) *LoopEventStream {
+func StartRun(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfig) *LoopEventStream {
 	return agentLoop(ctx, agentCtx, cfg)
 }
 
 // ContinueRun is the exported entry point for resuming an existing context
 // (session continuation, US-024). It wraps agentLoopContinue.
-func ContinueRun(ctx context.Context, agentCtx *AgentContext, cfg RunConfig) *LoopEventStream {
+func ContinueRun(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfig) *LoopEventStream {
 	return agentLoopContinue(ctx, agentCtx, cfg)
 }
 
 // agentLoopContinue resumes an existing context. It validates that the last
 // message is not an assistant message before running; on violation it returns a
 // stream that yields ErrContinueLastAssistant with no events.
-func agentLoopContinue(ctx context.Context, agentCtx *AgentContext, cfg RunConfig) *LoopEventStream {
-	stream := NewEventStream[AgentEvent, []AgentMessage](cfg.EventBuffer)
+func agentLoopContinue(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfig) *LoopEventStream {
+	stream := agentcore.NewEventStream[agentcore.AgentEvent, []agentcore.AgentMessage](cfg.EventBuffer)
 	if n := len(agentCtx.Messages); n > 0 {
-		if _, isAssistant := agentCtx.Messages[n-1].(AssistantMessage); isAssistant {
+		if _, isAssistant := agentCtx.Messages[n-1].(agentcore.AssistantMessage); isAssistant {
 			stream.SetError(ErrContinueLastAssistant)
 			stream.Close()
 			return stream
@@ -118,41 +121,41 @@ func agentLoopContinue(ctx context.Context, agentCtx *AgentContext, cfg RunConfi
 
 // runLoop is the producer: it drives the two-layer loop, emitting events onto
 // stream and setting the stream result to the messages produced during the run.
-func runLoop(ctx context.Context, agentCtx *AgentContext, cfg RunConfig, stream *LoopEventStream) {
+func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfig, stream *LoopEventStream) {
 	startIdx := len(agentCtx.Messages)
 	// newMessages returns the messages appended since the run began.
-	newMessages := func() []AgentMessage {
+	newMessages := func() []agentcore.AgentMessage {
 		if len(agentCtx.Messages) <= startIdx {
 			return nil
 		}
-		out := make([]AgentMessage, len(agentCtx.Messages)-startIdx)
+		out := make([]agentcore.AgentMessage, len(agentCtx.Messages)-startIdx)
 		copy(out, agentCtx.Messages[startIdx:])
 		return out
 	}
-	emit := func(ev AgentEvent) error { return stream.Emit(ctx, ev) }
+	emit := func(ev agentcore.AgentEvent) error { return stream.Emit(ctx, ev) }
 
 	// finish emits agent_end (unless suppressed by a prior emit error), records
 	// the run result, and closes the stream exactly once.
 	finish := func() {
 		msgs := newMessages()
-		_ = emit(AgentEndEvent{Messages: msgs})
+		_ = emit(agentcore.AgentEndEvent{Messages: msgs})
 		stream.SetResult(msgs)
 		stream.Close()
 	}
 
-	if err := emit(AgentStartEvent{}); err != nil {
+	if err := emit(agentcore.AgentStartEvent{}); err != nil {
 		finish()
 		return
 	}
 
 	for { // outer loop: pending / follow-up messages
 		for { // inner loop: turns until no tool calls
-			if err := emit(TurnStartEvent{}); err != nil {
+			if err := emit(agentcore.TurnStartEvent{}); err != nil {
 				finish()
 				return
 			}
 
-			assistant, err := streamAssistantResponse(ctx, agentCtx, cfg.LoopConfig, func(c context.Context, ev AgentEvent) error {
+			assistant, err := streamAssistantResponse(ctx, agentCtx, cfg.LoopConfig, func(c context.Context, ev agentcore.AgentEvent) error {
 				return stream.Emit(c, ev)
 			})
 			if err != nil {
@@ -162,11 +165,11 @@ func runLoop(ctx context.Context, agentCtx *AgentContext, cfg RunConfig, stream 
 			}
 
 			switch assistant.StopReason {
-			case StopReasonLength:
+			case agentcore.StopReasonLength:
 				// Truncated by the token cap: fail every tool call so the model
 				// resends, then continue feeding back.
 				toolResults := failToolCallsFromTruncatedMessage(agentCtx, assistant)
-				if err := emit(TurnEndEvent{Message: assistant, ToolResults: toolResults}); err != nil {
+				if err := emit(agentcore.TurnEndEvent{Message: assistant, ToolResults: toolResults}); err != nil {
 					finish()
 					return
 				}
@@ -175,9 +178,9 @@ func runLoop(ctx context.Context, agentCtx *AgentContext, cfg RunConfig, stream 
 					return
 				}
 				continue
-			case StopReasonError, StopReasonAborted:
+			case agentcore.StopReasonError, agentcore.StopReasonAborted:
 				// Terminal failure: emit the turn end and stop.
-				_ = emit(TurnEndEvent{Message: assistant})
+				_ = emit(agentcore.TurnEndEvent{Message: assistant})
 				finish()
 				return
 			}
@@ -185,7 +188,7 @@ func runLoop(ctx context.Context, agentCtx *AgentContext, cfg RunConfig, stream 
 			calls := toAgentToolCalls(assistant.ToolCalls())
 			if len(calls) == 0 {
 				// Natural turn end: no tools to run.
-				if err := emit(TurnEndEvent{Message: assistant}); err != nil {
+				if err := emit(agentcore.TurnEndEvent{Message: assistant}); err != nil {
 					finish()
 					return
 				}
@@ -196,13 +199,13 @@ func runLoop(ctx context.Context, agentCtx *AgentContext, cfg RunConfig, stream 
 				break // exit inner loop → consult follow-up messages
 			}
 
-			toolResults, allTerminate := executeToolCalls(ctx, cfg.Batch, calls, func(c context.Context, ev AgentEvent) error {
+			toolResults, allTerminate := agenttool.ExecuteToolCalls(ctx, cfg.Batch, calls, func(c context.Context, ev agentcore.AgentEvent) error {
 				return stream.Emit(c, ev)
 			})
 			for _, tr := range toolResults {
 				agentCtx.Messages = append(agentCtx.Messages, tr)
 			}
-			if err := emit(TurnEndEvent{Message: assistant, ToolResults: toolResults}); err != nil {
+			if err := emit(agentcore.TurnEndEvent{Message: assistant, ToolResults: toolResults}); err != nil {
 				finish()
 				return
 			}
@@ -235,7 +238,7 @@ func runLoop(ctx context.Context, agentCtx *AgentContext, cfg RunConfig, stream 
 // true it first pulls getSteeringMessages and injects them before the next turn
 // (pi per-turn semantics). It then applies prepareNextTurn and finally consults
 // shouldStopAfterTurn, returning true when the run should end.
-func afterTurn(ctx context.Context, agentCtx *AgentContext, cfg *RunConfig, hadToolExecution bool) (stop bool) {
+func afterTurn(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunConfig, hadToolExecution bool) (stop bool) {
 	if hadToolExecution && cfg.GetSteeringMessages != nil {
 		if steer := cfg.GetSteeringMessages(ctx); len(steer) > 0 {
 			agentCtx.Messages = append(agentCtx.Messages, steer...)
@@ -254,7 +257,7 @@ func afterTurn(ctx context.Context, agentCtx *AgentContext, cfg *RunConfig, hadT
 
 // applyTurnUpdate applies a non-nil TurnUpdate to the mutable loop state: any
 // set field replaces the current context / config value for the next turn.
-func applyTurnUpdate(agentCtx *AgentContext, cfg *RunConfig, upd *TurnUpdate) {
+func applyTurnUpdate(agentCtx *agentcore.AgentContext, cfg *RunConfig, upd *TurnUpdate) {
 	if upd.Messages != nil {
 		agentCtx.Messages = *upd.Messages
 	}
@@ -276,18 +279,18 @@ func applyTurnUpdate(agentCtx *AgentContext, cfg *RunConfig, upd *TurnUpdate) {
 // every tool call in a truncated (stopReason=length) assistant message, telling
 // the model the response was cut off and to resend. The results are appended to
 // the context and returned. Mirrors pi's failToolCallsFromTruncatedMessage.
-func failToolCallsFromTruncatedMessage(agentCtx *AgentContext, assistant AssistantMessage) []ToolResultMessage {
+func failToolCallsFromTruncatedMessage(agentCtx *agentcore.AgentContext, assistant agentcore.AssistantMessage) []agentcore.ToolResultMessage {
 	calls := assistant.ToolCalls()
 	if len(calls) == 0 {
 		return nil
 	}
-	results := make([]ToolResultMessage, 0, len(calls))
+	results := make([]agentcore.ToolResultMessage, 0, len(calls))
 	for _, c := range calls {
-		results = append(results, ToolResultMessage{
-			RoleField:  RoleToolResult,
+		results = append(results, agentcore.ToolResultMessage{
+			RoleField:  agentcore.RoleToolResult,
 			ToolCallID: c.ID,
 			ToolName:   c.Name,
-			Content: ContentList{NewTextContent(
+			Content: agentcore.ContentList{agentcore.NewTextContent(
 				"The previous response was truncated because it hit the output token limit, " +
 					"so this tool call was not executed. Please send a shorter response and retry.")},
 			IsError: true,
@@ -301,13 +304,13 @@ func failToolCallsFromTruncatedMessage(agentCtx *AgentContext, assistant Assista
 
 // toAgentToolCalls converts the assistant message's ToolCallContent blocks into
 // the loop-level AgentToolCall view executeToolCalls consumes.
-func toAgentToolCalls(blocks []ToolCallContent) []AgentToolCall {
+func toAgentToolCalls(blocks []agentcore.ToolCallContent) []agentcore.AgentToolCall {
 	if len(blocks) == 0 {
 		return nil
 	}
-	calls := make([]AgentToolCall, len(blocks))
+	calls := make([]agentcore.AgentToolCall, len(blocks))
 	for i, b := range blocks {
-		calls[i] = AgentToolCall{ID: b.ID, Name: b.Name, Arguments: b.Arguments}
+		calls[i] = agentcore.AgentToolCall{ID: b.ID, Name: b.Name, Arguments: b.Arguments}
 	}
 	return calls
 }

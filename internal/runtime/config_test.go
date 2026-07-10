@@ -1,4 +1,4 @@
-package agent
+package runtime
 
 // Tests for the layered configuration system (US-023, #42): the precedence
 // order (default < global < project < env/CLI), per-provider credential merge,
@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // ptr is a helper for building pointer-valued config-layer fields in tests.
@@ -35,11 +37,11 @@ func TestResolveConfigPrecedence(t *testing.T) {
 		t.Errorf("Provider = %q, want bedrock", cfg.Provider)
 	}
 	// ThinkingLevel set in global only (not project/env) → global value shows through.
-	if cfg.ThinkingLevel != ThinkingLow {
+	if cfg.ThinkingLevel != agentcore.ThinkingLow {
 		t.Errorf("ThinkingLevel = %q, want low (from global, lower layers don't set it)", cfg.ThinkingLevel)
 	}
 	// ToolExecutionMode set only in default → default shows through.
-	if cfg.ToolExecutionMode != ToolExecutionParallel {
+	if cfg.ToolExecutionMode != agentcore.ToolExecutionParallel {
 		t.Errorf("ToolExecutionMode = %q, want parallel (default)", cfg.ToolExecutionMode)
 	}
 }

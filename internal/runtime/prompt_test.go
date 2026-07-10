@@ -1,4 +1,4 @@
-package agent
+package runtime
 
 // Tests for system-prompt assembly (US-021, #40): the base instruction, the
 // environment block, and — the acceptance-critical part — the general-to-

@@ -7,7 +7,7 @@
 // abstraction rather than introducing a second execution path. Each skill's
 // description is surfaced in the parent's capability list so the model can
 // choose to delegate to it.
-package agent
+package runtime
 
 import (
 	"fmt"
@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/smallnest/pigo/internal/agentcore"
 	"gopkg.in/yaml.v3"
 )
 
@@ -148,7 +149,7 @@ func LoadSkillsDir(dir string) ([]*Skill, error) {
 // set is the provided tools filtered by AllowedTools (when set). newRunConfig
 // builds each child run's configuration; it receives the resolved tool set so
 // the caller can wire a matching registry.
-func (s *Skill) SubAgentSpec(tools []AgentTool, newRunConfig func(tools []AgentTool) RunConfig) SubAgentSpec {
+func (s *Skill) SubAgentSpec(tools []agentcore.AgentTool, newRunConfig func(tools []agentcore.AgentTool) RunConfig) SubAgentSpec {
 	resolved := filterToolsByName(tools, s.Frontmatter.AllowedTools)
 	return SubAgentSpec{
 		Name:         s.Frontmatter.Name,
@@ -160,13 +161,13 @@ func (s *Skill) SubAgentSpec(tools []AgentTool, newRunConfig func(tools []AgentT
 }
 
 // SkillTool materializes a skill as an invocable sub-agent tool.
-func (s *Skill) SkillTool(tools []AgentTool, newRunConfig func(tools []AgentTool) RunConfig) *SubAgentTool {
+func (s *Skill) SkillTool(tools []agentcore.AgentTool, newRunConfig func(tools []agentcore.AgentTool) RunConfig) *SubAgentTool {
 	return NewSubAgentTool(s.SubAgentSpec(tools, newRunConfig))
 }
 
 // filterToolsByName keeps only tools whose Name is in allow. An empty allow
 // list means "no restriction" and returns the input unchanged.
-func filterToolsByName(tools []AgentTool, allow []string) []AgentTool {
+func filterToolsByName(tools []agentcore.AgentTool, allow []string) []agentcore.AgentTool {
 	if len(allow) == 0 {
 		return tools
 	}
@@ -174,7 +175,7 @@ func filterToolsByName(tools []AgentTool, allow []string) []AgentTool {
 	for _, n := range allow {
 		set[n] = true
 	}
-	out := make([]AgentTool, 0, len(tools))
+	out := make([]agentcore.AgentTool, 0, len(tools))
 	for _, t := range tools {
 		if set[t.Name()] {
 			out = append(out, t)

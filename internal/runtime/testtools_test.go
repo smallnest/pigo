@@ -1,8 +1,10 @@
-package agent
+package runtime
 
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // execTool is a configurable AgentTool used by the loop/headless tests that
@@ -13,8 +15,8 @@ import (
 type execTool struct {
 	name   string
 	schema string
-	run    func(ctx context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error)
-	mode   ToolExecutionMode
+	run    func(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error)
+	mode   agentcore.ToolExecutionMode
 }
 
 func (t execTool) Name() string        { return t.name }
@@ -25,26 +27,26 @@ func (t execTool) Schema() json.RawMessage {
 	}
 	return json.RawMessage(t.schema)
 }
-func (t execTool) ExecutionMode() ToolExecutionMode {
+func (t execTool) ExecutionMode() agentcore.ToolExecutionMode {
 	if t.mode == "" {
-		return ToolExecutionParallel
+		return agentcore.ToolExecutionParallel
 	}
 	return t.mode
 }
-func (t execTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
+func (t execTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 	return t.run(ctx, id, args, onUpdate)
 }
 
 // echoTool returns its name as text; optionally terminates. Canonical
 // definition moved with batch_executor_test.go; re-provided here for the
 // agent-resident tests.
-func echoTool(name string, mode ToolExecutionMode, terminate bool) execTool {
+func echoTool(name string, mode agentcore.ToolExecutionMode, terminate bool) execTool {
 	return execTool{
 		name: name,
 		mode: mode,
-		run: func(ctx context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
+		run: func(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 			term := terminate
-			return AgentToolResult{Content: ContentList{NewTextContent(name)}, Terminate: &term}, nil
+			return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(name)}, Terminate: &term}, nil
 		},
 	}
 }

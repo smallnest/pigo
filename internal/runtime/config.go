@@ -9,12 +9,14 @@
 // layers (field-level replacement, no deep merge). The final Config is
 // validated: an unknown thinking level or tool-execution mode is a hard error,
 // as is a malformed layer file.
-package agent
+package runtime
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // Config is the fully resolved configuration a run operates under, after all
@@ -30,9 +32,9 @@ type Config struct {
 	Credentials map[string]string
 	// ToolExecutionMode is the default execution mode for tools that do not pin
 	// their own mode.
-	ToolExecutionMode ToolExecutionMode
+	ToolExecutionMode agentcore.ToolExecutionMode
 	// ThinkingLevel is the default reasoning-effort level.
-	ThinkingLevel ThinkingLevel
+	ThinkingLevel agentcore.ThinkingLevel
 }
 
 // ConfigLayer is one partial layer of configuration. Pointer/optional fields
@@ -51,8 +53,8 @@ type ConfigLayer struct {
 func DefaultConfigLayer() ConfigLayer {
 	model := "openai/gpt-4o"
 	provider := "openrouter"
-	mode := string(ToolExecutionParallel)
-	level := string(ThinkingMedium)
+	mode := string(agentcore.ToolExecutionParallel)
+	level := string(agentcore.ThinkingMedium)
 	return ConfigLayer{
 		Model:             &model,
 		Provider:          &provider,
@@ -97,10 +99,10 @@ func ResolveConfig(layers ...*ConfigLayer) (Config, error) {
 			cfg.Provider = *layer.Provider
 		}
 		if layer.ToolExecutionMode != nil {
-			cfg.ToolExecutionMode = ToolExecutionMode(*layer.ToolExecutionMode)
+			cfg.ToolExecutionMode = agentcore.ToolExecutionMode(*layer.ToolExecutionMode)
 		}
 		if layer.ThinkingLevel != nil {
-			cfg.ThinkingLevel = ThinkingLevel(*layer.ThinkingLevel)
+			cfg.ThinkingLevel = agentcore.ThinkingLevel(*layer.ThinkingLevel)
 		}
 		for provider, key := range layer.Credentials {
 			if cfg.Credentials == nil {
@@ -152,12 +154,12 @@ func (c Config) validate() error {
 		return fmt.Errorf("config: model must not be empty")
 	}
 	switch c.ToolExecutionMode {
-	case ToolExecutionParallel, ToolExecutionSequential:
+	case agentcore.ToolExecutionParallel, agentcore.ToolExecutionSequential:
 	default:
 		return fmt.Errorf("config: invalid toolExecutionMode %q (want parallel|sequential)", c.ToolExecutionMode)
 	}
 	switch c.ThinkingLevel {
-	case ThinkingOff, ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh:
+	case agentcore.ThinkingOff, agentcore.ThinkingMinimal, agentcore.ThinkingLow, agentcore.ThinkingMedium, agentcore.ThinkingHigh, agentcore.ThinkingXHigh:
 	default:
 		return fmt.Errorf("config: invalid thinkingLevel %q", c.ThinkingLevel)
 	}

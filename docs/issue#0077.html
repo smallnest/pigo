@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0077</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F2F0EC; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/77">#77</a> &mdash; (4/6) 抽出 runtime 子包并删除旧包 &mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> AST-based requalification instead of textual sed</h3>
+      <p><strong>Ambiguity:</strong> The moved files reference ~157 moved symbols by bare name (they compiled via shims). The spec says "correctly export" but doesn't prescribe how to rewrite the now-dangling bare references to their real home packages.</p>
+      <p><strong>Choice:</strong> An AST-based rewriter that skips selector tails, struct-literal field keys, and locally-declared names, qualifying only true package-level identifier uses.</p>
+      <p><strong>Rationale:</strong> A textual replace would corrupt field keys like <code>Model:</code>, <code>Content:</code>, <code>Provider:</code> in struct literals and method names. The AST walk distinguishes "use of an imported symbol" from "a field/label that happens to share the name" — the only safe way to touch 157 symbols across 8 files.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> PrintMode / StreamJSONMode re-exported as const, not var</h3>
+      <p><strong>Ambiguity:</strong> The shim must re-export these two. Whether to bind them as <code>var</code> (like functions) or re-declare as <code>const</code> depends on their kind.</p>
+      <p><strong>Choice:</strong> <code>const PrintMode = runtime.PrintMode</code> — they are typed <code>HeadlessMode</code> iota consts.</p>
+      <p><strong>Rationale:</strong> A <code>var</code> binding would demote a compile-time constant to a runtime value, breaking any use in a const expression or switch-case label. Const re-declaration preserves their constant-ness and type identity through the alias.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> internal/agent NOT deleted — reduced to shim-only</h3>
+      <p><strong>Spec:</strong> US-004's AC states "原 <code>internal/agent</code> 包被完全清空并删除" (fully emptied and deleted).</p>
+      <p><strong>Implemented:</strong> All production/loop files moved out; <code>internal/agent</code> now contains ONLY the four re-export shims (<code>agentcore_shim.go</code>, <code>provider_shim.go</code>, <code>agenttool_shim.go</code>, <code>runtime_shim.go</code>). The package still exists.</p>
+      <p><strong>Why:</strong> External callers (<code>cmd/</code>, <code>internal/tui</code>, <code>internal/session</code>) still reference ~49 <code>agent.*</code> symbols; migrating them is explicitly US-005/#78's job. Deleting <code>internal/agent</code> now would break <code>go build ./...</code> — and every US's hard gate is a green build. The deletion happens in #78 once the last caller is migrated. This preserves the incremental one-layer-per-US verification guarantee.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Delete agent now (+migrate callers) vs defer to #78</h3>
+      <p><strong>Alternatives:</strong> (a) fold #78's caller migration into #77 so agent can be deleted as the AC demands; (b) keep #77 scoped to the runtime extraction, leave agent as a shim, delete in #78.</p>
+      <p><strong>Chosen:</strong> (b).</p>
+      <p><strong>Why it won:</strong> (a) would merge two issues, doubling the blast radius and breaking the PRD's bottom-up plan where each US is a compilable checkpoint. (b) keeps #77 reviewable in isolation and the build green at every step; the AC's "delete" clause is simply satisfied one issue later than literally worded.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> All four shims deleted together in #78</h3>
+      <p>After #78 migrates cmd/tui/session to reference <code>agentcore.</code>/<code>provider.</code>/<code>agenttool.</code>/<code>runtime.</code> directly, all four shim files AND the now-empty <code>internal/agent</code> package should be deleted in one move. Confirm #78 removes the entire directory (not just individual shims) and that no stray <code>internal/agent</code> import remains anywhere — that completes US-004's deferred "delete" clause.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> runtime layering is the DAG apex — verify in #79</h3>
+      <p><code>go list -deps ./internal/runtime</code> shows exactly agentcore + provider + agenttool, no cycle. #79's explicit job is to assert this across all packages. Worth confirming #79 re-runs the full <code>go list -deps</code> matrix so the acyclic guarantee is checked from the top, not just assumed from this step's spot-check.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

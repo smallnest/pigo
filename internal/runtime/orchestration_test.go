@@ -1,4 +1,4 @@
-package agent
+package runtime
 
 // Tests for sub-agent orchestration, skills, and slash-commands (US-027/028/029,
 // #45). The sub-agent integration test drives the flagship parent→child→parent
@@ -14,6 +14,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/provider"
 )
 
 // TestSubAgentParentChildParent is acceptance-critical: a parent agent loop
@@ -25,7 +29,7 @@ func TestSubAgentParentChildParent(t *testing.T) {
 	// Child provider: a single scripted turn producing the delegated answer.
 	child := &fauxProvider{
 		name:   "faux-child",
-		models: []Model{{Provider: "faux-child", ID: "child"}},
+		models: []provider.Model{{Provider: "faux-child", ID: "child"}},
 		turns:  []fauxTurn{textTurn("child result: 42")},
 	}
 	// The sub-agent tool spawns a child loop over its own context + provider.
@@ -36,8 +40,8 @@ func TestSubAgentParentChildParent(t *testing.T) {
 		Tools:        nil,
 		NewRunConfig: func() RunConfig {
 			return RunConfig{
-				LoopConfig: LoopConfig{Model: "child", Stream: StreamFnFromProvider(child)},
-				Batch:      BatchConfig{ToolExecutorConfig: ToolExecutorConfig{Registry: NewToolRegistry()}},
+				LoopConfig: LoopConfig{Model: "child", Stream: provider.StreamFnFromProvider(child)},
+				Batch:      agenttool.BatchConfig{ToolExecutorConfig: agenttool.ToolExecutorConfig{Registry: agenttool.NewToolRegistry()}},
 			}
 		},
 	})
@@ -46,21 +50,21 @@ func TestSubAgentParentChildParent(t *testing.T) {
 	// is fed back) produces the final answer.
 	parent := &fauxProvider{
 		name:   "faux-parent",
-		models: []Model{{Provider: "faux-parent", ID: "parent"}},
+		models: []provider.Model{{Provider: "faux-parent", ID: "parent"}},
 		turns: []fauxTurn{
 			toolCallTurn("call-sub", "researcher", `{"prompt":"find the answer"}`),
 			textTurn("final: incorporated child result"),
 		},
 	}
 	cfg := newFauxRunCfg(parent, sub)
-	agentCtx := &AgentContext{Messages: MessageList{
-		UserMessage{RoleField: RoleUser, Content: ContentList{NewTextContent("delegate this")}},
+	agentCtx := &agentcore.AgentContext{Messages: agentcore.MessageList{
+		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("delegate this")}},
 	}}
 
 	kinds, msgs := collectStream(t, agentLoop(context.Background(), agentCtx, cfg))
 
 	// The sub-agent tool must have executed exactly once in the parent loop.
-	if got := countKind(kinds, EventToolExecutionStart); got != 1 {
+	if got := countKind(kinds, agentcore.EventToolExecutionStart); got != 1 {
 		t.Errorf("expected 1 sub-agent tool execution, got %d in %v", got, kinds)
 	}
 	// The child provider must have been driven independently.
@@ -68,9 +72,9 @@ func TestSubAgentParentChildParent(t *testing.T) {
 		t.Errorf("child provider called %d times, want 1", child.callCount())
 	}
 	// The tool result fed back to the parent must carry the child's final text.
-	var toolResult *ToolResultMessage
+	var toolResult *agentcore.ToolResultMessage
 	for i := range msgs {
-		if tr, ok := msgs[i].(ToolResultMessage); ok {
+		if tr, ok := msgs[i].(agentcore.ToolResultMessage); ok {
 			toolResult = &tr
 			break
 		}
@@ -85,7 +89,7 @@ func TestSubAgentParentChildParent(t *testing.T) {
 		t.Errorf("sub-agent tool result should not be an error")
 	}
 	// The parent's final message incorporates the delegation.
-	final := lastAssistantOf(msgs)
+	final := agentcore.LastAssistantOf(msgs)
 	if final == nil || textContentOf(final.Content) != "final: incorporated child result" {
 		t.Errorf("parent final text = %+v, want the post-delegation answer", final)
 	}
@@ -98,7 +102,7 @@ func TestSubAgentConcurrent(t *testing.T) {
 	mkChild := func(answer string) *SubAgentTool {
 		cp := &fauxProvider{
 			name:   "faux-child-" + answer,
-			models: []Model{{Provider: "c", ID: "c"}},
+			models: []provider.Model{{Provider: "c", ID: "c"}},
 			turns:  []fauxTurn{textTurn(answer)},
 		}
 		return NewSubAgentTool(SubAgentSpec{
@@ -106,8 +110,8 @@ func TestSubAgentConcurrent(t *testing.T) {
 			Description: "child " + answer,
 			NewRunConfig: func() RunConfig {
 				return RunConfig{
-					LoopConfig: LoopConfig{Model: "c", Stream: StreamFnFromProvider(cp)},
-					Batch:      BatchConfig{ToolExecutorConfig: ToolExecutorConfig{Registry: NewToolRegistry()}},
+					LoopConfig: LoopConfig{Model: "c", Stream: provider.StreamFnFromProvider(cp)},
+					Batch:      agenttool.BatchConfig{ToolExecutorConfig: agenttool.ToolExecutorConfig{Registry: agenttool.NewToolRegistry()}},
 				}
 			},
 		})
@@ -116,31 +120,31 @@ func TestSubAgentConcurrent(t *testing.T) {
 
 	// A single parent turn emitting two tool calls → both run in the same batch.
 	twoCall := fauxTurn{
-		StreamStartEvent{Partial: AssistantMessage{RoleField: RoleAssistant}},
-		StreamToolCallEvent{Partial: AssistantMessage{RoleField: RoleAssistant, Content: ContentList{
-			NewToolCallContent("c1", "agent-alpha", json.RawMessage(`{"prompt":"go"}`)),
-			NewToolCallContent("c2", "agent-beta", json.RawMessage(`{"prompt":"go"}`)),
+		provider.StreamStartEvent{Partial: agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant}},
+		provider.StreamToolCallEvent{Partial: agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, Content: agentcore.ContentList{
+			agentcore.NewToolCallContent("c1", "agent-alpha", json.RawMessage(`{"prompt":"go"}`)),
+			agentcore.NewToolCallContent("c2", "agent-beta", json.RawMessage(`{"prompt":"go"}`)),
 		}}},
-		StreamDoneEvent{Message: AssistantMessage{RoleField: RoleAssistant, StopReason: StopReasonToolUse, Content: ContentList{
-			NewToolCallContent("c1", "agent-alpha", json.RawMessage(`{"prompt":"go"}`)),
-			NewToolCallContent("c2", "agent-beta", json.RawMessage(`{"prompt":"go"}`)),
+		provider.StreamDoneEvent{Message: agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, StopReason: agentcore.StopReasonToolUse, Content: agentcore.ContentList{
+			agentcore.NewToolCallContent("c1", "agent-alpha", json.RawMessage(`{"prompt":"go"}`)),
+			agentcore.NewToolCallContent("c2", "agent-beta", json.RawMessage(`{"prompt":"go"}`)),
 		}}},
 	}
 	parent := &fauxProvider{
 		name:   "faux-parent",
-		models: []Model{{Provider: "p", ID: "p"}},
+		models: []provider.Model{{Provider: "p", ID: "p"}},
 		turns:  []fauxTurn{twoCall, textTurn("done")},
 	}
 	cfg := newFauxRunCfg(parent, a, b)
-	agentCtx := &AgentContext{Messages: MessageList{
-		UserMessage{RoleField: RoleUser, Content: ContentList{NewTextContent("delegate both")}},
+	agentCtx := &agentcore.AgentContext{Messages: agentcore.MessageList{
+		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("delegate both")}},
 	}}
 
 	_, msgs := collectStream(t, agentLoop(context.Background(), agentCtx, cfg))
 
 	got := map[string]string{}
 	for _, m := range msgs {
-		if tr, ok := m.(ToolResultMessage); ok {
+		if tr, ok := m.(agentcore.ToolResultMessage); ok {
 			got[tr.ToolCallID] = textContentOf(tr.Content)
 		}
 	}
@@ -168,20 +172,20 @@ func TestSubAgentEmptyPromptErrors(t *testing.T) {
 func TestSubAgentFailedChildErrors(t *testing.T) {
 	// A child turn that ends with StopReason=error carrying diagnostic text.
 	errTurn := func(text string) fauxTurn {
-		partial := AssistantMessage{RoleField: RoleAssistant}
+		partial := agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant}
 		withText := partial
-		withText.Content = ContentList{NewTextContent(text)}
+		withText.Content = agentcore.ContentList{agentcore.NewTextContent(text)}
 		final := withText
-		final.StopReason = StopReasonError
+		final.StopReason = agentcore.StopReasonError
 		return fauxTurn{
-			StreamStartEvent{Partial: partial},
-			StreamTextEvent{Partial: withText},
-			StreamDoneEvent{Message: final},
+			provider.StreamStartEvent{Partial: partial},
+			provider.StreamTextEvent{Partial: withText},
+			provider.StreamDoneEvent{Message: final},
 		}
 	}
 	child := &fauxProvider{
 		name:   "faux-child",
-		models: []Model{{Provider: "faux-child", ID: "child"}},
+		models: []provider.Model{{Provider: "faux-child", ID: "child"}},
 		turns:  []fauxTurn{errTurn("provider blew up")},
 	}
 	sub := NewSubAgentTool(SubAgentSpec{
@@ -189,8 +193,8 @@ func TestSubAgentFailedChildErrors(t *testing.T) {
 		Description: "delegate",
 		NewRunConfig: func() RunConfig {
 			return RunConfig{
-				LoopConfig: LoopConfig{Model: "child", Stream: StreamFnFromProvider(child)},
-				Batch:      BatchConfig{ToolExecutorConfig: ToolExecutorConfig{Registry: NewToolRegistry()}},
+				LoopConfig: LoopConfig{Model: "child", Stream: provider.StreamFnFromProvider(child)},
+				Batch:      agenttool.BatchConfig{ToolExecutorConfig: agenttool.ToolExecutorConfig{Registry: agenttool.NewToolRegistry()}},
 			}
 		},
 	})
@@ -290,9 +294,9 @@ func TestSkillSubAgentSpec(t *testing.T) {
 		Frontmatter: SkillFrontmatter{Name: "reader", Description: "reads", AllowedTools: []string{"read"}},
 		Body:        "you read files",
 	}
-	tools := []AgentTool{execTool{name: "read"}, execTool{name: "write"}, execTool{name: "bash"}}
-	var gotTools []AgentTool
-	spec := sk.SubAgentSpec(tools, func(resolved []AgentTool) RunConfig {
+	tools := []agentcore.AgentTool{execTool{name: "read"}, execTool{name: "write"}, execTool{name: "bash"}}
+	var gotTools []agentcore.AgentTool
+	spec := sk.SubAgentSpec(tools, func(resolved []agentcore.AgentTool) RunConfig {
 		gotTools = resolved
 		return RunConfig{}
 	})

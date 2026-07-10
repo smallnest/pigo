@@ -2,10 +2,13 @@
 // into a provider request, resolves the API key dynamically, drives the
 // provider stream, and back-fills the partial assistant message into the
 // context while emitting message_start / message_update / message_end events.
-package agent
+package runtime
 
 import (
 	"context"
+
+	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/provider"
 )
 
 // LoopConfig holds the pluggable behavior of the agent loop. Every hook is
@@ -17,18 +20,18 @@ type LoopConfig struct {
 	// APIKey is the static fallback key when GetAPIKey is nil or returns "".
 	APIKey string
 	// ThinkingLevel is the reasoning effort for requests.
-	ThinkingLevel ThinkingLevel
+	ThinkingLevel agentcore.ThinkingLevel
 	// Stream produces the provider stream. Required (defaults are wired by
 	// callers/tests, e.g. a fake provider).
-	Stream StreamFn
+	Stream provider.StreamFn
 
 	// TransformContext optionally rewrites the message list before conversion
 	// (context trimming/injection). Contract: must not error; on failure return
 	// a safe fallback. Runs first.
-	TransformContext func(ctx context.Context, msgs MessageList) MessageList
+	TransformContext func(ctx context.Context, msgs agentcore.MessageList) agentcore.MessageList
 	// ConvertToLlm optionally filters UI-only messages. Defaults to identity.
 	// Contract: must not error.
-	ConvertToLlm func(msgs MessageList) MessageList
+	ConvertToLlm func(msgs agentcore.MessageList) agentcore.MessageList
 	// GetAPIKey optionally resolves a fresh key per request (handles short-lived
 	// token expiry). Falls back to APIKey when nil or empty.
 	GetAPIKey func(ctx context.Context, provider string) string
@@ -45,7 +48,7 @@ type LoopConfig struct {
 // (transformContext → convertToLlm → resolve key → stream → drain) is kept
 // identical to pi. It never returns an error for a request failure — such
 // failures arrive as a terminal assistant message with stopReason error/aborted.
-func streamAssistantResponse(ctx context.Context, agentCtx *AgentContext, cfg LoopConfig, emit emitFunc) (AssistantMessage, error) {
+func streamAssistantResponse(ctx context.Context, agentCtx *agentcore.AgentContext, cfg LoopConfig, emit agentcore.EmitFunc) (agentcore.AssistantMessage, error) {
 	// 1. transformContext (optional, must not error).
 	msgs := agentCtx.Messages
 	if cfg.TransformContext != nil {
@@ -56,7 +59,7 @@ func streamAssistantResponse(ctx context.Context, agentCtx *AgentContext, cfg Lo
 		msgs = cfg.ConvertToLlm(msgs)
 	}
 	// 3. shape the LLM context.
-	llm := LlmContext{
+	llm := provider.LlmContext{
 		SystemPrompt: agentCtx.SystemPrompt,
 		Messages:     msgs,
 		Tools:        agentCtx.Tools,
@@ -69,7 +72,7 @@ func streamAssistantResponse(ctx context.Context, agentCtx *AgentContext, cfg Lo
 		}
 	}
 	// 5. build the provider stream.
-	stream, err := cfg.Stream(ctx, cfg.Model, llm, StreamConfig{
+	stream, err := cfg.Stream(ctx, cfg.Model, llm, provider.StreamConfig{
 		APIKey:        key,
 		ThinkingLevel: cfg.ThinkingLevel,
 		Extra:         cfg.Extra,
@@ -82,7 +85,7 @@ func streamAssistantResponse(ctx context.Context, agentCtx *AgentContext, cfg Lo
 
 	// 6. drain the stream, back-filling the partial into the context.
 	addedPartial := false
-	backfill := func(partial AssistantMessage) {
+	backfill := func(partial agentcore.AssistantMessage) {
 		if !addedPartial {
 			agentCtx.Messages = append(agentCtx.Messages, partial)
 			addedPartial = true
@@ -93,36 +96,36 @@ func streamAssistantResponse(ctx context.Context, agentCtx *AgentContext, cfg Lo
 
 	for ev := range stream.Events() {
 		switch e := ev.(type) {
-		case StreamStartEvent:
+		case provider.StreamStartEvent:
 			backfill(e.Partial)
-			if err := emit(ctx, MessageStartEvent{Message: e.Partial}); err != nil {
-				return AssistantMessage{}, err
+			if err := emit(ctx, agentcore.MessageStartEvent{Message: e.Partial}); err != nil {
+				return agentcore.AssistantMessage{}, err
 			}
-		case StreamTextEvent:
+		case provider.StreamTextEvent:
 			backfill(e.Partial)
-			if err := emit(ctx, MessageUpdateEvent{Message: e.Partial, AssistantMessageEvent: e}); err != nil {
-				return AssistantMessage{}, err
+			if err := emit(ctx, agentcore.MessageUpdateEvent{Message: e.Partial, AssistantMessageEvent: e}); err != nil {
+				return agentcore.AssistantMessage{}, err
 			}
-		case StreamThinkingEvent:
+		case provider.StreamThinkingEvent:
 			backfill(e.Partial)
-			if err := emit(ctx, MessageUpdateEvent{Message: e.Partial, AssistantMessageEvent: e}); err != nil {
-				return AssistantMessage{}, err
+			if err := emit(ctx, agentcore.MessageUpdateEvent{Message: e.Partial, AssistantMessageEvent: e}); err != nil {
+				return agentcore.AssistantMessage{}, err
 			}
-		case StreamToolCallEvent:
+		case provider.StreamToolCallEvent:
 			backfill(e.Partial)
-			if err := emit(ctx, MessageUpdateEvent{Message: e.Partial, AssistantMessageEvent: e}); err != nil {
-				return AssistantMessage{}, err
+			if err := emit(ctx, agentcore.MessageUpdateEvent{Message: e.Partial, AssistantMessageEvent: e}); err != nil {
+				return agentcore.AssistantMessage{}, err
 			}
-		case StreamDoneEvent:
+		case provider.StreamDoneEvent:
 			finalizeMessage(agentCtx, e.Message, &addedPartial)
-			if err := emit(ctx, MessageEndEvent{Message: e.Message}); err != nil {
-				return AssistantMessage{}, err
+			if err := emit(ctx, agentcore.MessageEndEvent{Message: e.Message}); err != nil {
+				return agentcore.AssistantMessage{}, err
 			}
 			return e.Message, nil
-		case StreamErrorEvent:
+		case provider.StreamErrorEvent:
 			finalizeMessage(agentCtx, e.Message, &addedPartial)
-			if err := emit(ctx, MessageEndEvent{Message: e.Message}); err != nil {
-				return AssistantMessage{}, err
+			if err := emit(ctx, agentcore.MessageEndEvent{Message: e.Message}); err != nil {
+				return agentcore.AssistantMessage{}, err
 			}
 			return e.Message, nil
 		}
@@ -134,15 +137,15 @@ func streamAssistantResponse(ctx context.Context, agentCtx *AgentContext, cfg Lo
 		return newErrorAssistantMessage(cfg, resErr), nil
 	}
 	finalizeMessage(agentCtx, final, &addedPartial)
-	if err := emit(ctx, MessageEndEvent{Message: final}); err != nil {
-		return AssistantMessage{}, err
+	if err := emit(ctx, agentcore.MessageEndEvent{Message: final}); err != nil {
+		return agentcore.AssistantMessage{}, err
 	}
 	return final, nil
 }
 
 // finalizeMessage replaces the placeholder partial with the final message, or
 // appends it if the provider sent done/error without a prior start.
-func finalizeMessage(agentCtx *AgentContext, final AssistantMessage, addedPartial *bool) {
+func finalizeMessage(agentCtx *agentcore.AgentContext, final agentcore.AssistantMessage, addedPartial *bool) {
 	if *addedPartial {
 		agentCtx.Messages[len(agentCtx.Messages)-1] = final
 	} else {
@@ -153,12 +156,12 @@ func finalizeMessage(agentCtx *AgentContext, final AssistantMessage, addedPartia
 
 // newErrorAssistantMessage builds a terminal assistant message for an early
 // failure that never produced a provider stream.
-func newErrorAssistantMessage(cfg LoopConfig, err error) AssistantMessage {
-	return AssistantMessage{
-		RoleField:    RoleAssistant,
+func newErrorAssistantMessage(cfg LoopConfig, err error) agentcore.AssistantMessage {
+	return agentcore.AssistantMessage{
+		RoleField:    agentcore.RoleAssistant,
 		Model:        cfg.Model,
 		Provider:     cfg.Provider,
-		StopReason:   StopReasonError,
+		StopReason:   agentcore.StopReasonError,
 		ErrorMessage: err.Error(),
 	}
 }
