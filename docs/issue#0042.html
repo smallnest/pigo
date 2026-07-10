@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0042</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/42">#42</a> &mdash; [impl] 分层配置系统（US-023）&mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 用指针字段区分「未设置」与「显式零值」</h3>
+      <p><strong>Ambiguity:</strong> 验收要求「较高层覆盖较低层」，但未说明如何区分「本层没设这个字段」与「本层显式设成空串」。</p>
+      <p><strong>Choice:</strong> <code>ConfigLayer</code> 的可选字段全部用指针（<code>*string</code>）。nil = 未设置（透传下层），非 nil = 本层显式值（覆盖下层）。</p>
+      <p><strong>Rationale:</strong> 这是 pi/zero「三态可选」惯用法的 Go 移植；只有这样才能实现字段级替换而非整层替换——较高层只覆盖它真正设置的字段。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 凭据按 provider 合并，而非整体替换</h3>
+      <p><strong>Ambiguity:</strong> 验收把 credentials 列为配置项之一，但未说明多层间 credentials 如何合并。</p>
+      <p><strong>Choice:</strong> <code>Credentials</code> 逐 provider 合并——较高层的某 provider key 覆盖较低层同名 key，但仅存在于较低层的其它 provider key 保留。</p>
+      <p><strong>Rationale:</strong> 全局层可放公共 provider key，项目层只覆盖需改的那一个，无需重复列全部；与其它字段的「整体替换」区分开更贴合实际使用。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 缺失文件不报错，非法内容才报错</h3>
+      <p><strong>Ambiguity:</strong> 验收要求「缺失/非法明确报错」，但「缺失」指配置文件缺失还是必填项缺失存在歧义。</p>
+      <p><strong>Choice:</strong> <code>LoadConfigLayer</code> 对缺失文件返回 <code>(nil, nil)</code>（缺层不是错误），对存在但格式错误的文件返回硬错误；<code>validate()</code> 对非法字段值（空 model、未知 mode/level）返回硬错误。</p>
+      <p><strong>Rationale:</strong> 全局/项目配置文件本就常缺失（合理默认即可运行），缺文件视为错误会破坏开箱即用；但文件存在却损坏、或字段值非法，是必须暴露的真实故障。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 环境层刻意不采集凭据环境变量</h3>
+      <p><strong>Spec:</strong> credentials 是配置项之一，环境层是「环境/命令行」这一最高文件无关层。</p>
+      <p><strong>Implemented:</strong> <code>EnvConfigLayer</code> 只采集 PIGO_MODEL / PIGO_PROVIDER / PIGO_TOOL_EXECUTION_MODE / PIGO_THINKING_LEVEL，<strong>不</strong>把凭据环境变量并入 <code>ConfigLayer</code>；凭据由 <code>CredentialStore</code> 惰性解析。</p>
+      <p><strong>Why:</strong> 遵守 US-012「敏感值不写入日志」约束——不把 API key 塞进一个可能被打印/序列化的结构体，从源头杜绝泄露风险。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 变参 <code>ResolveConfig(...*ConfigLayer)</code> 且跳过 nil 层</h3>
+      <p><strong>Alternatives:</strong> (A) 变参传层、内部 <code>if layer == nil { continue }</code>；(B) 固定四参数（default/global/project/env）显式命名各层。</p>
+      <p><strong>Pros/Cons:</strong> B 参数语义清晰但僵化，层数变动要改签名，且强迫调用方为缺层构造空结构；A 可直接把 <code>LoadConfigLayer</code> 的输出（可能为 nil）串进去，层数灵活。</p>
+      <p><strong>Winner:</strong> A——调用方 <code>ResolveConfig(&def, global, project, env)</code> 一行到位，缺层天然透传。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 配置文件的固定路径与发现策略</h3>
+      <p><strong>Assumption:</strong> 本 issue 只交付 <code>LoadConfigLayer(path)</code> 按显式路径加载，未约定 global/project 配置文件的标准位置（如 <code>~/.config/pigo/config.json</code> 与 <code>./.pigo.json</code>）。</p>
+      <p><strong>Verify:</strong> 路径发现约定应由 <code>cmd/pigo</code> 接线时确定；若需库内提供标准路径解析，可后续追加 issue。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> CLI flag 层是否需独立于环境层</h3>
+      <p><strong>Assumption:</strong> 当前把「环境/命令行」视为同一最高层；CLI flag 由调用方构造成一个 <code>ConfigLayer</code> 再置于 env 层之上即可。</p>
+      <p><strong>Verify:</strong> 若未来 CLI flag 需要与环境变量再分优先级，可在 <code>ResolveConfig</code> 尾部再追加一个 flag 层，无需改动现有逻辑。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
