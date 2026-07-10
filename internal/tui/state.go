@@ -45,7 +45,6 @@ type transcriptEntry struct {
 // Model owns a uiState and forwards user/agent events into these methods.
 type uiState struct {
 	transcript []transcriptEntry
-	input      string
 
 	// running reports whether an agent run is in flight. Input submitted while
 	// running is queued as steering rather than starting a new run.
@@ -95,14 +94,14 @@ func (s *uiState) replay(messages []agentcore.AgentMessage) {
 	}
 }
 
-// submit handles the user pressing Enter. When idle it starts a new run and
-// returns (prompt, true): the caller launches the agent loop under the new
+// submit handles the user pressing Enter. The caller passes the current input
+// text (owned by the model's textinput widget). When idle it starts a new run
+// and returns (prompt, true): the caller launches the agent loop under the new
 // runID. When a run is in flight it queues the text as steering and returns
 // ("", false). Empty/whitespace input is ignored. Any keystroke disarms Ctrl+C.
-func (s *uiState) submit() (prompt string, start bool) {
+func (s *uiState) submit(input string) (prompt string, start bool) {
 	s.ctrlCArmed = false
-	text := strings.TrimSpace(s.input)
-	s.input = ""
+	text := strings.TrimSpace(input)
 	if text == "" {
 		return "", false
 	}

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0090</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F2F0EC; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/90">#90</a> &mdash; TUI: 用 bubbles textinput 修复中文输入与 rune 级编辑 &mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> textinput 归 <code>Model</code> 持有，<code>uiState</code> 保持 framework-free</h3>
+      <p><strong>Ambiguity:</strong> AC 只要求「用 textinput 替换 <code>uiState.input</code> 的手写拼接」，没规定 widget 放在纯状态层还是 bubbletea 桥接层。</p>
+      <p><strong>Choice:</strong> 把 <code>textinput.Model</code> 放进 <code>Model</code>（model.go），从 <code>uiState</code> 删除 <code>input string</code> 字段；<code>submit</code> 改为接收 <code>input string</code> 参数。</p>
+      <p><strong>Rationale:</strong> PRD 的 Design Considerations 明确要求「保持 <code>uiState</code> 无 bubbletea 依赖、可单测」（FR-14）。textinput 是 bubbletea 组件，若塞进 uiState 会污染纯状态层。让 model 拥有 widget、把值作为参数传给 <code>submit</code>，既修了中文输入又守住了分层。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 除 Ctrl+C / Enter 外的所有按键统一委派给 textinput</h3>
+      <p><strong>Ambiguity:</strong> AC 要求「替换 <code>handleKey</code> 的 default/backspace 分支」，但没说要不要保留独立的 backspace case。</p>
+      <p><strong>Choice:</strong> 删掉独立的 <code>backspace</code> case，与 default 合并为一个「委派给 <code>m.input.Update(k)</code>」分支；backspace、方向键、rune 插入全由 textinput 的 KeyMap 处理。</p>
+      <p><strong>Rationale:</strong> textinput 的 <code>Update</code> 已内建 <code>DeleteCharacterBackward</code>（按 rune 删）、<code>CharacterForward/Backward</code>（按 rune 移光标）等绑定。自己再拦 backspace 反而要重新实现 rune 逻辑，与委派冲突。合并后一处委派覆盖所有编辑键，天然满足「rune 级移动 + 退格删整字」。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> View 保留自绘 <code>"> "</code> 前缀，textinput 的 Prompt 置空</h3>
+      <p><strong>Ambiguity:</strong> textinput 自带 <code>Prompt</code>（默认 <code>"> "</code>），而原 View 也手写 <code>"> "</code>。</p>
+      <p><strong>Choice:</strong> <code>ti.Prompt = ""</code>，继续由 <code>View()</code> 输出 <code>"> "</code> 再拼 <code>m.input.View()</code>。</p>
+      <p><strong>Rationale:</strong> 最小改动、不重复前缀；后续 #94/#95 统一改造 composer 渲染时再决定前缀归属，本 issue 不扩大范围。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">None</span> 实现遵循 spec</h3>
+      <p>AC 各项（textinput 替换手写拼接、中文完整显示不丢字、rune 级光标移动、退格删整个 rune、submit 文本逐字一致、保留空输入忽略/steering/Ctrl+C-disarm 语义、含中文用例的单测全绿）均按字面满足，无偏离。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> <code>submit</code> 改为接收参数 vs. 让 uiState 读 widget</h3>
+      <p><strong>Alternatives:</strong> (a) <code>submit(input string)</code> 由 model 把 <code>m.input.Value()</code> 传入；(b) 在 uiState 里保留某种输入引用，让 submit 自己取值。</p>
+      <p><strong>Chosen:</strong> (a)。</p>
+      <p><strong>Why it won:</strong> (b) 会把 bubbletea 组件的引用漏进纯状态层，破坏可单测性。(a) 只多一个字符串参数，改动集中在 <code>submit</code> 签名与其调用点/测试，代价小且分层干净。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 新增 <code>model_test.go</code> 驱动 <code>handleKey</code> vs. 只测 <code>uiState</code></h3>
+      <p><strong>Alternatives:</strong> (a) 只在 state_test.go 层测 submit；(b) 另建 model_test.go，用合成 <code>KeyPressMsg</code>（<code>{Code:r, Text:string(r)}</code>）直接驱动 <code>handleKey</code>。</p>
+      <p><strong>Chosen:</strong> (b)（同时保留 a）。</p>
+      <p><strong>Why it won:</strong> 中文输入的 bug 恰恰在 <code>handleKey</code>（旧 <code>len(s)==1</code> 分支丢多字节），只测 uiState 覆盖不到。model_test.go 用不依赖真实终端的合成按键，端到端验证「键入你好世界 → 完整显示 → 退格删整字 → 提交逐字一致」，正对 bug 根因。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 引入了 <code>github.com/atotto/clipboard</code> 间接依赖（textinput 的 Paste 绑定）</h3>
+      <p>textinput 依赖 clipboard 实现粘贴，<code>go mod tidy</code> 已将其纳入 <code>go.sum</code>。本 issue 未主动使用粘贴功能，但按键委派后 Ctrl+V 会触发 textinput 的 <code>Paste</code> 命令。确认接受这一新间接依赖；粘贴行为的中文正确性可在实机确认。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 光标目前用 textinput 的真实终端光标</h3>
+      <p><code>newComposer</code> 未开 <code>SetVirtualCursor</code>，走真实光标路径。当前 <code>View()</code> 直接拼 <code>m.input.View()</code>，未处理 <code>Cursor()</code> 位置上报。在超宽输入折行/滚动（US-003/#91 宽度感知）接入前，长中文输入行的光标定位以实机为准复核。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> go-runewidth 被顺带从 v0.0.23 升到 v0.0.24</h3>
+      <p><code>go get charm.land/bubbles/v2</code> 连带升级了 go-runewidth（#91 宽度计算要用）。属兼容小版本升级，测试全绿。确认可接受此次一并升级。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
