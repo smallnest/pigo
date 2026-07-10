@@ -29,6 +29,7 @@ var providerEnvVars = map[string][]string{
 	"xai":        {"XAI_API_KEY"},
 	"groq":       {"GROQ_API_KEY"},
 	"openrouter": {"OPENROUTER_API_KEY"},
+	"nvidia":     {"NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY"},
 	"mistral":    {"MISTRAL_API_KEY"},
 }
 
