@@ -15,20 +15,21 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/smallnest/pigo/internal/agent"
+	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/runtime"
 )
 
 // RunFn starts an agent run for prompt and returns a stream of its events plus
 // a cancel func the TUI calls on Ctrl+C interrupt. Injected so the Model is
 // testable without a real provider. The steering callback is consulted by the
 // loop between turns; it should return (and clear) any queued steering text.
-type RunFn func(ctx context.Context, prompt string, steering func() []string) (*agent.LoopEventStream, context.CancelFunc)
+type RunFn func(ctx context.Context, prompt string, steering func() []string) (*runtime.LoopEventStream, context.CancelFunc)
 
 // agentEventMsg carries one loop event into Update, tagged with the runID it
 // was produced under (for the stale-guard).
 type agentEventMsg struct {
 	runID int
-	event agent.AgentEvent
+	event agentcore.AgentEvent
 }
 
 // runDoneMsg signals a run finished, tagged with its runID.
@@ -56,12 +57,12 @@ type Model struct {
 
 	// slash optionally resolves "/name" input into prompt text before a run is
 	// started (US-029). When nil, input is submitted verbatim.
-	slash *agent.SlashRegistry
+	slash *runtime.SlashRegistry
 }
 
 // SetSlashRegistry wires a slash-command registry so typed "/name" input is
 // expanded before a run starts. Optional; when unset, input runs verbatim.
-func (m *Model) SetSlashRegistry(r *agent.SlashRegistry) { m.slash = r }
+func (m *Model) SetSlashRegistry(r *runtime.SlashRegistry) { m.slash = r }
 
 // NewModel builds a Model driven by run.
 func NewModel(run RunFn) *Model {
@@ -72,7 +73,7 @@ func NewModel(run RunFn) *Model {
 // resumed session's messages (US-024). The replayed transcript renders the
 // prior conversation before any new input; the model starts idle so the next
 // submit continues the session via the injected run func.
-func NewModelWithHistory(run RunFn, history []agent.AgentMessage) *Model {
+func NewModelWithHistory(run RunFn, history []agentcore.AgentMessage) *Model {
 	m := &Model{state: newUIState(), run: run}
 	m.state.replay(history)
 	return m
@@ -180,7 +181,7 @@ func (m *Model) startRun(prompt string) tea.Cmd {
 // drain forwards every event from stream into Update via Program.Send, then
 // sends runDoneMsg with the stream result error. Runs in its own goroutine so
 // the (unbuffered) stream is fully consumed — no producer leak.
-func (m *Model) drain(runID int, stream *agent.LoopEventStream) {
+func (m *Model) drain(runID int, stream *runtime.LoopEventStream) {
 	for ev := range stream.Events() {
 		if m.program != nil {
 			m.program.Send(agentEventMsg{runID: runID, event: ev})

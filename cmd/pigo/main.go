@@ -17,7 +17,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/smallnest/pigo/internal/agent"
+	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/provider"
+	"github.com/smallnest/pigo/internal/runtime"
 )
 
 func main() {
@@ -86,7 +89,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "pigo: %v\n", err)
 			os.Exit(1)
 		}
-		sysPrompt, err := agent.BuildSystemPrompt(agent.PromptConfig{WorkingDir: cwd, Root: cwd})
+		sysPrompt, err := runtime.BuildSystemPrompt(runtime.PromptConfig{WorkingDir: cwd, Root: cwd})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "pigo: %v\n", err)
 			os.Exit(1)
@@ -105,18 +108,18 @@ func main() {
 		return
 	}
 
-	mode := agent.PrintMode
+	mode := runtime.PrintMode
 	switch outputFmt {
 	case "text", "":
-		mode = agent.PrintMode
+		mode = runtime.PrintMode
 	case "stream-json":
-		mode = agent.StreamJSONMode
+		mode = runtime.StreamJSONMode
 	default:
 		fmt.Fprintf(os.Stderr, "pigo: unknown --output-format %q (want text|stream-json)\n", outputFmt)
 		os.Exit(2)
 	}
 
-	provider, providerName, err := resolveProvider(model, baseURL)
+	prov, providerName, err := resolveProvider(model, baseURL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pigo: %v\n", err)
 		os.Exit(1)
@@ -124,39 +127,39 @@ func main() {
 
 	cwd, _ := os.Getwd()
 	tools := builtinTools(cwd, noTools)
-	sysPrompt, err := agent.BuildSystemPrompt(agent.PromptConfig{WorkingDir: cwd, Root: cwd})
+	sysPrompt, err := runtime.BuildSystemPrompt(runtime.PromptConfig{WorkingDir: cwd, Root: cwd})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pigo: %v\n", err)
 		os.Exit(1)
 	}
-	agentCtx := &agent.AgentContext{
+	agentCtx := &agentcore.AgentContext{
 		SystemPrompt: sysPrompt,
-		Messages: agent.MessageList{
-			agent.UserMessage{RoleField: agent.RoleUser, Content: agent.ContentList{agent.NewTextContent(prompt)}},
+		Messages: agentcore.MessageList{
+			agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent(prompt)}},
 		},
 		Tools: tools,
 	}
 
 	// Resolve the API key by provider name from the environment (never logged).
-	creds := agent.NewCredentialStore(nil)
+	creds := provider.NewCredentialStore(nil)
 
-	cfg := agent.HeadlessConfig{
+	cfg := runtime.HeadlessConfig{
 		Mode: mode,
 		Out:  os.Stdout,
-		Run: agent.RunConfig{
-			LoopConfig: agent.LoopConfig{
+		Run: runtime.RunConfig{
+			LoopConfig: runtime.LoopConfig{
 				Model:     model,
 				Provider:  providerName,
-				Stream:    agent.StreamFnFromProvider(provider),
+				Stream:    provider.StreamFnFromProvider(prov),
 				GetAPIKey: creds.GetAPIKey,
 			},
-			Batch: agent.BatchConfig{
-				ToolExecutorConfig: agent.ToolExecutorConfig{Registry: toolRegistry(tools)},
+			Batch: agenttool.BatchConfig{
+				ToolExecutorConfig: agenttool.ToolExecutorConfig{Registry: toolRegistry(tools)},
 			},
 		},
 	}
 
-	if err := agent.RunHeadless(context.Background(), agentCtx, cfg); err != nil {
+	if err := runtime.RunHeadless(context.Background(), agentCtx, cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "pigo: %v\n", err)
 		os.Exit(1)
 	}
@@ -165,38 +168,38 @@ func main() {
 // resolveProvider maps a model id to a built-in provider. A model id prefixed
 // with "ollama/" (or an explicit local base URL) uses the local Ollama gateway;
 // everything else defaults to OpenRouter, the reference OpenAI-compatible layer.
-func resolveProvider(model, baseURL string) (agent.Provider, string, error) {
-	models := []agent.Model{{ID: model}}
+func resolveProvider(model, baseURL string) (provider.Provider, string, error) {
+	models := []provider.Model{{ID: model}}
 	if strings.HasPrefix(model, "ollama/") || strings.Contains(baseURL, "11434") {
 		id := strings.TrimPrefix(model, "ollama/")
-		return agent.NewOllamaProvider(baseURL, []agent.Model{{Provider: "ollama", ID: id}}), "ollama", nil
+		return provider.NewOllamaProvider(baseURL, []provider.Model{{Provider: "ollama", ID: id}}), "ollama", nil
 	}
 	for i := range models {
 		models[i].Provider = "openrouter"
 	}
-	return agent.NewOpenRouterProvider(baseURL, models), "openrouter", nil
+	return provider.NewOpenRouterProvider(baseURL, models), "openrouter", nil
 }
 
 // builtinTools returns the default file/shell tool set rooted at cwd, or nil
 // when tools are disabled.
-func builtinTools(cwd string, disabled bool) []agent.AgentTool {
+func builtinTools(cwd string, disabled bool) []agentcore.AgentTool {
 	if disabled {
 		return nil
 	}
-	return []agent.AgentTool{
-		&agent.ReadTool{Root: cwd},
-		&agent.WriteTool{Root: cwd},
-		&agent.EditTool{Root: cwd},
-		&agent.GrepTool{Root: cwd},
-		&agent.FindTool{Root: cwd},
-		&agent.BashTool{Dir: cwd},
+	return []agentcore.AgentTool{
+		&agenttool.ReadTool{Root: cwd},
+		&agenttool.WriteTool{Root: cwd},
+		&agenttool.EditTool{Root: cwd},
+		&agenttool.GrepTool{Root: cwd},
+		&agenttool.FindTool{Root: cwd},
+		&agenttool.BashTool{Dir: cwd},
 	}
 }
 
 // toolRegistry builds a registry from the given tools (skipping any that fail
 // to register, e.g. a bad schema, which should not happen for built-ins).
-func toolRegistry(tools []agent.AgentTool) *agent.ToolRegistry {
-	reg := agent.NewToolRegistry()
+func toolRegistry(tools []agentcore.AgentTool) *agenttool.ToolRegistry {
+	reg := agenttool.NewToolRegistry()
 	for _, t := range tools {
 		_ = reg.Register(t)
 	}

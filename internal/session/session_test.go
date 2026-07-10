@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smallnest/pigo/internal/agent"
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // writeFile writes content to path (test helper for hand-crafted fixtures).
@@ -21,24 +21,24 @@ func writeFile(path, content string) error {
 
 // sampleMessages returns a small multi-turn transcript: user prompt, assistant
 // with a tool call, tool result, then a final assistant reply.
-func sampleMessages() agent.MessageList {
-	return agent.MessageList{
-		agent.UserMessage{RoleField: agent.RoleUser, Content: agent.ContentList{agent.NewTextContent("read main.go")}},
-		agent.AssistantMessage{
-			RoleField:  agent.RoleAssistant,
-			Content:    agent.ContentList{agent.NewTextContent("Reading it."), agent.NewToolCallContent("call-1", "read", []byte(`{"path":"main.go"}`))},
-			StopReason: agent.StopReasonToolUse,
+func sampleMessages() agentcore.MessageList {
+	return agentcore.MessageList{
+		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("read main.go")}},
+		agentcore.AssistantMessage{
+			RoleField:  agentcore.RoleAssistant,
+			Content:    agentcore.ContentList{agentcore.NewTextContent("Reading it."), agentcore.NewToolCallContent("call-1", "read", []byte(`{"path":"main.go"}`))},
+			StopReason: agentcore.StopReasonToolUse,
 		},
-		agent.ToolResultMessage{
-			RoleField:  agent.RoleToolResult,
+		agentcore.ToolResultMessage{
+			RoleField:  agentcore.RoleToolResult,
 			ToolCallID: "call-1",
 			ToolName:   "read",
-			Content:    agent.ContentList{agent.NewTextContent("package main")},
+			Content:    agentcore.ContentList{agentcore.NewTextContent("package main")},
 		},
-		agent.AssistantMessage{
-			RoleField:  agent.RoleAssistant,
-			Content:    agent.ContentList{agent.NewTextContent("It is package main.")},
-			StopReason: agent.StopReasonEndTurn,
+		agentcore.AssistantMessage{
+			RoleField:  agentcore.RoleAssistant,
+			Content:    agentcore.ContentList{agentcore.NewTextContent("It is package main.")},
+			StopReason: agentcore.StopReasonEndTurn,
 		},
 	}
 }
@@ -84,14 +84,14 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		t.Fatalf("message count = %d, want %d", len(gotMsgs), len(msgs))
 	}
 	// Roles must round-trip in order.
-	wantRoles := []string{agent.RoleUser, agent.RoleAssistant, agent.RoleToolResult, agent.RoleAssistant}
+	wantRoles := []string{agentcore.RoleUser, agentcore.RoleAssistant, agentcore.RoleToolResult, agentcore.RoleAssistant}
 	for i, m := range gotMsgs {
 		if m.Role() != wantRoles[i] {
 			t.Errorf("message[%d] role = %q, want %q", i, m.Role(), wantRoles[i])
 		}
 	}
 	// The assistant tool call must survive the round-trip.
-	a, ok := gotMsgs[1].(agent.AssistantMessage)
+	a, ok := gotMsgs[1].(agentcore.AssistantMessage)
 	if !ok {
 		t.Fatalf("message[1] is not AssistantMessage: %T", gotMsgs[1])
 	}
@@ -110,7 +110,7 @@ func TestSaveOverwrites(t *testing.T) {
 	if err := s.Save(h, sampleMessages()); err != nil {
 		t.Fatalf("first Save: %v", err)
 	}
-	shorter := agent.MessageList{agent.UserMessage{RoleField: agent.RoleUser, Content: agent.ContentList{agent.NewTextContent("hi")}}}
+	shorter := agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("hi")}}}
 	if err := s.Save(h, shorter); err != nil {
 		t.Fatalf("second Save: %v", err)
 	}
@@ -160,10 +160,10 @@ func TestResumeReconstructsContext(t *testing.T) {
 	now := time.Now().UTC()
 	// A session whose last message is a tool result (not assistant), so it is
 	// resumable per agentLoopContinue's precondition.
-	msgs := agent.MessageList{
-		agent.UserMessage{RoleField: agent.RoleUser, Content: agent.ContentList{agent.NewTextContent("go")}},
-		agent.AssistantMessage{RoleField: agent.RoleAssistant, Content: agent.ContentList{agent.NewToolCallContent("c1", "read", []byte(`{}`))}, StopReason: agent.StopReasonToolUse},
-		agent.ToolResultMessage{RoleField: agent.RoleToolResult, ToolCallID: "c1", ToolName: "read", Content: agent.ContentList{agent.NewTextContent("data")}},
+	msgs := agentcore.MessageList{
+		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("go")}},
+		agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, Content: agentcore.ContentList{agentcore.NewToolCallContent("c1", "read", []byte(`{}`))}, StopReason: agentcore.StopReasonToolUse},
+		agentcore.ToolResultMessage{RoleField: agentcore.RoleToolResult, ToolCallID: "c1", ToolName: "read", Content: agentcore.ContentList{agentcore.NewTextContent("data")}},
 	}
 	h := SessionHeader{ID: "resumable", CreatedAt: now, UpdatedAt: now, SystemPrompt: "sys"}
 	if err := s.Save(h, msgs); err != nil {
@@ -189,9 +189,9 @@ func TestResumeReconstructsContext(t *testing.T) {
 func TestResumeRejectsTrailingAssistant(t *testing.T) {
 	s := newStore(t)
 	now := time.Now().UTC()
-	msgs := agent.MessageList{
-		agent.UserMessage{RoleField: agent.RoleUser, Content: agent.ContentList{agent.NewTextContent("q")}},
-		agent.AssistantMessage{RoleField: agent.RoleAssistant, Content: agent.ContentList{agent.NewTextContent("a")}, StopReason: agent.StopReasonEndTurn},
+	msgs := agentcore.MessageList{
+		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("q")}},
+		agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, Content: agentcore.ContentList{agentcore.NewTextContent("a")}, StopReason: agentcore.StopReasonEndTurn},
 	}
 	if err := s.Save(SessionHeader{ID: "done", CreatedAt: now, UpdatedAt: now}, msgs); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -221,12 +221,12 @@ func TestAppendGrowsSession(t *testing.T) {
 	s := newStore(t)
 	created := time.Date(2026, 7, 10, 10, 0, 0, 0, time.UTC)
 	h := SessionHeader{ID: "grow", CreatedAt: created, UpdatedAt: created}
-	initial := agent.MessageList{agent.UserMessage{RoleField: agent.RoleUser, Content: agent.ContentList{agent.NewTextContent("first")}}}
+	initial := agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("first")}}}
 	if err := s.Save(h, initial); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	later := created.Add(time.Hour)
-	more := agent.MessageList{agent.AssistantMessage{RoleField: agent.RoleAssistant, Content: agent.ContentList{agent.NewTextContent("reply")}, StopReason: agent.StopReasonEndTurn}}
+	more := agentcore.MessageList{agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, Content: agentcore.ContentList{agentcore.NewTextContent("reply")}, StopReason: agentcore.StopReasonEndTurn}}
 	if err := s.Append("grow", later, more); err != nil {
 		t.Fatalf("Append: %v", err)
 	}

@@ -14,7 +14,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/smallnest/pigo/internal/agent"
+	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/provider"
+	"github.com/smallnest/pigo/internal/runtime"
 	"github.com/smallnest/pigo/internal/session"
 	"github.com/smallnest/pigo/internal/tui"
 )
@@ -38,8 +41,8 @@ func sessionStore() (*session.Store, error) {
 type interactiveOptions struct {
 	model        string
 	providerName string
-	provider     agent.Provider
-	tools        []agent.AgentTool
+	provider     provider.Provider
+	tools        []agentcore.AgentTool
 	sysPrompt    string
 
 	// resumeID, when non-empty, resumes an existing session: its messages seed
@@ -51,7 +54,7 @@ type interactiveOptions struct {
 // single growing AgentContext across prompts (so turns share history) and saves
 // the session's messages after each run completes.
 func runInteractive(opts interactiveOptions) error {
-	creds := agent.NewCredentialStore(nil)
+	creds := provider.NewCredentialStore(nil)
 	reg := toolRegistry(opts.tools)
 
 	store, err := sessionStore()
@@ -62,9 +65,9 @@ func runInteractive(opts interactiveOptions) error {
 	// Establish the session: resume an existing one or create a fresh header.
 	now := time.Now().UTC()
 	var (
-		agentCtx *agent.AgentContext
+		agentCtx *agentcore.AgentContext
 		header   session.SessionHeader
-		history  []agent.AgentMessage
+		history  []agentcore.AgentMessage
 	)
 	if opts.resumeID != "" {
 		// Interactive resume differs from headless continue: the user re-prompts,
@@ -77,13 +80,13 @@ func runInteractive(opts interactiveOptions) error {
 			return err
 		}
 		header = h
-		agentCtx = &agent.AgentContext{SystemPrompt: h.SystemPrompt, Messages: msgs, Tools: opts.tools}
+		agentCtx = &agentcore.AgentContext{SystemPrompt: h.SystemPrompt, Messages: msgs, Tools: opts.tools}
 		history = msgs
 		if agentCtx.SystemPrompt == "" {
 			agentCtx.SystemPrompt = opts.sysPrompt
 		}
 	} else {
-		agentCtx = &agent.AgentContext{SystemPrompt: opts.sysPrompt, Tools: opts.tools}
+		agentCtx = &agentcore.AgentContext{SystemPrompt: opts.sysPrompt, Tools: opts.tools}
 		header = session.SessionHeader{
 			ID:           session.NewID(now),
 			CreatedAt:    now,
@@ -98,35 +101,35 @@ func runInteractive(opts interactiveOptions) error {
 	// the whole context, and returns its event stream. Steering is bridged into
 	// the loop's per-turn hook. The context grows in place as the loop appends
 	// assistant/tool messages, so the next prompt continues the conversation.
-	run := func(ctx context.Context, prompt string, steering func() []string) (*agent.LoopEventStream, context.CancelFunc) {
+	run := func(ctx context.Context, prompt string, steering func() []string) (*runtime.LoopEventStream, context.CancelFunc) {
 		runCtx, cancel := context.WithCancel(ctx)
-		agentCtx.Messages = append(agentCtx.Messages, agent.UserMessage{
-			RoleField: agent.RoleUser,
-			Content:   agent.ContentList{agent.NewTextContent(prompt)},
+		agentCtx.Messages = append(agentCtx.Messages, agentcore.UserMessage{
+			RoleField: agentcore.RoleUser,
+			Content:   agentcore.ContentList{agentcore.NewTextContent(prompt)},
 		})
-		cfg := agent.RunConfig{
-			LoopConfig: agent.LoopConfig{
+		cfg := runtime.RunConfig{
+			LoopConfig: runtime.LoopConfig{
 				Model:     opts.model,
 				Provider:  opts.providerName,
-				Stream:    agent.StreamFnFromProvider(opts.provider),
+				Stream:    provider.StreamFnFromProvider(opts.provider),
 				GetAPIKey: creds.GetAPIKey,
 			},
-			Batch: agent.BatchConfig{
-				ToolExecutorConfig: agent.ToolExecutorConfig{Registry: reg},
+			Batch: agenttool.BatchConfig{
+				ToolExecutorConfig: agenttool.ToolExecutorConfig{Registry: reg},
 			},
-			GetSteeringMessages: func(context.Context) []agent.AgentMessage {
+			GetSteeringMessages: func(context.Context) []agentcore.AgentMessage {
 				texts := steering()
 				if len(texts) == 0 {
 					return nil
 				}
-				msgs := make([]agent.AgentMessage, 0, len(texts))
+				msgs := make([]agentcore.AgentMessage, 0, len(texts))
 				for _, t := range texts {
-					msgs = append(msgs, agent.UserMessage{RoleField: agent.RoleUser, Content: agent.ContentList{agent.NewTextContent(t)}})
+					msgs = append(msgs, agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent(t)}})
 				}
 				return msgs
 			},
 		}
-		stream := agent.StartRun(runCtx, agentCtx, cfg)
+		stream := runtime.StartRun(runCtx, agentCtx, cfg)
 		// Persist the session once this run settles. Result blocks until the loop
 		// ends; calling it here (in addition to the TUI's drain) is safe — Result
 		// resolves once and can be read by multiple goroutines.
@@ -210,12 +213,12 @@ func stdoutIsTerminal() bool {
 }
 
 // buildSlashRegistry assembles the TUI slash-command registry: compile-time
-// built-ins seeded by agent.NewSlashRegistry plus user declarative templates
+// built-ins seeded by runtime.NewSlashRegistry plus user declarative templates
 // loaded from ~/.pigo/commands (or $PIGO_HOME/commands). A missing directory is
 // not an error. User commands that collide with a built-in are shadowed (the
 // built-in wins) and reported on stderr.
-func buildSlashRegistry() (*agent.SlashRegistry, error) {
-	reg := agent.NewSlashRegistry()
+func buildSlashRegistry() (*runtime.SlashRegistry, error) {
+	reg := runtime.NewSlashRegistry()
 	dir := os.Getenv("PIGO_HOME")
 	if dir == "" {
 		home, err := os.UserHomeDir()
@@ -224,7 +227,7 @@ func buildSlashRegistry() (*agent.SlashRegistry, error) {
 		}
 		dir = filepath.Join(home, ".pigo")
 	}
-	cmds, err := agent.LoadUserCommandsDir(filepath.Join(dir, "commands"))
+	cmds, err := runtime.LoadUserCommandsDir(filepath.Join(dir, "commands"))
 	if err != nil {
 		return reg, err
 	}
