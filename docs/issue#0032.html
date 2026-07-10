@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0032</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/32">#32</a> &mdash; OAuth 与 API key 解析（US-012）&mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 三层凭证解析顺序：OAuth &gt; 环境变量 &gt; 配置文件</h3>
+      <p><strong>Ambiguity:</strong> 验收要求"从环境变量与配置文件读 API key"+"OAuth 流程"，但未规定三者同时存在时的优先级。</p>
+      <p><strong>Choice:</strong> <code>CredentialStore.GetAPIKey</code> 按 OAuth token（自动刷新）→ env → config 依次解析，返回首个非空值。</p>
+      <p><strong>Rationale:</strong> OAuth 是显式配置的强凭证，env 是运行时注入（CI/容器），config 是持久默认；越"临时/显式"的越优先，符合运维直觉。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>TokenSource</code> 用 Leeway 提前刷新，签名匹配 <code>LoopConfig.GetAPIKey</code></h3>
+      <p><strong>Ambiguity:</strong> "token 过期时刷新返回新 token"未说明如何避免在过期边界处竞争。</p>
+      <p><strong>Choice:</strong> <code>TokenSource</code> 提供 30s 默认 Leeway，在真实过期前刷新；<code>GetAPIKey(ctx, provider) string</code> 与 <code>LoopConfig.GetAPIKey</code> 形状一致，可直接赋值接入 loop。</p>
+      <p><strong>Rationale:</strong> 复用现有 <code>streamAssistantResponse</code> 的动态 key 解析钩子（#25/US-003），无需改 loop；Leeway 规避边界抖动。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> OAuth 提供通用 <code>TokenSource</code> 而非绑定具体 provider 的完整授权码流程</h3>
+      <p><strong>Spec:</strong> "支持 OAuth 流程（至少覆盖一个 OAuth provider 作为样例）"。</p>
+      <p><strong>Implemented:</strong> 通用可注入 <code>Refresh</code> 的 <code>TokenSource</code> + <code>OAuthToken</code>，覆盖"短时 token 过期刷新"这一核心运行时契约；具体 provider 的浏览器授权码换取由上层装配 <code>Refresh</code> 闭包完成。</p>
+      <p><strong>Why:</strong> 授权码交换涉及浏览器重定向/回调，属 CLI 装配层职责；本 issue 聚焦 loop 侧的凭证解析与刷新，抽象出可注入点比硬编码单一 provider 更通用、更可测。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> OAuth 刷新失败时回退 env/config，而非直接报错</h3>
+      <p><strong>Alternatives:</strong> (A) 刷新失败即返回空/错误；(B) 刷新失败静默回退到 env/config 静态 key。</p>
+      <p><strong>Pros/Cons:</strong> A 语义清晰但一次 OAuth 抖动就中断可用的静态凭证；B 提升可用性但掩盖了 OAuth 故障。</p>
+      <p><strong>Winner:</strong> B——<code>GetAPIKey</code> 契约是"尽力返回可用 key"，与 loop 的静态 fallback 语义一致；OAuth 故障可由 <code>TokenSource.Token</code> 的显式错误单独观测。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 敏感值不写日志的保证目前靠约定，是否需要类型级封装</h3>
+      <p><strong>Assumption:</strong> 当前 API key/token 为普通 <code>string</code>，靠"错误信息只按 key 名/provider 引用"的约定避免泄露；未引入 redacted 包装类型。</p>
+      <p><strong>Verify:</strong> 若后续要防止误 <code>fmt.Printf("%v", cfg)</code> 泄露，可引入实现 <code>String()/GoString()</code> 打码的 <code>Secret</code> 类型。当前范围内是否足够？</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
