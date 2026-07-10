@@ -218,12 +218,20 @@ func (m *Model) refreshViewport() {
 // renderTranscriptEntry produces the final styled, width-folded text for one
 // entry at the given width. Assistant text (#94) is rendered as Markdown via
 // glamour, which owns both its word-wrapping (bound to width so CJK stays
-// aligned) and coloring — so it is NOT run through wrapWidth/styleEntry. Every
-// other kind keeps the #91/#93 path: fold to width on rune boundaries, then
-// apply the theme style after wrapping so display-width math stays on raw runes.
+// aligned) and coloring — so it is NOT run through wrapWidth/styleEntry. A
+// theme-accented role glyph (#95) is prepended to the first rendered line so
+// the assistant is distinguishable by prefix even under NO_COLOR, matching the
+// prefix treatment of every other entry kind. Every other kind keeps the
+// #91/#93 path: fold to width on rune boundaries, then apply the theme style
+// after wrapping so display-width math stays on raw runes.
 func (m *Model) renderTranscriptEntry(e transcriptEntry, width int) string {
 	if e.Kind == entryAssistant {
-		return m.md.render(fenceBuffer(e.Text), width, noColor())
+		// The role marker sits on its own line above the rendered Markdown body so
+		// glamour's width-bound output is never widened by an inline prefix (which
+		// would push the first line past the wrap width). Under NO_COLOR the glyph
+		// still marks the source; with color it carries the accent style.
+		glyph := m.theme.accent.Render(strings.TrimRight(rolePrefix(entryAssistant), " "))
+		return glyph + "\n" + m.md.render(fenceBuffer(e.Text), width, noColor())
 	}
 	line := wrapWidth(renderEntry(e, width), width)
 	return m.styleEntry(e.Kind, line)
@@ -389,6 +397,33 @@ func (m *Model) View() tea.View {
 	return tea.NewView(b.String())
 }
 
+// rolePrefix returns the leading role marker (glyph + trailing space) for an
+// entry kind (#95). The prefix is what distinguishes conversation sources when
+// color is stripped (NO_COLOR), so every kind carries a distinct glyph:
+//
+//	you>  user input       ● assistant reply
+//	⚙     tool invocation   ↳ tool result      · local system line
+//
+// renderEntry prepends it to plain entries before styling; the assistant path
+// (Markdown) prepends the accented glyph itself since its body is rendered by
+// glamour rather than the plain wrap path.
+func rolePrefix(kind entryKind) string {
+	switch kind {
+	case entryUser:
+		return "you> "
+	case entryAssistant:
+		return "● "
+	case entryToolCall:
+		return "⚙ "
+	case entryToolResult:
+		return "  ↳ "
+	case entrySystem:
+		return "· "
+	default:
+		return ""
+	}
+}
+
 // renderEntry formats one transcript entry with a role prefix. Assistant text
 // is passed through fenceBuffer so an unterminated code fence renders cleanly
 // (no half-open ``` breaking the layout mid-stream). width is the terminal
@@ -397,13 +432,13 @@ func (m *Model) View() tea.View {
 func renderEntry(e transcriptEntry, width int) string {
 	switch e.Kind {
 	case entryUser:
-		return "you> " + e.Text
+		return rolePrefix(entryUser) + e.Text
 	case entryAssistant:
 		return fenceBuffer(e.Text)
 	case entryToolCall:
-		return "⚙ " + e.Text
+		return rolePrefix(entryToolCall) + e.Text
 	case entryToolResult:
-		const prefix = "  ↳ "
+		prefix := rolePrefix(entryToolResult)
 		gist := firstLine(e.Text)
 		if width > 0 {
 			// Reserve the prefix's display columns so the whole line fits.
@@ -411,7 +446,7 @@ func renderEntry(e transcriptEntry, width int) string {
 		}
 		return prefix + gist
 	case entrySystem:
-		return "· " + e.Text
+		return rolePrefix(entrySystem) + e.Text
 	default:
 		return e.Text
 	}

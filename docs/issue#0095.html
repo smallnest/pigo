@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0095</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F2F0EC; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/95">#95</a> &mdash; TUI: 角色样式化的 transcript 渲染 &mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 抽出 rolePrefix(kind) 单一真源，renderEntry 与 assistant 路径共用</h3>
+      <p><strong>Ambiguity:</strong> AC 要求「角色前缀保留或对标 zero 优化，NO_COLOR 下靠前缀/glyph 区分」，未规定前缀集中管理方式。</p>
+      <p><strong>Choice:</strong> 新增 <code>rolePrefix(kind entryKind) string</code>，返回每类的 glyph+空格；<code>renderEntry</code> 原本散落的字面量（"you> "、"⚙ "、"  ↳ "、"· "）改为调用它，assistant 也从同一函数取 glyph。</p>
+      <p><strong>Rationale:</strong> 前缀是 NO_COLOR 下唯一的来源区分手段，集中到一处避免各 entry 分支与测试各写一份、易漂移；测试 <code>TestRolePrefixesAreDistinct</code> 直接校验各类前缀非空且互不相同。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> assistant 新增 ● 角色 glyph，且置于渲染体上方独立一行</h3>
+      <p><strong>Ambiguity:</strong> #94 的 assistant 走 glamour Markdown 渲染，原本没有角色前缀；AC 要求各 kind（含 assistant）都能靠前缀区分。</p>
+      <p><strong>Choice:</strong> assistant 前缀取 <code>●</code>，套主题 accent 色；把 glyph 放在 glamour 输出「上方单独一行」（<code>glyph + "\n" + body</code>），而非行内前缀。</p>
+      <p><strong>Rationale:</strong> glamour 的输出宽度已绑定 viewport，若在首行行内加前缀会把该行推过折行宽度（实测 <code>● </code> 前缀使 20 列限制下首行变 22 列，测试 fail）；独立 glyph 行既满足"可区分"又不破坏 #94 的宽度对齐。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">None</span> 实现遵循 spec</h3>
+      <p>AC 四项（各 entryKind 主题上色、角色前缀在 NO_COLOR 下仍可区分、带前缀行按显示宽度对齐中文不错位、build/vet/gofmt/test 全绿）均满足。着色能力其实在 #93 的 <code>styleEntry</code> 已就位，本 issue 补齐前缀集中化 + assistant 角色 glyph，闭合 AC。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> assistant 角色标记用独立 glyph 行，而非行内前缀</h3>
+      <p><strong>Alternatives:</strong> (a) 像 user/tool 那样行内前缀 <code>● 正文…</code>；(b) glyph 独占一行，正文在下。</p>
+      <p><strong>Chosen:</strong> (b)。</p>
+      <p><strong>Why it won:</strong> (a) 会把 glamour 已按 width 折好的首行再加宽 2 列导致溢出，且 Markdown 正文首行可能是标题/代码块，行内插前缀会破坏其块级排版。(b) 让 glamour 输出保持原样，代价是每条 assistant 多占一行——在对话流里可接受，反而让来源更醒目。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> assistant ● glyph 的选型是否对标 zero</h3>
+      <p>选用 <code>●</code>（实心圆）作 assistant 标记，与 user <code>you></code>、tool <code>⚙</code>/<code>↳</code>、system <code>·</code> 区分。zero 具体用哪个字符未逐一核对；若需严格对标 zero 的角色符号体系，可在此调整（单宽字符即可，避免影响宽度对齐）。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 是否给角色前缀本身也做差异化配色</h3>
+      <p>当前非 assistant 行整行套该 kind 的主题色（前缀与正文同色）。zero 有时让前缀/标签用更强调的色、正文用常规色。是否需要「前缀强调色 + 正文常规色」的两段式着色，留待样式体系收敛后确认；本 issue 先整行同色，简单且已满足 AC。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
