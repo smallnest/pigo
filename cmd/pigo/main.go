@@ -12,10 +12,11 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"strings"
+
+	flag "github.com/spf13/pflag"
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
@@ -34,8 +35,7 @@ func main() {
 		resumeID     string
 		continueLast bool
 	)
-	flag.StringVar(&prompt, "p", "", "prompt to run in headless print mode")
-	flag.StringVar(&prompt, "print", "", "prompt to run in headless print mode")
+	flag.StringVarP(&prompt, "print", "p", "", "prompt to run in headless print mode")
 	flag.StringVar(&model, "model", "openrouter/free", "model id to run against")
 	flag.StringVar(&baseURL, "base-url", "", "override provider base URL (e.g. local Ollama)")
 	flag.StringVar(&outputFmt, "output-format", "text", "output format: text | stream-json")
