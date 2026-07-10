@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0021</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/21">#21</a> &mdash; 工具三段式 prepare→execute→finalize（US-004） &mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 三段拆为三个独立函数 + 短路结果指针</h3>
+      <p><strong>Ambiguity:</strong> 验收要求 prepare→execute→finalize，但未规定内部函数边界。</p>
+      <p><strong>Choice:</strong> <code>prepareToolCall</code> 返回 <code>(tool, args, *AgentToolResult, isError)</code>——非 nil result 即短路（未找到/校验失败/block/abort），直接进 finalize 不 execute；<code>runTool</code> 负责 execute+panic 恢复；<code>finalizeToolCall</code> 负责 afterToolCall 覆盖 + 事件 + 组装消息。</p>
+      <p><strong>Rationale:</strong> 让 "所有失败路径都走 finalize（因此都过 afterToolCall 钩子并发 end 事件）" 这一 pi 语义显式化，避免每个错误分支各自组装消息。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> block 默认文案 + 可选 Content/Details 覆盖</h3>
+      <p><strong>Ambiguity:</strong> 验收只说 "block 产出 error result"，未规定 result 内容。</p>
+      <p><strong>Choice:</strong> <code>BeforeToolCallDecision</code> 带可选 <code>*Content/*Details</code>：不设则用默认 "blocked by beforeToolCall" 文案，设了则用调用方的（权限系统可给出拒绝原因）。</p>
+      <p><strong>Rationale:</strong> 权限/沙箱场景（FR-26）需要向模型解释为何拒绝，硬编码文案不够。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 所有失败编码为 error tool result，不返回 Go error</h3>
+      <p><strong>Spec:</strong> 验收写 "抛错时转为 error tool result 而非 panic"。</p>
+      <p><strong>Implemented:</strong> <code>executeToolCall</code> 签名 <code>(ToolResultMessage, bool)</code>——完全不返回 error。未找到/校验/block/abort/tool error/panic 六种失败一律产 IsError=true 的消息。</p>
+      <p><strong>Why:</strong> 契合 provider 层地基约定——失败回喂模型自我修正，loop 只有一条消息记录路径，无双路径错误处理。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> afterToolCall 字段级覆盖用四个 if 而非反射/合并</h3>
+      <p><strong>Alternatives:</strong> (A) 逐字段 nil 判断覆盖；(B) 反射/深合并。</p>
+      <p><strong>Pros/Cons:</strong> A 直白、与 pi "无深合并" 语义一致，每个指针字段独立三态；B 更 "通用" 但引入深合并语义，恰是 pi 明确拒绝的。</p>
+      <p><strong>Winner:</strong> A——验收明确 "无深合并，与 pi 一致"，四个 if 正好表达字段级替换。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 本 issue 只做单个工具三段式，批量并行/串行留给 US-005（#22）</h3>
+      <p><strong>Assumption:</strong> <code>executeToolCall</code> 处理单次调用；<code>ToolExecutionMode</code>（parallel/sequential）与整批 terminate 语义（仅全 true 才终止）属 US-005 范畴，本 issue 未编排批量。</p>
+      <p><strong>Verify:</strong> 请确认单工具三段式与批量编排的拆分符合预期——#22 将在此之上加 sequential/parallel 保序与整批 terminate 判定。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
