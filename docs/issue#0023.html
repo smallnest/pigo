@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0023</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/23">#23</a> &mdash; 双层主循环 runLoop（US-006）&mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>RunConfig</code> 内嵌 <code>LoopConfig</code>，聚合四个循环级钩子</h3>
+      <p><strong>Ambiguity:</strong> 验收列出六个钩子，但 <code>getSteeringMessages</code>/<code>getFollowUpMessages</code>/<code>prepareNextTurn</code>/<code>shouldStopAfterTurn</code> 是循环级、<code>beforeToolCall</code>/<code>afterToolCall</code> 是工具级，配置如何分层未规定。</p>
+      <p><strong>Choice:</strong> 新增 <code>RunConfig</code>：内嵌已有的 <code>LoopConfig</code>（每轮流式配置）+ <code>BatchConfig</code>（含 before/after 工具钩子）+ 四个循环级钩子字段 + <code>EventBuffer</code>。工具级两钩子复用既有 <code>ToolExecutorConfig</code>，不重复声明。</p>
+      <p><strong>Rationale:</strong> 各层配置各归其位，<code>runLoop</code> 只消费 <code>RunConfig</code>，流式与批量执行的既有契约零改动。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>afterTurn</code> 统一承载每个 turn_end 后的三段钩子</h3>
+      <p><strong>Ambiguity:</strong> steering 注入、prepareNextTurn、shouldStopAfterTurn 的相对顺序与触发条件在验收里分列，未给单一调用点。</p>
+      <p><strong>Choice:</strong> 抽出 <code>afterTurn(ctx, agentCtx, cfg, hadToolExecution)</code>：先按 pi per-turn 语义拉 <code>getSteeringMessages</code> 并注入（仅当本轮有工具执行）、再 <code>prepareNextTurn</code> 应用 <code>TurnUpdate</code>、最后 <code>shouldStopAfterTurn</code> 决定是否退出。自然 turn end 与工具回灌 turn end 都经此点。</p>
+      <p><strong>Rationale:</strong> 单一函数保证三个钩子的顺序与时机全局一致，避免在内层循环两处 turn_end 分支各写一遍导致漂移。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>TurnUpdate</code> 用指针字段表达"仅替换已设置项"</h3>
+      <p><strong>Ambiguity:</strong> prepareNextTurn "可替换 context/model/thinkingLevel" 未说明部分替换语义。</p>
+      <p><strong>Choice:</strong> <code>TurnUpdate</code> 全部字段为指针（<code>*MessageList</code>/<code>*string</code>/<code>*[]AgentTool</code>/<code>*ThinkingLevel</code>），<code>applyTurnUpdate</code> 只对非 nil 字段赋值；model/thinkingLevel 写回 <code>cfg</code>，context 三项写回 <code>agentCtx</code>。</p>
+      <p><strong>Rationale:</strong> 沿用 pigo 既定的"三态用指针"映射，调用方可只换 model 而不动 context。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 全部工具 terminate 时立即结束整个 run</h3>
+      <p><strong>Spec:</strong> 验收未显式描述 tool <code>terminate</code> 在双层循环中的传播。</p>
+      <p><strong>Implemented:</strong> <code>executeToolCalls</code> 返回 <code>allTerminate</code>（批内每个结果都 terminate 才为真）后，<code>runLoop</code> 直接 <code>finish()</code>，不再进入 follow-up。</p>
+      <p><strong>Why:</strong> 复刻 pi 语义——工具请求终止即终止整个 agent run；这是既有 batch_executor 契约的自然延伸，非偏离。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 生产者 goroutine + EventStream vs 同步回调</h3>
+      <p><strong>Alternatives:</strong> (A) 入口返回 <code>LoopEventStream</code>，<code>runLoop</code> 在 goroutine 中驱动、经 <code>Emit</code> 推事件、<code>SetResult</code> 交付新消息；(B) 入口接收一个 emit 回调同步跑完。</p>
+      <p><strong>Pros/Cons:</strong> A 与 pi 的 async generator 语义一致、消费者可 <code>range Events()</code> 且能单独取 <code>Result</code>，天然背压；B 更简单但把并发/取消责任推给调用方，且与 US-003 流式层的 EventStream 风格不统一。</p>
+      <p><strong>Winner:</strong> A——项目已确立 async generator→EventStream 映射，两入口 <code>agentLoop</code>/<code>agentLoopContinue</code> 均返回 <code>*LoopEventStream</code>。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> run 结果 = 本次新增消息的快照拷贝</h3>
+      <p><strong>Alternatives:</strong> (A) 记录 <code>startIdx</code>，结束时 <code>copy</code> 出 <code>agentCtx.Messages[startIdx:]</code> 作为 <code>AgentEndEvent.Messages</code> 与 stream result；(B) 返回整个 <code>agentCtx.Messages</code>。</p>
+      <p><strong>Pros/Cons:</strong> A 精确交付"本次 run 产出"、拷贝隔离后续变更；B 省一次拷贝但混入 run 前的历史消息，续跑场景语义错。</p>
+      <p><strong>Winner:</strong> A——<code>agentLoopContinue</code> 从已有 context 续跑时，结果只应含本次新增。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> emit 被取消（ctx cancel）时的收尾是否需要区分 aborted</h3>
+      <p><strong>Assumption:</strong> 当 <code>Emit</code> 因 ctx 取消返回错误，当前一律走 <code>finish()</code> 发 <code>agent_end</code> 并以已产出消息收尾。</p>
+      <p><strong>Verify:</strong> 后续接入真实取消（US-013 中断）时，是否需要在结果里附带一个 aborted 标记或专门的终止消息，供会话恢复判断？当前留给上层。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> steering 仅在"有工具执行"的 turn 后注入</h3>
+      <p><strong>Assumption:</strong> 依验收"每轮工具执行后拉取"，自然 turn end（无 tool call）不拉 steering。</p>
+      <p><strong>Verify:</strong> 若产品希望用户在纯文本回复后也能插入 steering，需要放宽该条件——是否符合 pi per-turn 原意待确认。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
