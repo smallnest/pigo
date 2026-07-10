@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0033</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/33">#33</a> &mdash; Bedrock/OpenRouter/Ollama provider（US-013）&mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 两个共享 driver 覆盖三个 provider，而非各写一份</h3>
+      <p><strong>Ambiguity:</strong> 验收要求"复用共享 driver / OpenRouter 作为通用 OpenAI 兼容层样例"，但未规定 driver 的边界如何切分。</p>
+      <p><strong>Choice:</strong> 抽出 <code>openAICompatDriver</code>（POST <code>{baseURL}/chat/completions</code> + <code>OpenAIDecoder</code>）与 <code>anthropicCompatDriver</code>（POST Messages wire + <code>AnthropicDecoder</code>）。OpenRouter/Ollama 是前者的两个实例（仅 baseURL/auth 不同），Bedrock 走后者。</p>
+      <p><strong>Rationale:</strong> Chat Completions 与 Messages 是两种 wire 契约；按 wire 而非按厂商切分，让"新增一个 OpenAI 兼容网关"退化为一次构造调用（Groq/together/本地 server 皆可），真正兑现"通用兼容层"。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 这是仓库中第一批具体 Provider——此前只有 Decoder 和测试 fakeProvider</h3>
+      <p><strong>Ambiguity:</strong> 验收写"各实现 Decoder"，但 anthropic/openai/gemini 的 Decoder 早已存在（#28/#29/#30），从未有 Provider 把 Decoder 经 <code>StreamRequest</code> 串起来。</p>
+      <p><strong>Choice:</strong> 把验收理解为"实现首批 <em>Provider</em>"：<code>StreamCompletion</code> 构建 <code>*http.Request</code>（base URL + auth + JSON body）后交给 <code>StreamRequest(TransportConfig{NewRequest, Decoder})</code>，复用既有 Decoder 而非重写。</p>
+      <p><strong>Rationale:</strong> Decoder 已完备且测试充分；#33 的真正缺口是"把 Decoder 接到真实 HTTP/SSE 上的 Provider"。复用 Decoder 即满足"各实现 Decoder"的意图。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 缺 API key 是唯一的早返回错误，其余失败一律走流内终态</h3>
+      <p><strong>Ambiguity:</strong> 验收未提失败模型，但 FR-13 双失败模型是全局约束。</p>
+      <p><strong>Choice:</strong> <code>requiresAuth</code> 的 provider（OpenRouter/Bedrock）在 key 为空时早返回 <code>"&lt;provider&gt;: missing API key"</code>；Ollama 本地无需 key。请求构建后所有运行时失败由 <code>StreamRequest</code> 落到终态 <code>StreamErrorEvent</code>。</p>
+      <p><strong>Rationale:</strong> 与 transport/provider_interface 的双失败模型对齐；错误仅按 provider 名引用，绝不泄漏 key 值（US-012/US-026）。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Bedrock 走标准 Anthropic Messages 端点，未实现 AWS SigV4 / invoke-with-response-stream</h3>
+      <p><strong>Spec:</strong> 验收要求"Bedrock 实现 Decoder，复用共享 driver"与"每个 provider 最小流式单测"。</p>
+      <p><strong>Implemented:</strong> Bedrock 复用 <code>AnthropicDecoder</code>，以 <code>Authorization: Bearer</code>（Bedrock API key）POST Messages wire。真实 Bedrock 的 <code>/model/{id}/invoke-with-response-stream</code> 路径与 SigV4 签名以 <code>pathFor</code> 钩子和"由调用方 HTTP client 分层签名"的方式预留，未在本 issue 内落地。</p>
+      <p><strong>Why:</strong> 验收明确是"最小流式单测 + 复用共享 driver"，Anthropic-on-Bedrock 本就说 Messages 协议，Decoder 可原样复用；SigV4 与区域端点属部署/凭证细节，超出本 issue 范围，留待接入真实 Bedrock 流量时补齐。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 内容降维为纯文本 vs 保留完整多模态块</h3>
+      <p><strong>Alternatives:</strong> (A) <code>contentToText</code> 把 content list 压平为文本（tool_call/thinking 走各自字段）；(B) 完整映射 image/thinking 等所有块到各 wire。</p>
+      <p><strong>Pros/Cons:</strong> A 是所有 OpenAI 兼容网关都接受的最小公分母、实现简单；B 更完备但各网关对多模态支持参差，易在边缘网关上出错。Anthropic 侧已保留 text/tool_use/tool_result 结构化块。</p>
+      <p><strong>Winner:</strong> A（OpenAI 侧）——先保证跨网关可用；多模态透传待具体 provider 需要时按需扩展。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> captureServer 断言 wire 形状 vs 仅断言事件流</h3>
+      <p><strong>Alternatives:</strong> (A) 新增 <code>captureServer</code> 记录 path/headers/body，断言 driver 真正 POST 出的报文形状；(B) 仅复用 <code>sseServer</code> 断言解码后的事件。</p>
+      <p><strong>Pros/Cons:</strong> A 能验证 auth header、system 顶层字段、stream flag、max_tokens 等 driver 独有职责；B 只覆盖 Decoder（已被 #29/#30 测过），对 Provider 层几乎零增量。</p>
+      <p><strong>Winner:</strong> A——#33 的新增职责是"构建请求"，测试必须落在请求形状上才有意义。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Bedrock 真实端点与 SigV4 签名如何接入</h3>
+      <p><strong>Assumption:</strong> 假设可通过 Bedrock API key（Bearer）+ 标准 Messages 端点直连；<code>pathFor</code> 钩子预留了 <code>/model/{id}/invoke-with-response-stream</code> 的定制点。</p>
+      <p><strong>Verify:</strong> 接入真实 Bedrock 时确认：是否必须 SigV4（则由自定义 <code>*http.Client</code> 的 RoundTripper 分层签名）、响应是否为 AWS event-stream 二进制帧而非纯 SSE（若是则需 Bedrock 专用 Decoder，而非复用 AnthropicDecoder）。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> OpenRouter 归因 header 是否应可配置</h3>
+      <p><strong>Assumption:</strong> 当前硬编码 <code>HTTP-Referer</code>/<code>X-Title</code> 为 pigo 仓库信息。</p>
+      <p><strong>Verify:</strong> 若下游希望按部署自定义归因，需把 <code>extraHeaders</code> 提升为构造参数或配置项。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
