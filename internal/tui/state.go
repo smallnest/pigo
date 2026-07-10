@@ -200,6 +200,16 @@ func (s *uiState) finishRun(runID int, err error) bool {
 	return true
 }
 
+// abortStartedRun undoes a run that submit() started but that never launched
+// (e.g. an unknown slash-command). It clears running, finalizes any streaming
+// entry, and records a local system line explaining why. The runID stays bumped
+// so any late events from a prior run remain stale.
+func (s *uiState) abortStartedRun(reason string) {
+	s.finalizeStreaming()
+	s.running = false
+	s.transcript = append(s.transcript, transcriptEntry{Kind: entrySystem, Text: reason})
+}
+
 // upsertStreamingAssistant sets the text of the current streaming assistant
 // entry, creating it on the first update of a turn.
 func (s *uiState) upsertStreamingAssistant(text string) {

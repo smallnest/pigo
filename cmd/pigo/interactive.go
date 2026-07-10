@@ -146,6 +146,14 @@ func runInteractive(opts interactiveOptions) error {
 	} else {
 		m = tui.NewModel(run)
 	}
+	// Wire slash-commands: built-ins (compile-time) plus any user templates under
+	// ~/.pigo/commands (对标 the commands/*.md convention). A load error is
+	// non-fatal — the TUI still runs with the built-ins.
+	if slash, err := buildSlashRegistry(); err == nil {
+		m.SetSlashRegistry(slash)
+	} else {
+		fmt.Fprintf(os.Stderr, "pigo: slash-commands: %v\n", err)
+	}
 	p := tea.NewProgram(m)
 	m.SetProgram(p)
 	if _, err := p.Run(); err != nil {
@@ -199,4 +207,32 @@ func stdoutIsTerminal() bool {
 		return false
 	}
 	return fi.Mode()&os.ModeCharDevice != 0
+}
+
+// buildSlashRegistry assembles the TUI slash-command registry: compile-time
+// built-ins seeded by agent.NewSlashRegistry plus user declarative templates
+// loaded from ~/.pigo/commands (or $PIGO_HOME/commands). A missing directory is
+// not an error. User commands that collide with a built-in are shadowed (the
+// built-in wins) and reported on stderr.
+func buildSlashRegistry() (*agent.SlashRegistry, error) {
+	reg := agent.NewSlashRegistry()
+	dir := os.Getenv("PIGO_HOME")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return reg, nil // built-ins only
+		}
+		dir = filepath.Join(home, ".pigo")
+	}
+	cmds, err := agent.LoadUserCommandsDir(filepath.Join(dir, "commands"))
+	if err != nil {
+		return reg, err
+	}
+	for _, c := range cmds {
+		reg.AddUser(c)
+	}
+	if shadowed := reg.Shadowed(); len(shadowed) > 0 {
+		fmt.Fprintf(os.Stderr, "pigo: user commands shadowed by built-ins (rename to use): %v\n", shadowed)
+	}
+	return reg, nil
 }
