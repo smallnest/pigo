@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0043</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/43">#43</a> &mdash; [impl] 会话持久化（JSONL）（US-024） &mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> JSONL layout: header line + one message per line</h3>
+      <p><strong>Ambiguity:</strong> The spec (issue #16, 会话格式 #5) fixes only "本地 JSONL，内部自洽，不与 pi 互读" — it does not prescribe the on-disk record layout.</p>
+      <p><strong>Choice:</strong> Line 1 is a <code>SessionHeader</code> (version + metadata); every subsequent line is one message, encoded with the same <code>"role"</code>-discriminated shape as <code>agent.MessageList</code>.</p>
+      <p><strong>Rationale:</strong> Listing reads only line 1 (cheap), and message decoding reuses the existing discriminated <code>MessageList.UnmarshalJSON</code> by wrapping each line in a one-element array <code>[…]</code> — no second, drift-prone codec.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Schema versioning with a hard forward-incompatibility guard</h3>
+      <p><strong>Ambiguity:</strong> The spec mentions a migration-chain design space but leaves the guard behavior unspecified.</p>
+      <p><strong>Choice:</strong> <code>SchemaVersion = 1</code> is written into every header; <code>version == 0</code> (missing) and <code>version &gt; SchemaVersion</code> (newer than the binary) are both rejected on read.</p>
+      <p><strong>Rationale:</strong> A newer file must never be silently misread by an older binary; failing loudly preserves the migration hook for later versions.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Atomic writes via temp file + rename</h3>
+      <p><strong>Ambiguity:</strong> Durability semantics were not specified.</p>
+      <p><strong>Choice:</strong> <code>Save</code> writes to <code>&lt;id&gt;.jsonl.tmp</code> then <code>os.Rename</code>s over the target.</p>
+      <p><strong>Rationale:</strong> A concurrent or crashing reader never observes a half-written session; rename is atomic on the same filesystem.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Time-ordered session IDs</h3>
+      <p><strong>Ambiguity:</strong> ID scheme unspecified.</p>
+      <p><strong>Choice:</strong> <code>NewID</code> = UTC <code>20060102-150405</code> + a 6-digit microsecond suffix, so IDs sort lexicographically by creation time and disambiguate within a second.</p>
+      <p><strong>Rationale:</strong> Human-readable, collision-resistant for interactive use, and naturally ordered without a separate index.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Whole-session <code>Save</code> after each run rather than incremental <code>Append</code> in the CLI</h3>
+      <p><strong>Ambiguity:</strong> The spec requires persistence but not the write cadence.</p>
+      <p><strong>Choice:</strong> The interactive driver keeps one growing <code>AgentContext</code> and calls <code>Save</code> with the full message slice when each run settles. <code>Append</code> exists and is unit-tested for callers that want incremental writes.</p>
+      <p><strong>Rationale:</strong> The context grows in place across turns, so a single <code>Save</code> of the whole slice is simplest and always consistent; interactive session sizes make the rewrite cost negligible.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> CLI resume path bypasses <code>Store.Resume</code>'s trailing-assistant guard</h3>
+      <p><strong>Spec:</strong> Resume "对接 agentLoopContinue", whose precondition rejects a context whose last message is an assistant message.</p>
+      <p><strong>Implemented:</strong> <code>Store.Resume</code> still enforces that guard (for the headless/continue path and its tests). But the interactive CLI resume uses <code>Store.Load</code> directly and rebuilds the context, because the user always types a fresh prompt first — a new user message is appended before the loop runs.</p>
+      <p><strong>Why:</strong> A normally-ended session (trailing assistant reply) is the common case a user wants to resume in the TUI; refusing it would make resume nearly useless interactively. The <code>agentLoopContinue</code> invariant is still upheld because the appended user prompt makes the last message a user message before any loop step.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> <code>Append</code> does load-modify-save instead of true file append</h3>
+      <p><strong>Alternatives:</strong> (A) genuine <code>O_APPEND</code> of new message lines; (B) load whole session, append in memory, rewrite atomically.</p>
+      <p><strong>Pros/cons:</strong> (A) is O(new) I/O but cannot update the header's <code>UpdatedAt</code> in place (the header is line 1), and risks a torn file on crash. (B) is O(total) I/O but keeps the header authoritative and reuses the atomic <code>Save</code> path.</p>
+      <p><strong>Chosen:</strong> (B) — correctness and header freshness matter more than I/O at interactive session sizes.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Scanner buffer capped at 16&nbsp;MB per line</h3>
+      <p><strong>Alternatives:</strong> default 64&nbsp;KB <code>bufio.Scanner</code> cap; a streaming <code>json.Decoder</code>; a large fixed cap.</p>
+      <p><strong>Pros/cons:</strong> 64&nbsp;KB truncates long tool-result lines; a full streaming decoder complicates the line-oriented format; a fixed 16&nbsp;MB cap is simple and covers realistic tool outputs.</p>
+      <p><strong>Chosen:</strong> 16&nbsp;MB cap — pragmatic headroom without unbounded memory.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Interactive resume + real provider not manually verified</h3>
+      <p>Unit tests cover write/read/resume/replay and the CLI builds with <code>--resume</code>/<code>--continue</code>/<code>--list-sessions</code>, but a live end-to-end resume against a real model in a terminal has not been exercised. Worth a manual smoke test before relying on it.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Sessions never expire or get pruned</h3>
+      <p><code>~/.pigo/sessions</code> grows unbounded. Should there be a retention policy or a <code>--rm</code>/prune command? Not required by the acceptance criteria — confirm whether it's wanted as follow-up.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Concurrent writers to the same session id</h3>
+      <p>Two pigo processes resuming the same id would last-writer-win via rename. Interactive use is single-writer, so this is assumed acceptable — confirm no multi-process resume scenario is expected.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
