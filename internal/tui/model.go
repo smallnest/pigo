@@ -13,6 +13,7 @@ import (
 	"context"
 	"strings"
 
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -76,6 +77,15 @@ type Model struct {
 	// down; re-armed once they scroll back to the bottom.
 	follow bool
 
+	// spinner animates while a run is in flight (#93). It is driven by its own
+	// tick command (started when a run begins, ignored once idle) so the running
+	// indicator animates without blocking Update. Its style comes from the theme's
+	// accent color.
+	spinner spinner.Model
+	// theme holds the resolved lipgloss styles (#89) applied to transcript
+	// entries, tool cards, and the spinner/running status.
+	theme tuiTheme
+
 	// cancel interrupts the in-flight run's context (set while running).
 	cancel context.CancelFunc
 	// program is set by SetProgram so the event-drain goroutine can Send events
@@ -103,9 +113,16 @@ func newComposer() textinput.Model {
 	return ti
 }
 
+// newSpinner builds the running-indicator spinner (#93), styled with the
+// theme's accent color so it matches the rest of the palette.
+func newSpinner(th tuiTheme) spinner.Model {
+	return spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(th.accent))
+}
+
 // NewModel builds a Model driven by run.
 func NewModel(run RunFn) *Model {
-	return &Model{state: newUIState(), run: run, input: newComposer(), viewport: viewport.New(), follow: true}
+	th := buildTheme(themeDark)
+	return &Model{state: newUIState(), run: run, input: newComposer(), viewport: viewport.New(), follow: true, spinner: newSpinner(th), theme: th}
 }
 
 // NewModelWithHistory builds a Model whose transcript is pre-seeded from a
@@ -113,7 +130,8 @@ func NewModel(run RunFn) *Model {
 // prior conversation before any new input; the model starts idle so the next
 // submit continues the session via the injected run func.
 func NewModelWithHistory(run RunFn, history []agentcore.AgentMessage) *Model {
-	m := &Model{state: newUIState(), run: run, input: newComposer(), viewport: viewport.New(), follow: true}
+	th := buildTheme(themeDark)
+	m := &Model{state: newUIState(), run: run, input: newComposer(), viewport: viewport.New(), follow: true, spinner: newSpinner(th), theme: th}
 	m.state.replay(history)
 	return m
 }
@@ -146,6 +164,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
+	case spinner.TickMsg:
+		// Advance the spinner only while a run is in flight; once idle we stop
+		// re-issuing the tick so the animation halts (AC: stop after run ends).
+		if !m.state.running {
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+
 	case agentEventMsg:
 		m.state.applyEvent(msg.runID, msg.event)
 		m.refreshViewport()
@@ -175,11 +203,36 @@ func (m *Model) refreshViewport() {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		b.WriteString(wrapWidth(renderEntry(e, m.viewport.Width()), m.viewport.Width()))
+		line := wrapWidth(renderEntry(e, m.viewport.Width()), m.viewport.Width())
+		b.WriteString(m.styleEntry(e.Kind, line))
 	}
 	m.viewport.SetContent(b.String())
 	if m.follow {
 		m.viewport.GotoBottom()
+	}
+}
+
+// styleEntry applies the theme style for an entry kind to its already-rendered,
+// width-folded text (#89/#93). Tool calls and tool results are colorized as
+// visually distinct "cards" (a colored header glyph line and a greyed result
+// body), separating them from plain assistant/user text. Styling is applied
+// after wrapping so display-width math (#91) stays on the raw runes, not ANSI
+// escapes. Under NO_COLOR every theme style is a no-op, so this returns text
+// unchanged and meaning rides on the prefix glyphs instead.
+func (m *Model) styleEntry(kind entryKind, text string) string {
+	switch kind {
+	case entryUser:
+		return m.theme.user.Render(text)
+	case entryAssistant:
+		return m.theme.assistant.Render(text)
+	case entryToolCall:
+		return m.theme.toolCall.Render(text)
+	case entryToolResult:
+		return m.theme.toolResult.Render(text)
+	case entrySystem:
+		return m.theme.system.Render(text)
+	default:
+		return text
 	}
 }
 
@@ -253,15 +306,20 @@ func (m *Model) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 // startRun launches the agent run for prompt and returns a command that drains
 // its event stream into Update. The drain runs in a goroutine spawned by the
-// command; each event is Sent back tagged with the current runID.
+// command; each event is Sent back tagged with the current runID. The spinner's
+// tick is started alongside so the running indicator animates (#93); it halts
+// itself once the run ends (Update ignores ticks while idle).
 func (m *Model) startRun(prompt string) tea.Cmd {
 	runID := m.state.runID
 	stream, cancel := m.run(context.Background(), prompt, m.state.drainSteering)
 	m.cancel = cancel
-	return func() tea.Msg {
-		go m.drain(runID, stream)
-		return nil
-	}
+	return tea.Batch(
+		func() tea.Msg {
+			go m.drain(runID, stream)
+			return nil
+		},
+		m.spinner.Tick,
+	)
 }
 
 // drain forwards every event from stream into Update via Program.Send, then
@@ -296,7 +354,7 @@ func (m *Model) View() tea.View {
 		b.WriteByte('\n')
 	} else {
 		for _, e := range m.state.transcript {
-			b.WriteString(wrapWidth(renderEntry(e, m.width), m.width))
+			b.WriteString(m.styleEntry(e.Kind, wrapWidth(renderEntry(e, m.width), m.width)))
 			b.WriteByte('\n')
 		}
 	}
@@ -304,9 +362,12 @@ func (m *Model) View() tea.View {
 	b.WriteString("> ")
 	b.WriteString(m.input.View())
 	if m.state.running {
-		b.WriteString("  … (running; type to steer, Ctrl+C to interrupt)")
+		// Animated spinner + running status (#93), styled with the theme accent.
+		b.WriteString("  ")
+		b.WriteString(m.spinner.View())
+		b.WriteString(m.theme.accent.Render(" (running; type to steer, Ctrl+C to interrupt)"))
 	} else if m.state.ctrlCArmed {
-		b.WriteString("  (press Ctrl+C again to quit)")
+		b.WriteString(m.theme.system.Render("  (press Ctrl+C again to quit)"))
 	}
 	return tea.NewView(b.String())
 }
