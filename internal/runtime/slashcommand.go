@@ -15,7 +15,7 @@
 //
 // There is deliberately no standalone plugin mechanism: a fork adds built-ins
 // via init() registration, and external extensions go through MCP (deferred).
-package agent
+package runtime
 
 import (
 	"fmt"

@@ -1,4 +1,4 @@
-package agent
+package runtime
 
 // This file implements the faux provider (对标 pi providers/faux.ts) and the
 // loop integration tests that drive the whole agent loop through it — the
@@ -19,38 +19,42 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/provider"
 )
 
 // fauxTurn is one scripted assistant turn: the fine-grained stream events the
 // faux provider replays for a single StreamCompletion call.
-type fauxTurn []AssistantMessageEvent
+type fauxTurn []provider.AssistantMessageEvent
 
 // textTurn scripts a turn that streams text as start → text delta → done(end_turn).
 func textTurn(text string) fauxTurn {
-	partial := AssistantMessage{RoleField: RoleAssistant}
+	partial := agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant}
 	withText := partial
-	withText.Content = ContentList{NewTextContent(text)}
+	withText.Content = agentcore.ContentList{agentcore.NewTextContent(text)}
 	final := withText
-	final.StopReason = StopReasonEndTurn
+	final.StopReason = agentcore.StopReasonEndTurn
 	return fauxTurn{
-		StreamStartEvent{Partial: partial},
-		StreamTextEvent{Partial: withText},
-		StreamDoneEvent{Message: final},
+		provider.StreamStartEvent{Partial: partial},
+		provider.StreamTextEvent{Partial: withText},
+		provider.StreamDoneEvent{Message: final},
 	}
 }
 
 // toolCallTurn scripts a turn that streams one tool call as
 // start → toolcall delta → done(tool_use).
 func toolCallTurn(id, name, args string) fauxTurn {
-	partial := AssistantMessage{RoleField: RoleAssistant}
+	partial := agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant}
 	withCall := partial
-	withCall.Content = ContentList{NewToolCallContent(id, name, json.RawMessage(args))}
+	withCall.Content = agentcore.ContentList{agentcore.NewToolCallContent(id, name, json.RawMessage(args))}
 	final := withCall
-	final.StopReason = StopReasonToolUse
+	final.StopReason = agentcore.StopReasonToolUse
 	return fauxTurn{
-		StreamStartEvent{Partial: partial},
-		StreamToolCallEvent{Partial: withCall},
-		StreamDoneEvent{Message: final},
+		provider.StreamStartEvent{Partial: partial},
+		provider.StreamToolCallEvent{Partial: withCall},
+		provider.StreamDoneEvent{Message: final},
 	}
 }
 
@@ -60,19 +64,19 @@ func toolCallTurn(id, name, args string) fauxTurn {
 // the script is exhausted it replays a plain end_turn turn.
 type fauxProvider struct {
 	name   string
-	models []Model
+	models []provider.Model
 	turns  []fauxTurn
 
 	mu       sync.Mutex
 	calls    int
-	requests []CompletionRequest
+	requests []provider.CompletionRequest
 	// delay optionally slows each delta emit, used by the cancellation test to
 	// keep the stream open long enough to cancel mid-flight.
 	delay time.Duration
 }
 
-func (p *fauxProvider) Name() string    { return p.name }
-func (p *fauxProvider) Models() []Model { return p.models }
+func (p *fauxProvider) Name() string             { return p.name }
+func (p *fauxProvider) Models() []provider.Model { return p.models }
 
 func (p *fauxProvider) callCount() int {
 	p.mu.Lock()
@@ -80,13 +84,13 @@ func (p *fauxProvider) callCount() int {
 	return p.calls
 }
 
-func (p *fauxProvider) requestAt(i int) CompletionRequest {
+func (p *fauxProvider) requestAt(i int) provider.CompletionRequest {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.requests[i]
 }
 
-func (p *fauxProvider) StreamCompletion(ctx context.Context, req CompletionRequest) (*AssistantMessageEventStream, error) {
+func (p *fauxProvider) StreamCompletion(ctx context.Context, req provider.CompletionRequest) (*provider.AssistantMessageEventStream, error) {
 	p.mu.Lock()
 	idx := p.calls
 	p.calls++
@@ -100,7 +104,7 @@ func (p *fauxProvider) StreamCompletion(ctx context.Context, req CompletionReque
 	delay := p.delay
 	p.mu.Unlock()
 
-	s := NewAssistantMessageEventStream(0)
+	s := provider.NewAssistantMessageEventStream(0)
 	go func() {
 		for _, ev := range turn {
 			if delay > 0 {
@@ -126,14 +130,14 @@ func (p *fauxProvider) StreamCompletion(ctx context.Context, req CompletionReque
 // newFauxRunCfg wires a faux provider into the loop via StreamFnFromProvider
 // (the real seam) and registers the given tools. No loop-internal function is
 // mocked — only the provider boundary.
-func newFauxRunCfg(p *fauxProvider, tools ...AgentTool) RunConfig {
-	reg := NewToolRegistry()
+func newFauxRunCfg(p *fauxProvider, tools ...agentcore.AgentTool) RunConfig {
+	reg := agenttool.NewToolRegistry()
 	for _, tl := range tools {
 		_ = reg.Register(tl)
 	}
 	return RunConfig{
-		LoopConfig: LoopConfig{Model: "faux", Stream: StreamFnFromProvider(p)},
-		Batch:      BatchConfig{ToolExecutorConfig: ToolExecutorConfig{Registry: reg}},
+		LoopConfig: LoopConfig{Model: "faux", Stream: provider.StreamFnFromProvider(p)},
+		Batch:      agenttool.BatchConfig{ToolExecutorConfig: agenttool.ToolExecutorConfig{Registry: reg}},
 	}
 }
 
@@ -143,7 +147,7 @@ func newFauxRunCfg(p *fauxProvider, tools ...AgentTool) RunConfig {
 func TestFauxProviderTextToolText(t *testing.T) {
 	p := &fauxProvider{
 		name:   "faux",
-		models: []Model{{Provider: "faux", ID: "faux"}},
+		models: []provider.Model{{Provider: "faux", ID: "faux"}},
 		turns: []fauxTurn{
 			textTurn("thinking about it"),                     // turn 1: plain text, no tool
 			toolCallTurn("call-1", "echo", `{"msg":"hello"}`), // turn 2: tool call
@@ -153,36 +157,36 @@ func TestFauxProviderTextToolText(t *testing.T) {
 	// GetFollowUpMessages injects a follow-up once so the loop advances past the
 	// first natural (text-only) turn end into the tool-call turn.
 	served := false
-	cfg := newFauxRunCfg(p, echoTool("echo", ToolExecutionParallel, false))
-	cfg.GetFollowUpMessages = func(ctx context.Context, agentCtx *AgentContext) []AgentMessage {
+	cfg := newFauxRunCfg(p, echoTool("echo", agentcore.ToolExecutionParallel, false))
+	cfg.GetFollowUpMessages = func(ctx context.Context, agentCtx *agentcore.AgentContext) []agentcore.AgentMessage {
 		if served {
 			return nil
 		}
 		served = true
-		return []AgentMessage{UserMessage{RoleField: RoleUser, Content: ContentList{NewTextContent("go on")}}}
+		return []agentcore.AgentMessage{agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("go on")}}}
 	}
-	agentCtx := &AgentContext{Messages: MessageList{UserMessage{RoleField: RoleUser, Content: ContentList{NewTextContent("start")}}}}
+	agentCtx := &agentcore.AgentContext{Messages: agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("start")}}}}
 
 	kinds, msgs := collectStream(t, agentLoop(context.Background(), agentCtx, cfg))
 
 	// Event shape: message deltas must appear (start/update/end), a tool
 	// executed exactly once, and the run bookended by agent_start/agent_end.
-	if kinds[0] != EventAgentStart || kinds[len(kinds)-1] != EventAgentEnd {
+	if kinds[0] != agentcore.EventAgentStart || kinds[len(kinds)-1] != agentcore.EventAgentEnd {
 		t.Fatalf("run must be bracketed by agent_start/agent_end, got %v", kinds)
 	}
-	if countKind(kinds, EventMessageStart) < 3 || countKind(kinds, EventMessageEnd) < 3 {
+	if countKind(kinds, agentcore.EventMessageStart) < 3 || countKind(kinds, agentcore.EventMessageEnd) < 3 {
 		t.Errorf("expected fine-grained message deltas for each turn, got %v", kinds)
 	}
-	if countKind(kinds, EventMessageUpdate) < 3 {
+	if countKind(kinds, agentcore.EventMessageUpdate) < 3 {
 		t.Errorf("expected message_update deltas (text/toolcall), got %v", kinds)
 	}
-	if got := countKind(kinds, EventToolExecutionStart); got != 1 {
+	if got := countKind(kinds, agentcore.EventToolExecutionStart); got != 1 {
 		t.Errorf("expected 1 tool_execution_start, got %d in %v", got, kinds)
 	}
-	if got := countKind(kinds, EventToolExecutionEnd); got != 1 {
+	if got := countKind(kinds, agentcore.EventToolExecutionEnd); got != 1 {
 		t.Errorf("expected 1 tool_execution_end, got %d in %v", got, kinds)
 	}
-	if got := countKind(kinds, EventTurnStart); got != 3 {
+	if got := countKind(kinds, agentcore.EventTurnStart); got != 3 {
 		t.Errorf("expected 3 turns (text→tool→text), got %d in %v", got, kinds)
 	}
 
@@ -191,20 +195,20 @@ func TestFauxProviderTextToolText(t *testing.T) {
 	if len(msgs) != 5 {
 		t.Fatalf("expected 5 new messages, got %d: %+v", len(msgs), msgs)
 	}
-	if a, ok := msgs[0].(AssistantMessage); !ok || textContentOf(a.Content) != "thinking about it" {
+	if a, ok := msgs[0].(agentcore.AssistantMessage); !ok || textContentOf(a.Content) != "thinking about it" {
 		t.Errorf("msg[0] should be the first text assistant message, got %T %+v", msgs[0], msgs[0])
 	}
-	if _, ok := msgs[1].(UserMessage); !ok {
+	if _, ok := msgs[1].(agentcore.UserMessage); !ok {
 		t.Errorf("msg[1] should be the injected follow-up user message, got %T", msgs[1])
 	}
-	if a, ok := msgs[2].(AssistantMessage); !ok || len(a.ToolCalls()) != 1 {
+	if a, ok := msgs[2].(agentcore.AssistantMessage); !ok || len(a.ToolCalls()) != 1 {
 		t.Errorf("msg[2] should be the tool-call assistant message, got %T %+v", msgs[2], msgs[2])
 	}
-	tr, ok := msgs[3].(ToolResultMessage)
+	tr, ok := msgs[3].(agentcore.ToolResultMessage)
 	if !ok || tr.ToolCallID != "call-1" || tr.IsError {
 		t.Errorf("msg[3] should be the successful echo tool result, got %T %+v", msgs[3], msgs[3])
 	}
-	if a, ok := msgs[4].(AssistantMessage); !ok || textContentOf(a.Content) != "all done" {
+	if a, ok := msgs[4].(agentcore.AssistantMessage); !ok || textContentOf(a.Content) != "all done" {
 		t.Errorf("msg[4] should be the final text assistant message, got %T %+v", msgs[4], msgs[4])
 	}
 
@@ -219,10 +223,10 @@ func TestFauxProviderTextToolText(t *testing.T) {
 }
 
 // textContentOf returns the concatenated text of a content list.
-func textContentOf(list ContentList) string {
+func textContentOf(list agentcore.ContentList) string {
 	var s string
 	for _, c := range list {
-		if tc, ok := c.(TextContent); ok {
+		if tc, ok := c.(agentcore.TextContent); ok {
 			s += tc.Text
 		}
 	}
@@ -238,7 +242,7 @@ func textContentOf(list ContentList) string {
 func TestFauxSeamSixHooks(t *testing.T) {
 	p := &fauxProvider{
 		name:   "faux",
-		models: []Model{{Provider: "faux", ID: "faux"}},
+		models: []provider.Model{{Provider: "faux", ID: "faux"}},
 		turns: []fauxTurn{
 			toolCallTurn("call-1", "echo", `{}`), // turn 1: tool → afterTurn hooks fire
 			textTurn("second"),                   // turn 2: end (after model swap)
@@ -248,13 +252,13 @@ func TestFauxSeamSixHooks(t *testing.T) {
 		transform, convert, apiKey, followUp, steering, prepare, shouldStop bool
 	}
 	swapped := "swapped-model"
-	cfg := newFauxRunCfg(p, echoTool("echo", ToolExecutionParallel, false))
+	cfg := newFauxRunCfg(p, echoTool("echo", agentcore.ToolExecutionParallel, false))
 	cfg.Provider = "faux"
-	cfg.TransformContext = func(ctx context.Context, msgs MessageList) MessageList {
+	cfg.TransformContext = func(ctx context.Context, msgs agentcore.MessageList) agentcore.MessageList {
 		fired.transform = true
 		return msgs
 	}
-	cfg.ConvertToLlm = func(msgs MessageList) MessageList {
+	cfg.ConvertToLlm = func(msgs agentcore.MessageList) agentcore.MessageList {
 		fired.convert = true
 		return msgs
 	}
@@ -262,27 +266,27 @@ func TestFauxSeamSixHooks(t *testing.T) {
 		fired.apiKey = true
 		return "dyn-key"
 	}
-	cfg.GetSteeringMessages = func(ctx context.Context) []AgentMessage {
+	cfg.GetSteeringMessages = func(ctx context.Context) []agentcore.AgentMessage {
 		fired.steering = true
 		return nil
 	}
-	cfg.PrepareNextTurn = func(ctx context.Context, agentCtx *AgentContext) *TurnUpdate {
+	cfg.PrepareNextTurn = func(ctx context.Context, agentCtx *agentcore.AgentContext) *TurnUpdate {
 		fired.prepare = true
 		return &TurnUpdate{Model: &swapped}
 	}
 	stopCalls := 0
-	cfg.ShouldStopAfterTurn = func(ctx context.Context, agentCtx *AgentContext) bool {
+	cfg.ShouldStopAfterTurn = func(ctx context.Context, agentCtx *agentcore.AgentContext) bool {
 		fired.shouldStop = true
 		stopCalls++
 		return false // never stop early; let the run end naturally
 	}
-	cfg.GetFollowUpMessages = func(ctx context.Context, agentCtx *AgentContext) []AgentMessage {
+	cfg.GetFollowUpMessages = func(ctx context.Context, agentCtx *agentcore.AgentContext) []agentcore.AgentMessage {
 		fired.followUp = true
 		// No follow-up: the tool-call turn already drives turn 2, so the run
 		// ends naturally after the second turn.
 		return nil
 	}
-	agentCtx := &AgentContext{Messages: MessageList{UserMessage{RoleField: RoleUser, Content: ContentList{NewTextContent("hi")}}}}
+	agentCtx := &agentcore.AgentContext{Messages: agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("hi")}}}}
 
 	collectStream(t, agentLoop(context.Background(), agentCtx, cfg))
 
@@ -315,31 +319,31 @@ func TestFauxSeamSixHooks(t *testing.T) {
 // tool result is fed back, all through the seam.
 func TestFauxSeamTruncationProtection(t *testing.T) {
 	// Turn 1: a tool call that arrives truncated. Turn 2: end.
-	truncPartial := AssistantMessage{RoleField: RoleAssistant, Content: ContentList{NewToolCallContent("t1", "echo", json.RawMessage(`{}`))}}
+	truncPartial := agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, Content: agentcore.ContentList{agentcore.NewToolCallContent("t1", "echo", json.RawMessage(`{}`))}}
 	truncFinal := truncPartial
-	truncFinal.StopReason = StopReasonLength
+	truncFinal.StopReason = agentcore.StopReasonLength
 	p := &fauxProvider{
 		name: "faux",
 		turns: []fauxTurn{
 			{
-				StreamStartEvent{Partial: AssistantMessage{RoleField: RoleAssistant}},
-				StreamToolCallEvent{Partial: truncPartial},
-				StreamDoneEvent{Message: truncFinal},
+				provider.StreamStartEvent{Partial: agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant}},
+				provider.StreamToolCallEvent{Partial: truncPartial},
+				provider.StreamDoneEvent{Message: truncFinal},
 			},
 			textTurn("recovered"),
 		},
 	}
-	cfg := newFauxRunCfg(p, echoTool("echo", ToolExecutionParallel, false))
-	agentCtx := &AgentContext{Messages: MessageList{UserMessage{RoleField: RoleUser}}}
+	cfg := newFauxRunCfg(p, echoTool("echo", agentcore.ToolExecutionParallel, false))
+	agentCtx := &agentcore.AgentContext{Messages: agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser}}}
 
 	kinds, msgs := collectStream(t, agentLoop(context.Background(), agentCtx, cfg))
 
-	if countKind(kinds, EventToolExecutionEnd) != 0 {
+	if countKind(kinds, agentcore.EventToolExecutionEnd) != 0 {
 		t.Errorf("truncated tool call must not execute, got %v", kinds)
 	}
 	var foundFail bool
 	for _, m := range msgs {
-		if tr, ok := m.(ToolResultMessage); ok && tr.IsError && tr.ToolCallID == "t1" {
+		if tr, ok := m.(agentcore.ToolResultMessage); ok && tr.IsError && tr.ToolCallID == "t1" {
 			foundFail = true
 		}
 	}
@@ -354,37 +358,37 @@ func TestFauxSeamTruncationProtection(t *testing.T) {
 func TestFauxSeamParallelOrderingPreserved(t *testing.T) {
 	// One assistant turn with three tool calls in a fixed order; the tools sleep
 	// in reverse so completion order differs from source order.
-	partial := AssistantMessage{RoleField: RoleAssistant, Content: ContentList{
-		NewToolCallContent("a0", "slow", json.RawMessage(`{}`)),
-		NewToolCallContent("a1", "mid", json.RawMessage(`{}`)),
-		NewToolCallContent("a2", "fast", json.RawMessage(`{}`)),
+	partial := agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, Content: agentcore.ContentList{
+		agentcore.NewToolCallContent("a0", "slow", json.RawMessage(`{}`)),
+		agentcore.NewToolCallContent("a1", "mid", json.RawMessage(`{}`)),
+		agentcore.NewToolCallContent("a2", "fast", json.RawMessage(`{}`)),
 	}}
 	final := partial
-	final.StopReason = StopReasonToolUse
+	final.StopReason = agentcore.StopReasonToolUse
 	p := &fauxProvider{
 		turns: []fauxTurn{
-			{StreamStartEvent{Partial: AssistantMessage{RoleField: RoleAssistant}}, StreamToolCallEvent{Partial: partial}, StreamDoneEvent{Message: final}},
+			{provider.StreamStartEvent{Partial: agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant}}, provider.StreamToolCallEvent{Partial: partial}, provider.StreamDoneEvent{Message: final}},
 			textTurn("done"),
 		},
 	}
 	mk := func(name string, delay time.Duration) execTool {
 		return execTool{
 			name: name,
-			mode: ToolExecutionParallel,
-			run: func(ctx context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
+			mode: agentcore.ToolExecutionParallel,
+			run: func(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 				time.Sleep(delay)
-				return AgentToolResult{Content: ContentList{NewTextContent(name)}}, nil
+				return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(name)}}, nil
 			},
 		}
 	}
 	cfg := newFauxRunCfg(p, mk("slow", 25*time.Millisecond), mk("mid", 12*time.Millisecond), mk("fast", 1*time.Millisecond))
-	agentCtx := &AgentContext{Messages: MessageList{UserMessage{RoleField: RoleUser}}}
+	agentCtx := &agentcore.AgentContext{Messages: agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser}}}
 
 	_, msgs := collectStream(t, agentLoop(context.Background(), agentCtx, cfg))
 
 	var order []string
 	for _, m := range msgs {
-		if tr, ok := m.(ToolResultMessage); ok {
+		if tr, ok := m.(agentcore.ToolResultMessage); ok {
 			order = append(order, tr.ToolCallID)
 		}
 	}
@@ -403,7 +407,7 @@ func TestFauxSeamStreamCancellation(t *testing.T) {
 		delay: 50 * time.Millisecond, // slow enough to cancel mid-stream
 	}
 	cfg := newFauxRunCfg(p)
-	agentCtx := &AgentContext{Messages: MessageList{UserMessage{RoleField: RoleUser}}}
+	agentCtx := &agentcore.AgentContext{Messages: agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser}}}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s := agentLoop(ctx, agentCtx, cfg)

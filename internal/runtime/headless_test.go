@@ -1,4 +1,4 @@
-package agent
+package runtime
 
 // This file is the end-to-end test for the headless / stdio run modes (US-020,
 // #39). It drives RunHeadless over the real faux provider seam (no loop-internal
@@ -13,6 +13,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/provider"
 )
 
 // TestRunHeadlessPrintMode runs a text→tool→text scenario through RunHeadless in
@@ -21,15 +24,15 @@ import (
 func TestRunHeadlessPrintMode(t *testing.T) {
 	p := &fauxProvider{
 		name:   "faux",
-		models: []Model{{Provider: "faux", ID: "faux"}},
+		models: []provider.Model{{Provider: "faux", ID: "faux"}},
 		turns: []fauxTurn{
 			toolCallTurn("call-1", "echo", `{"msg":"hi"}`), // turn 1: tool call
 			textTurn("final answer"),                       // turn 2: final text
 		},
 	}
-	cfg := newFauxRunCfg(p, echoTool("echo", ToolExecutionParallel, false))
+	cfg := newFauxRunCfg(p, echoTool("echo", agentcore.ToolExecutionParallel, false))
 	var out bytes.Buffer
-	agentCtx := &AgentContext{Messages: MessageList{UserMessage{RoleField: RoleUser, Content: ContentList{NewTextContent("start")}}}}
+	agentCtx := &agentcore.AgentContext{Messages: agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("start")}}}}
 
 	err := RunHeadless(context.Background(), agentCtx, HeadlessConfig{Run: cfg, Mode: PrintMode, Out: &out})
 	if err != nil {
@@ -48,15 +51,15 @@ func TestRunHeadlessPrintMode(t *testing.T) {
 func TestRunHeadlessStreamJSON(t *testing.T) {
 	p := &fauxProvider{
 		name:   "faux",
-		models: []Model{{Provider: "faux", ID: "faux"}},
+		models: []provider.Model{{Provider: "faux", ID: "faux"}},
 		turns: []fauxTurn{
 			toolCallTurn("call-1", "echo", `{"msg":"hi"}`),
 			textTurn("done"),
 		},
 	}
-	cfg := newFauxRunCfg(p, echoTool("echo", ToolExecutionParallel, false))
+	cfg := newFauxRunCfg(p, echoTool("echo", agentcore.ToolExecutionParallel, false))
 	var out bytes.Buffer
-	agentCtx := &AgentContext{Messages: MessageList{UserMessage{RoleField: RoleUser, Content: ContentList{NewTextContent("start")}}}}
+	agentCtx := &agentcore.AgentContext{Messages: agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("start")}}}}
 
 	if err := RunHeadless(context.Background(), agentCtx, HeadlessConfig{Run: cfg, Mode: StreamJSONMode, Out: &out}); err != nil {
 		t.Fatalf("RunHeadless stream-json: unexpected error %v", err)
@@ -82,10 +85,10 @@ func TestRunHeadlessStreamJSON(t *testing.T) {
 	if len(types) == 0 {
 		t.Fatal("stream-json produced no event lines")
 	}
-	if types[0] != EventAgentStart || types[len(types)-1] != EventAgentEnd {
+	if types[0] != agentcore.EventAgentStart || types[len(types)-1] != agentcore.EventAgentEnd {
 		t.Errorf("stream must be bracketed by agent_start/agent_end, got %v", types)
 	}
-	if !contains(types, EventToolExecutionEnd) {
+	if !contains(types, agentcore.EventToolExecutionEnd) {
 		t.Errorf("expected a tool_execution_end event, got %v", types)
 	}
 }
@@ -94,22 +97,22 @@ func TestRunHeadlessStreamJSON(t *testing.T) {
 // carries stopReason=error surfaces as an ErrRunFailed, so the CLI maps it to a
 // non-zero exit code.
 func TestRunHeadlessReportsFailure(t *testing.T) {
-	errPartial := AssistantMessage{RoleField: RoleAssistant}
+	errPartial := agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant}
 	errFinal := errPartial
-	errFinal.StopReason = StopReasonError
+	errFinal.StopReason = agentcore.StopReasonError
 	errFinal.ErrorMessage = "boom"
 	p := &fauxProvider{
 		name: "faux",
 		turns: []fauxTurn{
 			{
-				StreamStartEvent{Partial: errPartial},
-				StreamDoneEvent{Message: errFinal},
+				provider.StreamStartEvent{Partial: errPartial},
+				provider.StreamDoneEvent{Message: errFinal},
 			},
 		},
 	}
 	cfg := newFauxRunCfg(p)
 	var out bytes.Buffer
-	agentCtx := &AgentContext{Messages: MessageList{UserMessage{RoleField: RoleUser}}}
+	agentCtx := &agentcore.AgentContext{Messages: agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser}}}
 
 	err := RunHeadless(context.Background(), agentCtx, HeadlessConfig{Run: cfg, Mode: PrintMode, Out: &out})
 	if err == nil {
@@ -128,7 +131,7 @@ func TestRunHeadlessReportsFailure(t *testing.T) {
 func TestRunHeadlessNilWriter(t *testing.T) {
 	p := &fauxProvider{turns: []fauxTurn{textTurn("x")}}
 	cfg := newFauxRunCfg(p)
-	agentCtx := &AgentContext{Messages: MessageList{UserMessage{RoleField: RoleUser}}}
+	agentCtx := &agentcore.AgentContext{Messages: agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser}}}
 	if err := RunHeadless(context.Background(), agentCtx, HeadlessConfig{Run: cfg, Out: nil}); err == nil {
 		t.Fatal("nil output writer must be rejected")
 	}

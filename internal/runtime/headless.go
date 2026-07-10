@@ -12,7 +12,7 @@
 // The run's success/failure is reported as a returned error so the CLI can map
 // it to a process exit code: a run whose final assistant message carries
 // stopReason error/aborted, or whose stream result errors, is a failure.
-package agent
+package runtime
 
 import (
 	"context"
@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // HeadlessMode selects how a headless run reports its progress and result.
@@ -63,13 +65,13 @@ func (e *ErrRunFailed) Error() string {
 // output per cfg.Mode. It blocks until the run ends and returns nil on success
 // or an error describing the failure (for exit-code mapping). It never returns
 // before the stream is fully drained, so no goroutine is leaked.
-func RunHeadless(ctx context.Context, agentCtx *AgentContext, cfg HeadlessConfig) error {
+func RunHeadless(ctx context.Context, agentCtx *agentcore.AgentContext, cfg HeadlessConfig) error {
 	if cfg.Out == nil {
 		return fmt.Errorf("headless: nil output writer")
 	}
 	stream := agentLoop(ctx, agentCtx, cfg.Run)
 
-	var lastAssistant *AssistantMessage
+	var lastAssistant *agentcore.AssistantMessage
 	// writeErr holds the first stream-json write failure. We keep draining
 	// after it so the loop's producer goroutine never blocks on a synchronous
 	// (unbuffered) Emit — honoring the no-leak contract even on a broken pipe.
@@ -80,7 +82,7 @@ func RunHeadless(ctx context.Context, agentCtx *AgentContext, cfg HeadlessConfig
 				writeErr = err
 			}
 		}
-		if te, ok := ev.(TurnEndEvent); ok {
+		if te, ok := ev.(agentcore.TurnEndEvent); ok {
 			m := te.Message
 			lastAssistant = &m
 		}
@@ -95,14 +97,14 @@ func RunHeadless(ctx context.Context, agentCtx *AgentContext, cfg HeadlessConfig
 	}
 	// Prefer the final assistant message from the result messages, falling back
 	// to the last turn_end message observed on the stream.
-	if final := lastAssistantOf(msgs); final != nil {
+	if final := agentcore.LastAssistantOf(msgs); final != nil {
 		lastAssistant = final
 	}
 
 	if cfg.Mode == PrintMode {
 		text := ""
 		if lastAssistant != nil {
-			text = contentToText(lastAssistant.Content)
+			text = agentcore.ContentToText(lastAssistant.Content)
 		}
 		if _, err := io.WriteString(cfg.Out, text); err != nil {
 			return err
@@ -116,13 +118,13 @@ func RunHeadless(ctx context.Context, agentCtx *AgentContext, cfg HeadlessConfig
 
 	if lastAssistant != nil {
 		switch lastAssistant.StopReason {
-		case StopReasonError:
+		case agentcore.StopReasonError:
 			reason := lastAssistant.ErrorMessage
 			if reason == "" {
 				reason = "error"
 			}
 			return &ErrRunFailed{Reason: reason}
-		case StopReasonAborted:
+		case agentcore.StopReasonAborted:
 			return &ErrRunFailed{Reason: "aborted"}
 		}
 	}
@@ -132,7 +134,7 @@ func RunHeadless(ctx context.Context, agentCtx *AgentContext, cfg HeadlessConfig
 // writeEventJSON serializes one AgentEvent as a single line of JSON, terminated
 // by a newline, onto w. The envelope always carries a "type" discriminant so a
 // consumer can dispatch without positional knowledge.
-func writeEventJSON(w io.Writer, ev AgentEvent) error {
+func writeEventJSON(w io.Writer, ev agentcore.AgentEvent) error {
 	env := eventEnvelope(ev)
 	b, err := json.Marshal(env)
 	if err != nil {
@@ -147,14 +149,14 @@ func writeEventJSON(w io.Writer, ev AgentEvent) error {
 // "type" discriminant plus the event's observable payload. Only fields that are
 // safe and useful over the wire are included (assistant text, tool ids/names,
 // stop reasons) — never secrets.
-func eventEnvelope(ev AgentEvent) map[string]any {
+func eventEnvelope(ev agentcore.AgentEvent) map[string]any {
 	env := map[string]any{"type": ev.EventType()}
 	switch e := ev.(type) {
-	case AgentEndEvent:
+	case agentcore.AgentEndEvent:
 		env["messageCount"] = len(e.Messages)
-	case TurnEndEvent:
+	case agentcore.TurnEndEvent:
 		env["stopReason"] = e.Message.StopReason
-		if text := contentToText(e.Message.Content); text != "" {
+		if text := agentcore.ContentToText(e.Message.Content); text != "" {
 			env["text"] = text
 		}
 		if calls := e.Message.ToolCalls(); len(calls) > 0 {
@@ -164,16 +166,16 @@ func eventEnvelope(ev AgentEvent) map[string]any {
 			}
 			env["toolCalls"] = names
 		}
-	case MessageUpdateEvent:
-		if a, ok := e.Message.(AssistantMessage); ok {
-			if text := contentToText(a.Content); text != "" {
+	case agentcore.MessageUpdateEvent:
+		if a, ok := e.Message.(agentcore.AssistantMessage); ok {
+			if text := agentcore.ContentToText(a.Content); text != "" {
 				env["text"] = text
 			}
 		}
-	case ToolExecutionStartEvent:
+	case agentcore.ToolExecutionStartEvent:
 		env["toolCallId"] = e.ToolCallID
 		env["toolName"] = e.ToolName
-	case ToolExecutionEndEvent:
+	case agentcore.ToolExecutionEndEvent:
 		env["toolCallId"] = e.ToolCallID
 		env["toolName"] = e.ToolName
 		env["isError"] = e.IsError

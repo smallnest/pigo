@@ -11,12 +11,14 @@
 //
 // There is deliberately NO cross-process RPC: sub-agents are goroutines sharing
 // the parent process, matching the spec's "单进程 goroutine" decision.
-package agent
+package runtime
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // SubAgentSpec declares a spawnable sub-agent: its identity (surfaced to the
@@ -36,7 +38,7 @@ type SubAgentSpec struct {
 	SystemPrompt string
 	// Tools is the child's independent tool set. It may differ from the parent's
 	// (e.g. a read-only researcher sub-agent) and may be empty.
-	Tools []AgentTool
+	Tools []agentcore.AgentTool
 	// NewRunConfig builds the loop configuration for one child run. It is called
 	// per spawn; the returned config's Batch registry should contain Tools.
 	NewRunConfig func() RunConfig
@@ -83,29 +85,31 @@ func (t *SubAgentTool) Schema() json.RawMessage { return subAgentSchema }
 // ExecutionMode is parallel: independent sub-agents may run concurrently, since
 // each spawns its own context and StartRun goroutine with no shared mutable
 // state.
-func (t *SubAgentTool) ExecutionMode() ToolExecutionMode { return ToolExecutionParallel }
+func (t *SubAgentTool) ExecutionMode() agentcore.ToolExecutionMode {
+	return agentcore.ToolExecutionParallel
+}
 
 // Execute spawns the child agent loop and blocks until it settles, then returns
 // the child's final assistant text as the tool result. The parent's ctx governs
 // the child, so cancelling the parent run cancels in-flight sub-agents.
-func (t *SubAgentTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate ToolUpdateFunc) (AgentToolResult, error) {
+func (t *SubAgentTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 	if t.spec.NewRunConfig == nil {
-		return AgentToolResult{}, fmt.Errorf("sub-agent %q: no run configuration", t.spec.Name)
+		return agentcore.AgentToolResult{}, fmt.Errorf("sub-agent %q: no run configuration", t.spec.Name)
 	}
 	var a subAgentArgs
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &a); err != nil {
-			return AgentToolResult{}, fmt.Errorf("sub-agent %q: decode args: %w", t.spec.Name, err)
+			return agentcore.AgentToolResult{}, fmt.Errorf("sub-agent %q: decode args: %w", t.spec.Name, err)
 		}
 	}
 	if a.Prompt == "" {
-		return AgentToolResult{}, fmt.Errorf("sub-agent %q: empty prompt", t.spec.Name)
+		return agentcore.AgentToolResult{}, fmt.Errorf("sub-agent %q: empty prompt", t.spec.Name)
 	}
 
-	childCtx := &AgentContext{
+	childCtx := &agentcore.AgentContext{
 		SystemPrompt: t.spec.SystemPrompt,
-		Messages: MessageList{
-			UserMessage{RoleField: RoleUser, Content: ContentList{NewTextContent(a.Prompt)}},
+		Messages: agentcore.MessageList{
+			agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent(a.Prompt)}},
 		},
 		Tools: t.spec.Tools,
 	}
@@ -117,10 +121,10 @@ func (t *SubAgentTool) Execute(ctx context.Context, id string, args json.RawMess
 		if onUpdate == nil {
 			continue
 		}
-		if u, ok := ev.(MessageUpdateEvent); ok {
-			if am, ok := u.Message.(AssistantMessage); ok {
-				if text := contentToText(am.Content); text != "" {
-					onUpdate(AgentToolResult{Content: ContentList{NewTextContent(text)}})
+		if u, ok := ev.(agentcore.MessageUpdateEvent); ok {
+			if am, ok := u.Message.(agentcore.AssistantMessage); ok {
+				if text := agentcore.ContentToText(am.Content); text != "" {
+					onUpdate(agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(text)}})
 				}
 			}
 		}
@@ -128,12 +132,12 @@ func (t *SubAgentTool) Execute(ctx context.Context, id string, args json.RawMess
 
 	msgs, err := stream.Result(ctx)
 	if err != nil {
-		return AgentToolResult{}, fmt.Errorf("sub-agent %q: %w", t.spec.Name, err)
+		return agentcore.AgentToolResult{}, fmt.Errorf("sub-agent %q: %w", t.spec.Name, err)
 	}
-	final := lastAssistantOf(msgs)
+	final := agentcore.LastAssistantOf(msgs)
 	text := ""
 	if final != nil {
-		text = contentToText(final.Content)
+		text = agentcore.ContentToText(final.Content)
 	}
 	if text == "" {
 		text = fmt.Sprintf("(sub-agent %q produced no text output)", t.spec.Name)
@@ -142,8 +146,8 @@ func (t *SubAgentTool) Execute(ctx context.Context, id string, args json.RawMess
 	// signal the delegation failed (the tool executor marks the result
 	// IsError). A child whose final turn stopped on error/aborted otherwise
 	// looks like a successful delegation carrying error text.
-	if final != nil && (final.StopReason == StopReasonError || final.StopReason == StopReasonAborted) {
-		return AgentToolResult{}, fmt.Errorf("sub-agent %q failed (%s): %s", t.spec.Name, final.StopReason, text)
+	if final != nil && (final.StopReason == agentcore.StopReasonError || final.StopReason == agentcore.StopReasonAborted) {
+		return agentcore.AgentToolResult{}, fmt.Errorf("sub-agent %q failed (%s): %s", t.spec.Name, final.StopReason, text)
 	}
-	return AgentToolResult{Content: ContentList{NewTextContent(text)}}, nil
+	return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(text)}}, nil
 }

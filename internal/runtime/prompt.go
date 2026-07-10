@@ -11,7 +11,7 @@
 // AGENTS.md states broad conventions, and a nested package's AGENTS.md refines
 // them, so the more specific file appears later and takes precedence in the
 // model's reading.
-package agent
+package runtime
 
 import (
 	"fmt"
