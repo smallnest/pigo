@@ -176,20 +176,6 @@ func encodeOpenAITools(tools []AgentTool) []map[string]any {
 	return out
 }
 
-// contentToText flattens text blocks of a content list into a single string,
-// the lowest-common-denominator representation accepted by every OpenAI-
-// compatible gateway. Non-text blocks (thinking, tool calls) are surfaced
-// through their own fields, so they are skipped here.
-func contentToText(list ContentList) string {
-	var b strings.Builder
-	for _, c := range list {
-		if tc, ok := c.(TextContent); ok {
-			b.WriteString(tc.Text)
-		}
-	}
-	return b.String()
-}
-
 // ---------------------------------------------------------------------------
 // Anthropic-compatible driver (Bedrock).
 // ---------------------------------------------------------------------------

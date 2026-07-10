@@ -39,9 +39,6 @@ type LoopConfig struct {
 	Extra map[string]any
 }
 
-// emitFunc emits a loop-level AgentEvent honoring cancellation.
-type emitFunc func(ctx context.Context, ev AgentEvent) error
-
 // streamAssistantResponse runs one assistant turn: it builds the request from
 // agentCtx, streams the provider response, back-fills the partial into
 // agentCtx.Messages, and returns the final assistant message. The sequence

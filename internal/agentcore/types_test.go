@@ -1,4 +1,4 @@
-package agent
+package agentcore
 
 import (
 	"encoding/json"

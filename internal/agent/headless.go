@@ -129,16 +129,6 @@ func RunHeadless(ctx context.Context, agentCtx *AgentContext, cfg HeadlessConfig
 	return nil
 }
 
-// lastAssistantOf returns a pointer to the last AssistantMessage in msgs, or nil.
-func lastAssistantOf(msgs []AgentMessage) *AssistantMessage {
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if a, ok := msgs[i].(AssistantMessage); ok {
-			return &a
-		}
-	}
-	return nil
-}
-
 // writeEventJSON serializes one AgentEvent as a single line of JSON, terminated
 // by a newline, onto w. The envelope always carries a "type" discriminant so a
 // consumer can dispatch without positional knowledge.

@@ -1,4 +1,4 @@
-package agent
+package agentcore
 
 // AgentEvent is the sealed interface implemented by every event the loop emits.
 // Consumers dispatch with a type switch, consistent with Content. pigo covers
