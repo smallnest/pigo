@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0093</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F2F0EC; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/93">#93</a> &mdash; TUI: 流式状态指示与工具调用卡片 &mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> spinner tick 只在 running 时自续，靠 tea.Batch 与 drain 一起启动</h3>
+      <p><strong>Ambiguity:</strong> AC 要求「tick 命令驱动、不阻塞 Update、run 结束后停止动画」，未规定如何停。</p>
+      <p><strong>Choice:</strong> <code>startRun</code> 返回 <code>tea.Batch(drain, m.spinner.Tick)</code>；<code>Update</code> 收到 <code>spinner.TickMsg</code> 时若 <code>!running</code> 直接返回 nil（不再续 tick），否则 <code>m.spinner.Update</code> 返回下一个 tick。</p>
+      <p><strong>Rationale:</strong> spinner 的自续机制是"处理 tick → 返回下一个 tick"，只要在 idle 时掐断续命，动画自然在 run 结束后一帧内停下，无需显式 Stop；tick 走 bubbletea 命令队列，不阻塞 Update。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 工具卡片 = 复用 #89 主题样式 + #91 折行后再上色</h3>
+      <p><strong>Ambiguity:</strong> AC 要求 tool-call/tool-result「以带样式的卡片呈现，区别于普通文本」，未规定卡片具体形态。</p>
+      <p><strong>Choice:</strong> 新增 <code>styleEntry(kind, text)</code>，按 entry 种类套用 <code>theme.toolCall</code>/<code>theme.toolResult</code> 等样式；在 <code>wrapWidth</code> 折行「之后」再上色。tool-call 用 magenta 头 + ⚙ 前缀，tool-result 用 grey 体 + ↳ 前缀，与 assistant/user 配色区分。</p>
+      <p><strong>Rationale:</strong> 主题层（#89）已备好每类样式，直接复用避免重复定义配色；先折行后上色保证 #91 的显示宽度计算落在裸 rune 上而非 ANSI 转义（否则宽度算错）——正是 #91 open question 预警的顺序。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> spinner 选用 MiniDot，样式取主题 accent 色</h3>
+      <p><strong>Ambiguity:</strong> AC 未指定 spinner 具体样式。</p>
+      <p><strong>Choice:</strong> <code>spinner.New(WithSpinner(MiniDot), WithStyle(theme.accent))</code>，运行提示语整体也套 accent。</p>
+      <p><strong>Rationale:</strong> MiniDot 单宽 braille 帧稳定不抖动、对中文终端友好；accent 色与主题统一。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">None</span> 实现遵循 spec</h3>
+      <p>AC 五项（spinner 运行动画 + 提示、工具卡片区别于普通文本、保留 steering/Ctrl+C 提示语义、tick 驱动不阻塞且结束停止、build+test 全绿）均按字面满足。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 卡片=着色行，而非带边框的多行 box</h3>
+      <p><strong>Alternatives:</strong> (a) 用 lipgloss 边框/padding 画真正的多行卡片框；(b) 仅用配色 + 前缀 glyph 区分的"轻卡片"。</p>
+      <p><strong>Chosen:</strong> (b)。</p>
+      <p><strong>Why it won:</strong> 多行边框框在 viewport 折行、CJK 宽字符对齐下极易错位，且会与 #91 的宽度计算、#94 的 markdown 排版打架；配色+glyph 已满足"视觉区别于普通文本"的 AC，且 NO_COLOR 下退化为 glyph 仍可区分。真正的边框 box 留待样式体系稳定后（#94/#95 之后）再考虑。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> theme 固定为 dark，未接入运行时切换</h3>
+      <p><strong>Alternatives:</strong> (a) Model 固定 <code>buildTheme(themeDark)</code>；(b) 本 issue 就加 light/dark 切换入口。</p>
+      <p><strong>Chosen:</strong> (a)。</p>
+      <p><strong>Why it won:</strong> 主题切换是 #89 的范畴，本 issue 只消费主题样式；NO_COLOR 已由 buildTheme 处理。切换 UI 留给后续。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> spinner 帧宽与 viewport 底部行</h3>
+      <p>运行提示当前渲染在 viewport 之外的固定底部区（composer 上方）。若后续把运行状态并入可滚动区域，需复核 spinner 动态帧宽对 #91 宽度对齐的影响（MiniDot 单宽已规避）。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 是否需要区分「工具执行中」与「工具已完成」的卡片态</h3>
+      <p>当前 tool-call 与 tool-result 是两条独立 transcript entry。zero 的 tool card 会把 call→result 合并为一张带状态的卡片。是否需要该合并（含 pending/done 图标切换）留待确认；本 issue 先按 PRD 的两态着色实现。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
