@@ -40,8 +40,7 @@ func turnEnd(text string, toolNames ...string) agentcore.TurnEndEvent {
 // runID, sets running, and echoes the user input.
 func TestSubmitStartsRunWhenIdle(t *testing.T) {
 	s := newUIState()
-	s.input = "hello"
-	prompt, start := s.submit()
+	prompt, start := s.submit("hello")
 	if !start || prompt != "hello" {
 		t.Fatalf("submit idle: got (%q, %v), want (hello, true)", prompt, start)
 	}
@@ -60,10 +59,8 @@ func TestSubmitStartsRunWhenIdle(t *testing.T) {
 // during a run is queued as steering, not started as a new run.
 func TestSubmitWhileRunningQueuesSteering(t *testing.T) {
 	s := newUIState()
-	s.input = "first"
-	s.submit() // starts run 1
-	s.input = "steer me"
-	prompt, start := s.submit()
+	s.submit("first") // starts run 1
+	prompt, start := s.submit("steer me")
 	if start || prompt != "" {
 		t.Fatalf("submit while running: got (%q, %v), want (\"\", false)", prompt, start)
 	}
@@ -84,8 +81,7 @@ func TestSubmitWhileRunningQueuesSteering(t *testing.T) {
 // run nor queues steering.
 func TestSubmitIgnoresEmptyInput(t *testing.T) {
 	s := newUIState()
-	s.input = "   "
-	if _, start := s.submit(); start {
+	if _, start := s.submit("   "); start {
 		t.Error("whitespace input must not start a run")
 	}
 	if len(s.transcript) != 0 {
@@ -98,12 +94,10 @@ func TestSubmitIgnoresEmptyInput(t *testing.T) {
 // interrupt-then-new-run race: run 1's late events must not corrupt run 2.
 func TestStaleRunIDEventsDropped(t *testing.T) {
 	s := newUIState()
-	s.input = "q1"
-	s.submit() // run 1
+	s.submit("q1") // run 1
 	// Simulate interrupt + new run: bump to run 2 by finishing then resubmitting.
 	s.finishRun(1, nil)
-	s.input = "q2"
-	s.submit() // run 2 (runID == 2)
+	s.submit("q2") // run 2 (runID == 2)
 
 	// A late event from run 1 must be dropped.
 	if applied := s.applyEvent(1, assistantUpdate("stale text")); applied {
@@ -136,8 +130,7 @@ func TestStaleRunIDEventsDropped(t *testing.T) {
 // starts a fresh entry.
 func TestStreamingAssistantUpsert(t *testing.T) {
 	s := newUIState()
-	s.input = "go"
-	s.submit()
+	s.submit("go")
 	s.applyEvent(1, assistantUpdate("Hel"))
 	s.applyEvent(1, assistantUpdate("Hello"))
 	// One assistant entry, latest text.
@@ -193,8 +186,7 @@ func TestCtrlCDisarmedByOtherKey(t *testing.T) {
 // interrupts the run rather than quitting, and does not require a second press.
 func TestCtrlCInterruptsRun(t *testing.T) {
 	s := newUIState()
-	s.input = "long task"
-	s.submit() // running
+	s.submit("long task") // running
 	if act := s.pressCtrlC(); act != "interrupt" {
 		t.Fatalf("Ctrl+C during run = %q, want interrupt", act)
 	}
@@ -208,8 +200,7 @@ func TestCtrlCInterruptsRun(t *testing.T) {
 // runID and ignores a stale completion.
 func TestFinishRunClearsRunning(t *testing.T) {
 	s := newUIState()
-	s.input = "x"
-	s.submit() // run 1
+	s.submit("x") // run 1
 	if ok := s.finishRun(2, nil); ok {
 		t.Error("finishRun with stale runID=2 must be ignored")
 	}
@@ -244,8 +235,7 @@ func TestFenceBufferClosesDanglingFence(t *testing.T) {
 // so the started-but-never-launched run does not wedge the UI (US-029).
 func TestAbortStartedRunClearsRunning(t *testing.T) {
 	s := newUIState()
-	s.input = "/nope"
-	if _, start := s.submit(); !start {
+	if _, start := s.submit("/nope"); !start {
 		t.Fatal("submit should start a run before slash resolution")
 	}
 	if !s.running {
@@ -260,8 +250,7 @@ func TestAbortStartedRunClearsRunning(t *testing.T) {
 		t.Errorf("expected system line with reason, got %+v", last)
 	}
 	// A subsequent submit starts a fresh run (state is not wedged).
-	s.input = "hi"
-	if _, start := s.submit(); !start {
+	if _, start := s.submit("hi"); !start {
 		t.Error("submit after abort should start a run")
 	}
 }
@@ -302,8 +291,7 @@ func TestReplaySeedsTranscript(t *testing.T) {
 		t.Errorf("tool call entry text = %q, want read", s.transcript[2].Text)
 	}
 	// After replay, a submit starts a fresh run at runID 1 (continues session).
-	s.input = "and now?"
-	if _, start := s.submit(); !start || s.runID != 1 {
+	if _, start := s.submit("and now?"); !start || s.runID != 1 {
 		t.Errorf("submit after replay should start run 1, got runID=%d", s.runID)
 	}
 }

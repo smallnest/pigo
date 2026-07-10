@@ -13,6 +13,7 @@ import (
 	"context"
 	"strings"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/smallnest/pigo/internal/agentcore"
@@ -47,6 +48,12 @@ type Model struct {
 	width  int
 	height int
 
+	// input is the bubbles textinput widget backing the composer line. It owns
+	// the raw input value and provides rune-level cursor movement and editing —
+	// crucial for multi-byte UTF-8 (CJK/emoji), which the old byte-wise handling
+	// dropped. uiState stays framework-free; the model bridges the widget to it.
+	input textinput.Model
+
 	// cancel interrupts the in-flight run's context (set while running).
 	cancel context.CancelFunc
 	// program is set by SetProgram so the event-drain goroutine can Send events
@@ -64,9 +71,19 @@ type Model struct {
 // expanded before a run starts. Optional; when unset, input runs verbatim.
 func (m *Model) SetSlashRegistry(r *runtime.SlashRegistry) { m.slash = r }
 
+// newComposer builds the textinput widget used for the composer line. It is
+// focused so it accepts keystrokes, with an empty prompt (the View draws its
+// own "> " prefix). A real cursor is used so the terminal shows it natively.
+func newComposer() textinput.Model {
+	ti := textinput.New()
+	ti.Prompt = ""
+	ti.Focus()
+	return ti
+}
+
 // NewModel builds a Model driven by run.
 func NewModel(run RunFn) *Model {
-	return &Model{state: newUIState(), run: run}
+	return &Model{state: newUIState(), run: run, input: newComposer()}
 }
 
 // NewModelWithHistory builds a Model whose transcript is pre-seeded from a
@@ -74,7 +91,7 @@ func NewModel(run RunFn) *Model {
 // prior conversation before any new input; the model starts idle so the next
 // submit continues the session via the injected run func.
 func NewModelWithHistory(run RunFn, history []agentcore.AgentMessage) *Model {
-	m := &Model{state: newUIState(), run: run}
+	m := &Model{state: newUIState(), run: run, input: newComposer()}
 	m.state.replay(history)
 	return m
 }
@@ -110,7 +127,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleKey processes a key press.
+// handleKey processes a key press. Ctrl+C and Enter are handled explicitly
+// (two-phase quit/interrupt and submit); every other key is delegated to the
+// textinput widget, which handles multi-byte UTF-8 (CJK/emoji) input and
+// rune-level cursor movement/deletion. Any such key also disarms the two-phase
+// Ctrl+C.
 func (m *Model) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch k.String() {
 	case "ctrl+c":
@@ -129,7 +150,8 @@ func (m *Model) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "enter":
-		prompt, start := m.state.submit()
+		prompt, start := m.state.submit(m.input.Value())
+		m.input.Reset()
 		if start {
 			// Expand a slash-command into its prompt text before running. An
 			// unknown "/name" is surfaced as a local system line and no run
@@ -148,20 +170,14 @@ func (m *Model) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "backspace":
-		m.state.disarmCtrlC()
-		if n := len(m.state.input); n > 0 {
-			m.state.input = m.state.input[:n-1]
-		}
-		return m, nil
-
 	default:
-		// Printable text: append to the input line.
-		if s := k.String(); len(s) == 1 {
-			m.state.disarmCtrlC()
-			m.state.input += s
-		}
-		return m, nil
+		// Any other key edits the composer. Delegating to textinput gives
+		// rune-correct insertion (multi-byte CJK/emoji) and rune-level cursor
+		// movement + backspace — fixing the old len(s)==1 byte-wise defect.
+		m.state.disarmCtrlC()
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(k)
+		return m, cmd
 	}
 }
 
@@ -206,7 +222,7 @@ func (m *Model) View() tea.View {
 	}
 	b.WriteString("\n")
 	b.WriteString("> ")
-	b.WriteString(m.state.input)
+	b.WriteString(m.input.View())
 	if m.state.running {
 		b.WriteString("  … (running; type to steer, Ctrl+C to interrupt)")
 	} else if m.state.ctrlCArmed {
