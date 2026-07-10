@@ -17,13 +17,15 @@
 // Per the dual failure model (FR-13) the decoder never panics: malformed
 // payloads and Anthropic `error` events are surfaced as a returned error (which
 // the transport turns into a terminal StreamErrorEvent) rather than crashing.
-package agent
+package provider
 
 import (
 	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // anthropicBlock accumulates one content block's streaming state, keyed by its
@@ -256,7 +258,7 @@ func (d *AnthropicDecoder) finishDone() []StreamEvent {
 	d.done = true
 	msg := d.partial()
 	if msg.StopReason == "" {
-		msg.StopReason = StopReasonEndTurn
+		msg.StopReason = agentcore.StopReasonEndTurn
 	}
 	return []StreamEvent{StreamDoneEvent{Message: msg}}
 }
@@ -273,9 +275,9 @@ func (d *AnthropicDecoder) putBlock(index int, b *anthropicBlock) {
 // blocks are emitted in content-block index order. Tool-use JSON that has not
 // yet parsed cleanly is passed through as-is (raw partial), which is valid for
 // a still-streaming partial and finalized once the block completes.
-func (d *AnthropicDecoder) partial() AssistantMessage {
-	msg := AssistantMessage{
-		RoleField:     RoleAssistant,
+func (d *AnthropicDecoder) partial() agentcore.AssistantMessage {
+	msg := agentcore.AssistantMessage{
+		RoleField:     agentcore.RoleAssistant,
 		API:           "anthropic",
 		Provider:      "anthropic",
 		StopReason:    d.stopReason,
@@ -283,7 +285,7 @@ func (d *AnthropicDecoder) partial() AssistantMessage {
 		ResponseModel: d.responseModel,
 	}
 	if d.inputTokens != 0 || d.outputTokens != 0 {
-		msg.Usage = &Usage{InputTokens: d.inputTokens, OutputTokens: d.outputTokens}
+		msg.Usage = &agentcore.Usage{InputTokens: d.inputTokens, OutputTokens: d.outputTokens}
 	}
 
 	idx := make([]int, len(d.order))
@@ -297,7 +299,7 @@ func (d *AnthropicDecoder) partial() AssistantMessage {
 		}
 		switch b.kind {
 		case "thinking", "redacted_thinking":
-			tc := NewThinkingContent(b.thinking.String())
+			tc := agentcore.NewThinkingContent(b.thinking.String())
 			tc.ThinkingSignature = b.thinkingSig
 			tc.Redacted = b.redacted
 			msg.Content = append(msg.Content, tc)
@@ -306,9 +308,9 @@ func (d *AnthropicDecoder) partial() AssistantMessage {
 			if len(args) == 0 {
 				args = json.RawMessage("{}")
 			}
-			msg.Content = append(msg.Content, NewToolCallContent(b.toolID, b.toolName, args))
+			msg.Content = append(msg.Content, agentcore.NewToolCallContent(b.toolID, b.toolName, args))
 		default: // text
-			tc := NewTextContent(b.text.String())
+			tc := agentcore.NewTextContent(b.text.String())
 			tc.TextSignature = b.textSig
 			msg.Content = append(msg.Content, tc)
 		}
@@ -321,12 +323,12 @@ func (d *AnthropicDecoder) partial() AssistantMessage {
 func mapAnthropicStopReason(reason string) string {
 	switch reason {
 	case "max_tokens":
-		return StopReasonLength
+		return agentcore.StopReasonLength
 	case "tool_use":
-		return StopReasonToolUse
+		return agentcore.StopReasonToolUse
 	case "end_turn", "stop_sequence":
-		return StopReasonEndTurn
+		return agentcore.StopReasonEndTurn
 	default:
-		return StopReasonEndTurn
+		return agentcore.StopReasonEndTurn
 	}
 }

@@ -1,10 +1,12 @@
-package agent
+package provider
 
 import (
 	"context"
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // A recorded OpenAI Chat Completions SSE stream covering a text delta followed
@@ -38,7 +40,7 @@ func TestOpenAIDecoderToolCallStream(t *testing.T) {
 		t.Fatalf("expected a done event last, got %v", eventKinds(events))
 	}
 	// Stop reason: tool_calls → tool_use.
-	if final.StopReason != StopReasonToolUse {
+	if final.StopReason != agentcore.StopReasonToolUse {
 		t.Errorf("stop reason = %q, want tool_use", final.StopReason)
 	}
 	// Usage: prompt→input, completion→output.
@@ -54,11 +56,11 @@ func TestOpenAIDecoderToolCallStream(t *testing.T) {
 	if len(final.Content) != 2 {
 		t.Fatalf("expected 2 content blocks, got %d: %+v", len(final.Content), final.Content)
 	}
-	txt, ok := final.Content[0].(TextContent)
+	txt, ok := final.Content[0].(agentcore.TextContent)
 	if !ok || txt.Text != "Let me check." {
 		t.Errorf("text block = %+v", final.Content[0])
 	}
-	tool, ok := final.Content[1].(ToolCallContent)
+	tool, ok := final.Content[1].(agentcore.ToolCallContent)
 	if !ok || tool.Name != "get_weather" || tool.ID != "call_1" {
 		t.Fatalf("tool block = %+v", final.Content[1])
 	}
@@ -86,13 +88,13 @@ data: [DONE]
 `
 	dec := NewOpenAIDecoder()
 	_, final := feedSSE(t, dec, body)
-	if final.StopReason != StopReasonEndTurn {
+	if final.StopReason != agentcore.StopReasonEndTurn {
 		t.Errorf("stop reason = %q, want end_turn", final.StopReason)
 	}
 	if len(final.Content) != 1 {
 		t.Fatalf("expected 1 content block, got %d", len(final.Content))
 	}
-	txt, ok := final.Content[0].(TextContent)
+	txt, ok := final.Content[0].(agentcore.TextContent)
 	if !ok || txt.Text != "Hello world" {
 		t.Errorf("text = %+v", final.Content[0])
 	}
@@ -108,7 +110,7 @@ data: [DONE]
 `
 	dec := NewOpenAIDecoder()
 	_, final := feedSSE(t, dec, body)
-	if final.StopReason != StopReasonLength {
+	if final.StopReason != agentcore.StopReasonLength {
 		t.Errorf("length finish_reason must map to length, got %q", final.StopReason)
 	}
 }
@@ -146,7 +148,7 @@ func TestOpenAIDecoderFinishFlushesPartial(t *testing.T) {
 	if events[len(events)-1].EventKind() != StreamEventDone {
 		t.Fatalf("Finish must emit a terminal done event, got %v", eventKinds(events))
 	}
-	if final.StopReason != StopReasonEndTurn {
+	if final.StopReason != agentcore.StopReasonEndTurn {
 		t.Errorf("cut-short stream should default to end_turn, got %q", final.StopReason)
 	}
 	if len(final.Content) != 1 {
@@ -176,7 +178,7 @@ func TestOpenAIDecoderThroughTransport(t *testing.T) {
 	if resErr != nil {
 		t.Fatalf("result: %v", resErr)
 	}
-	if final.StopReason != StopReasonToolUse {
+	if final.StopReason != agentcore.StopReasonToolUse {
 		t.Errorf("stop reason via transport = %q, want tool_use", final.StopReason)
 	}
 	if len(final.Content) != 2 {

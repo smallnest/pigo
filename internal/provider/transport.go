@@ -8,7 +8,7 @@
 // failure as a Go error once streaming has begun — it rides the stream as a
 // terminal StreamErrorEvent. Only the earliest "cannot build the stream" case
 // (bad request construction) is a returned error.
-package agent
+package provider
 
 import (
 	"bufio"
@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // StreamEvent is the transport-level alias for AssistantMessageEvent. Decoders
@@ -188,9 +190,9 @@ func pump(ctx context.Context, stream *AssistantMessageEventStream, resp *http.R
 
 	fail := func(msg string, err error) {
 		stream.Emit(context.Background(), StreamErrorEvent{
-			Message: AssistantMessage{
-				RoleField:    RoleAssistant,
-				StopReason:   StopReasonError,
+			Message: agentcore.AssistantMessage{
+				RoleField:    agentcore.RoleAssistant,
+				StopReason:   agentcore.StopReasonError,
 				ErrorMessage: msg,
 			},
 			Err: err,

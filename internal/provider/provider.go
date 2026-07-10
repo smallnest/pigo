@@ -7,9 +7,13 @@
 // an error. Runtime failures are encoded as an error event plus a terminal
 // assistant message (stopReason=error/aborted + errorMessage). The returned
 // error is reserved for the earliest "could not even build the stream" case.
-package agent
+package provider
 
-import "context"
+import (
+	"context"
+
+	"github.com/smallnest/pigo/internal/agentcore"
+)
 
 // AssistantMessageEvent is the sealed interface for provider stream deltas. The
 // loop dispatches on EventKind; the raw event is also surfaced to consumers via
@@ -31,24 +35,24 @@ const (
 )
 
 // StreamStartEvent carries the initial (usually empty) partial message.
-type StreamStartEvent struct{ Partial AssistantMessage }
+type StreamStartEvent struct{ Partial agentcore.AssistantMessage }
 
 // StreamTextEvent carries the partial message after a text delta.
-type StreamTextEvent struct{ Partial AssistantMessage }
+type StreamTextEvent struct{ Partial agentcore.AssistantMessage }
 
 // StreamThinkingEvent carries the partial after a thinking delta.
-type StreamThinkingEvent struct{ Partial AssistantMessage }
+type StreamThinkingEvent struct{ Partial agentcore.AssistantMessage }
 
 // StreamToolCallEvent carries the partial after a tool-call delta.
-type StreamToolCallEvent struct{ Partial AssistantMessage }
+type StreamToolCallEvent struct{ Partial agentcore.AssistantMessage }
 
 // StreamDoneEvent is the terminal success event; Message is the final response.
-type StreamDoneEvent struct{ Message AssistantMessage }
+type StreamDoneEvent struct{ Message agentcore.AssistantMessage }
 
 // StreamErrorEvent is the terminal failure event; Message carries the terminal
 // assistant message (stopReason=error/aborted + errorMessage).
 type StreamErrorEvent struct {
-	Message AssistantMessage
+	Message agentcore.AssistantMessage
 	Err     error
 }
 
@@ -69,24 +73,24 @@ func (StreamErrorEvent) EventKind() string    { return StreamEventError }
 // AssistantMessageEventStream is the provider-level stream: deltas of type
 // AssistantMessageEvent with a final AssistantMessage result. isComplete fires
 // on done/error; extractResult takes the terminal event's message.
-type AssistantMessageEventStream = EventStream[AssistantMessageEvent, AssistantMessage]
+type AssistantMessageEventStream = agentcore.EventStream[AssistantMessageEvent, agentcore.AssistantMessage]
 
 // NewAssistantMessageEventStream builds a provider stream wired with the
 // done/error completion callbacks.
 func NewAssistantMessageEventStream(buffer int) *AssistantMessageEventStream {
-	s := NewEventStream[AssistantMessageEvent, AssistantMessage](buffer)
+	s := agentcore.NewEventStream[AssistantMessageEvent, agentcore.AssistantMessage](buffer)
 	s.IsComplete = func(e AssistantMessageEvent) bool {
 		k := e.EventKind()
 		return k == StreamEventDone || k == StreamEventError
 	}
-	s.ExtractResult = func(e AssistantMessageEvent) AssistantMessage {
+	s.ExtractResult = func(e AssistantMessageEvent) agentcore.AssistantMessage {
 		switch ev := e.(type) {
 		case StreamDoneEvent:
 			return ev.Message
 		case StreamErrorEvent:
 			return ev.Message
 		default:
-			return AssistantMessage{}
+			return agentcore.AssistantMessage{}
 		}
 	}
 	return s
@@ -96,14 +100,14 @@ func NewAssistantMessageEventStream(buffer int) *AssistantMessageEventStream {
 // LLM-bound messages (UI-only messages already filtered), and the tools.
 type LlmContext struct {
 	SystemPrompt string
-	Messages     MessageList
-	Tools        []AgentTool
+	Messages     agentcore.MessageList
+	Tools        []agentcore.AgentTool
 }
 
 // StreamConfig carries per-request settings for a StreamFn.
 type StreamConfig struct {
 	APIKey        string
-	ThinkingLevel ThinkingLevel
+	ThinkingLevel agentcore.ThinkingLevel
 	// Extra holds provider-specific options; opaque to the loop.
 	Extra map[string]any
 }

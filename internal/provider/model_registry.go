@@ -1,7 +1,7 @@
 // This file implements the model registry and provider directory (US-011): map
 // a model id to its Model metadata and the Provider that serves it. The registry
 // carries a built-in default catalog and can be extended from a data file.
-package agent
+package provider
 
 import (
 	"encoding/json"

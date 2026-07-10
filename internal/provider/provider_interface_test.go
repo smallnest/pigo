@@ -1,9 +1,11 @@
-package agent
+package provider
 
 import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // fakeProvider is a minimal Provider for interface tests.
@@ -42,7 +44,7 @@ func TestProviderEarlyBuildFailureReturnsError(t *testing.T) {
 }
 
 func TestProviderRuntimeFailureRidesStream(t *testing.T) {
-	errMsg := AssistantMessage{RoleField: RoleAssistant, StopReason: StopReasonError, ErrorMessage: "upstream 500"}
+	errMsg := agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, StopReason: agentcore.StopReasonError, ErrorMessage: "upstream 500"}
 	p := fakeProvider{
 		name:   "test",
 		events: []AssistantMessageEvent{StreamErrorEvent{Message: errMsg}},
@@ -55,13 +57,13 @@ func TestProviderRuntimeFailureRidesStream(t *testing.T) {
 	if resErr != nil {
 		t.Fatalf("stream result error: %v", resErr)
 	}
-	if final.StopReason != StopReasonError || final.ErrorMessage != "upstream 500" {
+	if final.StopReason != agentcore.StopReasonError || final.ErrorMessage != "upstream 500" {
 		t.Errorf("terminal error message wrong: %+v", final)
 	}
 }
 
 func TestStreamFnFromProviderDelegates(t *testing.T) {
-	done := AssistantMessage{RoleField: RoleAssistant, StopReason: StopReasonEndTurn}
+	done := agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, StopReason: agentcore.StopReasonEndTurn}
 	p := fakeProvider{name: "test", events: []AssistantMessageEvent{StreamDoneEvent{Message: done}}}
 	fn := StreamFnFromProvider(p)
 	stream, err := fn(context.Background(), "m", LlmContext{}, StreamConfig{})
@@ -69,7 +71,7 @@ func TestStreamFnFromProviderDelegates(t *testing.T) {
 		t.Fatalf("delegation error: %v", err)
 	}
 	final, _ := stream.Result(context.Background())
-	if final.StopReason != StopReasonEndTurn {
+	if final.StopReason != agentcore.StopReasonEndTurn {
 		t.Errorf("delegated stream result wrong: %+v", final)
 	}
 }

@@ -1,10 +1,12 @@
-package agent
+package provider
 
 import (
 	"context"
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // A recorded Gemini streamGenerateContent SSE stream (alt=sse) covering a
@@ -31,7 +33,7 @@ func TestGeminiDecoderToolCallStream(t *testing.T) {
 		t.Fatalf("expected a done event last, got %v", eventKinds(events))
 	}
 	// A functionCall present → tool_use even though Gemini reports STOP.
-	if final.StopReason != StopReasonToolUse {
+	if final.StopReason != agentcore.StopReasonToolUse {
 		t.Errorf("stop reason = %q, want tool_use", final.StopReason)
 	}
 	// Usage: prompt→input, candidates→output.
@@ -46,15 +48,15 @@ func TestGeminiDecoderToolCallStream(t *testing.T) {
 	if len(final.Content) != 3 {
 		t.Fatalf("expected 3 content blocks, got %d: %+v", len(final.Content), final.Content)
 	}
-	th, ok := final.Content[0].(ThinkingContent)
+	th, ok := final.Content[0].(agentcore.ThinkingContent)
 	if !ok || th.Thinking != "Let me think." {
 		t.Errorf("thinking block = %+v", final.Content[0])
 	}
-	txt, ok := final.Content[1].(TextContent)
+	txt, ok := final.Content[1].(agentcore.TextContent)
 	if !ok || txt.Text != "I'll check the weather." {
 		t.Errorf("text block = %+v", final.Content[1])
 	}
-	tool, ok := final.Content[2].(ToolCallContent)
+	tool, ok := final.Content[2].(agentcore.ToolCallContent)
 	if !ok || tool.Name != "get_weather" || tool.ID == "" {
 		t.Fatalf("tool block = %+v", final.Content[2])
 	}
@@ -77,13 +79,13 @@ data: {"candidates":[{"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount
 `
 	dec := NewGeminiDecoder()
 	_, final := feedSSE(t, dec, body)
-	if final.StopReason != StopReasonEndTurn {
+	if final.StopReason != agentcore.StopReasonEndTurn {
 		t.Errorf("stop reason = %q, want end_turn", final.StopReason)
 	}
 	if len(final.Content) != 1 {
 		t.Fatalf("expected 1 content block, got %d", len(final.Content))
 	}
-	txt, ok := final.Content[0].(TextContent)
+	txt, ok := final.Content[0].(agentcore.TextContent)
 	if !ok || txt.Text != "Hello world" {
 		t.Errorf("text = %+v", final.Content[0])
 	}
@@ -97,7 +99,7 @@ data: {"candidates":[{"finishReason":"MAX_TOKENS"}]}
 `
 	dec := NewGeminiDecoder()
 	_, final := feedSSE(t, dec, body)
-	if final.StopReason != StopReasonLength {
+	if final.StopReason != agentcore.StopReasonLength {
 		t.Errorf("MAX_TOKENS must map to length, got %q", final.StopReason)
 	}
 }
@@ -135,7 +137,7 @@ func TestGeminiDecoderFinishFlushesPartial(t *testing.T) {
 	if events[len(events)-1].EventKind() != StreamEventDone {
 		t.Fatalf("Finish must emit a terminal done event, got %v", eventKinds(events))
 	}
-	if final.StopReason != StopReasonEndTurn {
+	if final.StopReason != agentcore.StopReasonEndTurn {
 		t.Errorf("cut-short stream should default to end_turn, got %q", final.StopReason)
 	}
 	if len(final.Content) != 1 {
@@ -164,7 +166,7 @@ func TestGeminiDecoderThroughTransport(t *testing.T) {
 	if resErr != nil {
 		t.Fatalf("result: %v", resErr)
 	}
-	if final.StopReason != StopReasonToolUse {
+	if final.StopReason != agentcore.StopReasonToolUse {
 		t.Errorf("stop reason via transport = %q, want tool_use", final.StopReason)
 	}
 	if len(final.Content) != 3 {

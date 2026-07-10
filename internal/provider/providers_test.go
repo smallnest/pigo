@@ -1,4 +1,4 @@
-package agent
+package provider
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // captureServer records the last request path, headers, and decoded JSON body,
@@ -37,7 +39,7 @@ func newCaptureServer(t *testing.T, sseBody string) *captureServer {
 }
 
 // drainStream collects event kinds and the final message from a provider stream.
-func drainStream(t *testing.T, stream *AssistantMessageEventStream) ([]string, AssistantMessage) {
+func drainStream(t *testing.T, stream *AssistantMessageEventStream) ([]string, agentcore.AssistantMessage) {
 	t.Helper()
 	var kinds []string
 	for ev := range stream.Events() {
@@ -62,7 +64,7 @@ func TestOpenRouterProviderStreamsChatCompletions(t *testing.T) {
 	}
 	stream, err := p.StreamCompletion(context.Background(), CompletionRequest{
 		Model:   "openai/gpt-4o",
-		Context: LlmContext{SystemPrompt: "be brief", Messages: MessageList{UserMessage{RoleField: RoleUser, Content: ContentList{NewTextContent("hi")}}}},
+		Context: LlmContext{SystemPrompt: "be brief", Messages: agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("hi")}}}},
 		Config:  StreamConfig{APIKey: "sk-test"},
 	})
 	if err != nil {
@@ -72,7 +74,7 @@ func TestOpenRouterProviderStreamsChatCompletions(t *testing.T) {
 	if kinds[len(kinds)-1] != StreamEventDone {
 		t.Errorf("last event = %q, want done", kinds[len(kinds)-1])
 	}
-	if final.StopReason != StopReasonToolUse {
+	if final.StopReason != agentcore.StopReasonToolUse {
 		t.Errorf("stop reason = %q, want tool_use", final.StopReason)
 	}
 
@@ -124,13 +126,13 @@ func TestOllamaProviderNoAuth(t *testing.T) {
 	// No API key configured — Ollama must not require one.
 	stream, err := p.StreamCompletion(context.Background(), CompletionRequest{
 		Model:   "llama3",
-		Context: LlmContext{Messages: MessageList{UserMessage{RoleField: RoleUser, Content: ContentList{NewTextContent("hi")}}}},
+		Context: LlmContext{Messages: agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("hi")}}}},
 	})
 	if err != nil {
 		t.Fatalf("StreamCompletion (no auth): %v", err)
 	}
 	_, final := drainStream(t, stream)
-	if final.StopReason != StopReasonToolUse {
+	if final.StopReason != agentcore.StopReasonToolUse {
 		t.Errorf("stop reason = %q, want tool_use", final.StopReason)
 	}
 	if got := cs.headers.Get("Authorization"); got != "" {
@@ -149,7 +151,7 @@ func TestBedrockProviderStreamsAnthropicWire(t *testing.T) {
 	}
 	stream, err := p.StreamCompletion(context.Background(), CompletionRequest{
 		Model:   "anthropic.claude-3",
-		Context: LlmContext{SystemPrompt: "sys", Messages: MessageList{UserMessage{RoleField: RoleUser, Content: ContentList{NewTextContent("hi")}}}},
+		Context: LlmContext{SystemPrompt: "sys", Messages: agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("hi")}}}},
 		Config:  StreamConfig{APIKey: "bedrock-key"},
 	})
 	if err != nil {

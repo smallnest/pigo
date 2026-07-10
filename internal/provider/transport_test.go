@@ -1,4 +1,4 @@
-package agent
+package provider
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // jsonDecoder is a trivial Decoder: each payload is a JSON object with a "text"
@@ -31,9 +33,9 @@ func (d *jsonDecoder) Decode(payload []byte) ([]StreamEvent, error) {
 		return nil, fmt.Errorf("decoder rejected payload")
 	}
 	if m.Done {
-		return []StreamEvent{StreamDoneEvent{Message: AssistantMessage{RoleField: RoleAssistant, StopReason: StopReasonEndTurn}}}, nil
+		return []StreamEvent{StreamDoneEvent{Message: agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, StopReason: agentcore.StopReasonEndTurn}}}, nil
 	}
-	return []StreamEvent{StreamTextEvent{Partial: AssistantMessage{RoleField: RoleAssistant}}}, nil
+	return []StreamEvent{StreamTextEvent{Partial: agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant}}}, nil
 }
 
 func (d *jsonDecoder) Finish() ([]StreamEvent, error) {
@@ -93,7 +95,7 @@ func TestTransportSSEParsing(t *testing.T) {
 	if len(kinds) != 2 || kinds[0] != StreamEventText || kinds[1] != StreamEventDone {
 		t.Errorf("event kinds = %v, want [text done]", kinds)
 	}
-	if final.StopReason != StopReasonEndTurn {
+	if final.StopReason != agentcore.StopReasonEndTurn {
 		t.Errorf("final stop reason = %q, want end_turn", final.StopReason)
 	}
 	if !dec.finished {
@@ -116,7 +118,7 @@ func TestTransportDecodeErrorRidesStream(t *testing.T) {
 		t.Fatalf("decode failure must NOT be a returned error: %v", err)
 	}
 	final, _ := stream.Result(context.Background())
-	if final.StopReason != StopReasonError {
+	if final.StopReason != agentcore.StopReasonError {
 		t.Errorf("expected terminal error message, got stopReason=%q", final.StopReason)
 	}
 }
@@ -170,7 +172,7 @@ func TestTransportRetryOn503(t *testing.T) {
 		t.Fatalf("retry should succeed: %v", err)
 	}
 	final, _ := stream.Result(context.Background())
-	if final.StopReason != StopReasonEndTurn {
+	if final.StopReason != agentcore.StopReasonEndTurn {
 		t.Errorf("final stop reason = %q, want end_turn", final.StopReason)
 	}
 	if got := attempts.Load(); got != 2 {
@@ -221,14 +223,14 @@ func TestTransportIdleWatchdog(t *testing.T) {
 		t.Fatalf("StreamRequest: %v", err)
 	}
 
-	done := make(chan AssistantMessage, 1)
+	done := make(chan agentcore.AssistantMessage, 1)
 	go func() {
 		final, _ := stream.Result(context.Background())
 		done <- final
 	}()
 	select {
 	case final := <-done:
-		if final.StopReason != StopReasonError {
+		if final.StopReason != agentcore.StopReasonError {
 			t.Errorf("idle watchdog must produce terminal error, got %q", final.StopReason)
 		}
 	case <-time.After(3 * time.Second):

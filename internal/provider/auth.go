@@ -7,7 +7,7 @@
 // Security (FR: 敏感值不写入日志): secret values are never logged or embedded in
 // error messages. Errors and String()/redaction helpers reference credentials
 // by key name / provider only.
-package agent
+package provider
 
 import (
 	"context"

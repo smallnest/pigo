@@ -24,13 +24,15 @@
 // Per the dual failure model (FR-13) the decoder never panics: malformed
 // payloads and Gemini `error` payloads surface as a returned error which the
 // transport turns into a terminal StreamErrorEvent.
-package agent
+package provider
 
 import (
 	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // geminiFunctionCall accumulates one Gemini function call. Gemini delivers the
@@ -171,9 +173,9 @@ func (d *GeminiDecoder) finishDone() []StreamEvent {
 	msg := d.partial()
 	if msg.StopReason == "" {
 		if d.hasToolCall {
-			msg.StopReason = StopReasonToolUse
+			msg.StopReason = agentcore.StopReasonToolUse
 		} else {
-			msg.StopReason = StopReasonEndTurn
+			msg.StopReason = agentcore.StopReasonEndTurn
 		}
 	}
 	return []StreamEvent{StreamDoneEvent{Message: msg}}
@@ -181,9 +183,9 @@ func (d *GeminiDecoder) finishDone() []StreamEvent {
 
 // partial materializes the accumulated state into an AssistantMessage: thinking
 // block first (if any), then text, then function-call blocks in arrival order.
-func (d *GeminiDecoder) partial() AssistantMessage {
-	msg := AssistantMessage{
-		RoleField:     RoleAssistant,
+func (d *GeminiDecoder) partial() agentcore.AssistantMessage {
+	msg := agentcore.AssistantMessage{
+		RoleField:     agentcore.RoleAssistant,
 		API:           "gemini",
 		Provider:      "google",
 		StopReason:    d.stopReason,
@@ -191,20 +193,20 @@ func (d *GeminiDecoder) partial() AssistantMessage {
 		ResponseModel: d.responseModel,
 	}
 	if d.inputTokens != 0 || d.outputTokens != 0 {
-		msg.Usage = &Usage{InputTokens: d.inputTokens, OutputTokens: d.outputTokens}
+		msg.Usage = &agentcore.Usage{InputTokens: d.inputTokens, OutputTokens: d.outputTokens}
 	}
 	if d.thinking.Len() > 0 {
-		msg.Content = append(msg.Content, NewThinkingContent(d.thinking.String()))
+		msg.Content = append(msg.Content, agentcore.NewThinkingContent(d.thinking.String()))
 	}
 	if d.text.Len() > 0 {
-		msg.Content = append(msg.Content, NewTextContent(d.text.String()))
+		msg.Content = append(msg.Content, agentcore.NewTextContent(d.text.String()))
 	}
 	for _, c := range d.calls {
 		args := json.RawMessage(strings.TrimSpace(string(c.args)))
 		if len(args) == 0 {
 			args = json.RawMessage("{}")
 		}
-		msg.Content = append(msg.Content, NewToolCallContent(c.id, c.name, args))
+		msg.Content = append(msg.Content, agentcore.NewToolCallContent(c.id, c.name, args))
 	}
 	return msg
 }
@@ -214,14 +216,14 @@ func (d *GeminiDecoder) partial() AssistantMessage {
 // takes precedence and maps to tool_use. Unknown reasons default to end_turn.
 func mapGeminiFinishReason(reason string, hasToolCall bool) string {
 	if hasToolCall {
-		return StopReasonToolUse
+		return agentcore.StopReasonToolUse
 	}
 	switch reason {
 	case "MAX_TOKENS":
-		return StopReasonLength
+		return agentcore.StopReasonLength
 	case "STOP":
-		return StopReasonEndTurn
+		return agentcore.StopReasonEndTurn
 	default:
-		return StopReasonEndTurn
+		return agentcore.StopReasonEndTurn
 	}
 }
