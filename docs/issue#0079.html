@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0079</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F2F0EC; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/79">#79</a> &mdash; (6/6) 校验分层与无 import cycle &mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>go build ./...</code> success IS the no-cycle proof</h3>
+      <p><strong>Ambiguity:</strong> The AC says "记录 <code>go build</code> 成功即证明无 import cycle" but doesn't prescribe a separate cycle-detection tool.</p>
+      <p><strong>Choice:</strong> Treat a green <code>go build ./...</code> as the authoritative acyclicity proof — the Go compiler refuses to compile any import cycle with a hard error, so a successful build is a total guarantee, not a heuristic.</p>
+      <p><strong>Rationale:</strong> No external tool (e.g. a graph linter) can be more authoritative than the compiler itself. Adding one would be redundant ceremony. The build is the ground truth the language already enforces.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Test-set parity checked by test-func-name set diff, not just count</h3>
+      <p><strong>Ambiguity:</strong> The AC requires "与拆分前测试用例集一一对应（无测试丢失）" but doesn't define how to prove the correspondence.</p>
+      <p><strong>Choice:</strong> Extract all <code>Test/Fuzz/Benchmark/Example</code> function names from the pre-split <code>internal/agent</code> (commit <code>5c285b2</code>, the last commit before #74) and from the four post-split packages at HEAD, then <code>comm -23</code> the two sorted sets.</p>
+      <p><strong>Rationale:</strong> A raw count match (211 == 211) can hide a rename-and-drop. A set-difference proves every named test survived: the "missing" list came back empty, so the correspondence is exact, not just numeric.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">None</span> Implementation followed the spec as written</h3>
+      <p>US-006 is a pure verification issue — no production code was to change, and none did. The branch carries zero source edits; the work was running the build/vet/test/gofmt battery and the <code>go list -deps</code> layering matrix, then recording the results. Nothing departed from the AC.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Pre-split baseline commit: <code>5c285b2</code> vs <code>ddc802e</code></h3>
+      <p><strong>Alternatives:</strong> (a) diff test set against the repo's initial commit <code>ddc802e</code>; (b) diff against <code>5c285b2</code> "Add PRD for splitting internal/agent".</p>
+      <p><strong>Chosen:</strong> (b).</p>
+      <p><strong>Why it won:</strong> <code>ddc802e</code> predates the entire agent package — <code>internal/agent/*_test.go</code> didn't exist there (count 0), so it's a meaningless baseline. <code>5c285b2</code> is the exact commit immediately before #74 began the split, so its <code>internal/agent</code> test set is the true "before" snapshot the AC's "拆分前" refers to. Its 211 test funcs matched the post-split 211 across all four packages with an empty diff.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Unrelated default-model change was stashed out of this branch</h3>
+      <p>Two uncommitted edits (<code>cmd/pigo/main.go</code> and <code>internal/runtime/config.go</code>, default model <code>openai/gpt-4o</code> → <code>openrouter/free</code>) were found on the branch. They are unrelated to the split refactor and to this verification issue, so they were <code>git stash</code>-ed to keep #79 a zero-code-change verification. Confirm you want them committed separately (per your instruction) — they remain in <code>stash@{0}</code> and must be popped and committed on their own after the loop finishes.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Final acyclic layering matrix — confirm it matches the PRD DAG</h3>
+      <p>Recorded matrix: <code>agentcore</code> → (none, leaf); <code>provider</code> → agentcore; <code>agenttool</code> → agentcore; <code>runtime</code> → {agentcore, agenttool, provider}. This is exactly the PRD's intended DAG. Worth a final glance to confirm no package accidentally over-depends (e.g. provider should NOT see agenttool, and it does not).</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
