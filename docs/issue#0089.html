@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0089</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F2F0EC; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/89">#89</a> &mdash; TUI: 引入 lipgloss 主题层 &mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> palette（原始颜色）与 tuiTheme（解析后的 style）分离两层</h3>
+      <p><strong>Ambiguity:</strong> AC 只要求「定义 <code>tuiTheme</code> 持有各元素的 <code>lipgloss.Style</code>」和「<code>buildTheme(mode)</code> 将调色板解析为样式」，没规定调色板本身怎么存。</p>
+      <p><strong>Choice:</strong> 用一个纯字符串的 <code>palette</code> struct 存 dark/light 两套原始 ANSI 颜色码，<code>buildTheme</code> 里再用一个共享的 <code>fg()</code> 闭包把 palette 塑造成 style。</p>
+      <p><strong>Rationale:</strong> 颜色与样式塑形分离后，dark/light 两个模式复用同一段 style-shaping 逻辑（加粗、前景色），新增模式只需再加一个 palette 常量，不必重复写 style 构造。这也贴合 zero 的 <code>buildTheme</code>「resolve a palette into styles」的思路。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 用 ANSI 基础色号（"12"、"15" 等）而非十六进制真彩色</h3>
+      <p><strong>Ambiguity:</strong> AC 未指定调色板用哪种色彩空间。</p>
+      <p><strong>Choice:</strong> dark/light 都用 0–15 的 ANSI 基础色号（如 dark 的 user=<code>"12"</code> 亮蓝、assistant=<code>"15"</code> 近白）。</p>
+      <p><strong>Rationale:</strong> 基础色号会自动适配用户终端的主题配色，在低色彩能力终端也能降级，比钉死的十六进制真彩色更稳。观感对标（US-007/#94）阶段若需要更精细的配色可再升级为十六进制。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">None</span> 实现遵循 spec</h3>
+      <p>AC 四项（新增 <code>theme.go</code> + <code>tuiTheme</code> + <code>buildTheme</code>；dark/light 两套调色板；遵守 <code>NO_COLOR</code>；build/vet/test/gofmt 全绿）全部按字面满足，无偏离。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 测试断言「含 <code>\x1b[</code> ANSI 转义」而非断言具体颜色码</h3>
+      <p><strong>Alternatives:</strong> (a) 断言渲染结果精确等于某段带具体色码的字符串；(b) 只断言输出里包含 ANSI 转义序列前缀 <code>\x1b[</code>。</p>
+      <p><strong>Chosen:</strong> (b)。</p>
+      <p><strong>Why it won:</strong> lipgloss v2 的 <code>Style.Render</code> 在设了前景色时直接产出 ANSI，具体字节随库版本/色彩 profile 可能变动；断言精确色码会让测试脆弱。断言「有转义 vs. 无转义」恰好覆盖了本 issue 的语义核心——彩色时着色、<code>NO_COLOR</code> 时纯文本——且对库实现细节不敏感。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> lipgloss v2 无需全局 color profile 即产出 ANSI</h3>
+      <p><strong>Alternatives:</strong> 最初测试里想调 <code>lipgloss.SetColorProfile(lipgloss.ANSI)</code> 强制着色（v1 惯用法），但 v2 没有这些导出符号（触发 undefined 编译错误）。</p>
+      <p><strong>Chosen:</strong> 移除该调用，直接依赖 v2 的 <code>Style.Render</code>——只要设了前景色就输出 ANSI。</p>
+      <p><strong>Why it won:</strong> 读了 <code>style.go</code> 的 <code>Render</code> 源码确认：设了 <code>fg</code> 即 <code>te.ForegroundColor(fg)</code> 直接产出转义，不依赖全局 profile。顺应库的实际行为比硬套 v1 API 更正确，也消除了编译错误。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 是否需要 themeAuto（探测终端背景色自动选 dark/light）？</h3>
+      <p>本次只提供显式 <code>themeDark</code>/<code>themeLight</code>，默认 dark。zero 有 <code>themeAuto</code> 会请求终端背景色来自动决定明暗。PRD 已将 auto 列为后续增强——确认本阶段不做 auto、默认 dark 是否可接受。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 主题目前尚未接入渲染路径</h3>
+      <p>#89 只建立主题层本身（<code>tuiTheme</code>/<code>buildTheme</code>），<code>renderEntry</code>/<code>View</code> 尚未使用它——那是 #94（角色样式化渲染）与 #92（spinner/卡片）的工作。因此本 issue 合入后 TUI 观感暂无变化，属预期。确认这一分层交付节奏 OK。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 配色可读性需实机确认</h3>
+      <p>dark/light 的具体色号（如 light 下 assistant=<code>"0"</code> 黑、system=<code>"3"</code> 黄）是按常规对比度选的，尚未在真实明/暗终端里目视核对。接入渲染（#94）后建议在两种终端各扫一眼确认对比度足够。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
