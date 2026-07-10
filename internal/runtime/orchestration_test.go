@@ -367,6 +367,78 @@ func TestSlashResolve(t *testing.T) {
 	}
 }
 
+// TestSlashActionCommand verifies an action command runs its side effect via
+// ResolveOutcome and reports SlashAction with its status message (no prompt),
+// while a prompt command reports SlashPrompt with expanded text.
+func TestSlashActionCommand(t *testing.T) {
+	r := NewSlashRegistry()
+	var ran string
+	r.AddBuiltin(SlashCommand{
+		Name:        "model",
+		Description: "switch model",
+		Action:      func(args string) string { ran = args; return "switched to " + args },
+	})
+	r.AddUser(SlashCommand{Name: "greet", Expand: func(args string) string { return "hello " + args }})
+
+	// Action command: runs the side effect and returns a status message.
+	out, err := r.ResolveOutcome("/model gpt-5")
+	if err != nil {
+		t.Fatalf("ResolveOutcome(/model) error: %v", err)
+	}
+	if !out.Handled || out.Kind != SlashAction {
+		t.Errorf("action command: got handled=%v kind=%v, want true/SlashAction", out.Handled, out.Kind)
+	}
+	if ran != "gpt-5" {
+		t.Errorf("action side effect not run with args: got %q", ran)
+	}
+	if out.Message != "switched to gpt-5" || out.Prompt != "" {
+		t.Errorf("action outcome = {msg:%q prompt:%q}, want status message and empty prompt", out.Message, out.Prompt)
+	}
+
+	// Prompt command: expands, no action.
+	out, err = r.ResolveOutcome("/greet world")
+	if err != nil {
+		t.Fatalf("ResolveOutcome(/greet) error: %v", err)
+	}
+	if !out.Handled || out.Kind != SlashPrompt || out.Prompt != "hello world" {
+		t.Errorf("prompt outcome = {kind:%v prompt:%q}, want SlashPrompt/hello world", out.Kind, out.Prompt)
+	}
+
+	// Non-command passthrough.
+	out, err = r.ResolveOutcome("plain text")
+	if err != nil || out.Handled || out.Prompt != "plain text" {
+		t.Errorf("passthrough = {%v %q %v}, want unhandled verbatim", out.Handled, out.Prompt, err)
+	}
+}
+
+// TestAddBuiltinDuplicatePanics verifies AddBuiltin rejects a duplicate
+// built-in name (a programming error), matching RegisterBuiltin semantics.
+func TestAddBuiltinDuplicatePanics(t *testing.T) {
+	r := NewSlashRegistry()
+	r.AddBuiltin(SlashCommand{Name: "dup", Action: func(string) string { return "" }})
+	defer func() {
+		if recover() == nil {
+			t.Error("duplicate AddBuiltin must panic")
+		}
+	}()
+	r.AddBuiltin(SlashCommand{Name: "dup", Action: func(string) string { return "" }})
+}
+
+// TestAddBuiltinWinsOverUser verifies an instance built-in (AddBuiltin) shadows
+// a same-named user command, just like a globally registered built-in.
+func TestAddBuiltinWinsOverUser(t *testing.T) {
+	r := NewSlashRegistry()
+	r.AddBuiltin(SlashCommand{Name: "x", Action: func(string) string { return "builtin" }})
+	r.AddUser(SlashCommand{Name: "x", Expand: func(string) string { return "user" }})
+	cmd, ok := r.Lookup("x")
+	if !ok || cmd.Source != SourceBuiltin {
+		t.Errorf("instance built-in must win, got ok=%v source=%v", ok, cmd.Source)
+	}
+	if len(r.Shadowed()) != 1 || r.Shadowed()[0] != "x" {
+		t.Errorf("shadowed = %v, want [x]", r.Shadowed())
+	}
+}
+
 // TestParseUserCommand verifies $ARGUMENTS substitution, frontmatter description,
 // and the append fallback when no placeholder is present.
 func TestParseUserCommand(t *testing.T) {

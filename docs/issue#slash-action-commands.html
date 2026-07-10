@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Slash Action Commands (/model, /help)</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F2F0EC; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Feature: TUI 动作型斜杠命令（<code>/model</code>、<code>/help</code>）&mdash; 无对应 GitHub issue（源于「为啥 tui 下没有斜杠命令」的追问）&mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 给 SlashCommand 增加 Action 通道，而非把副作用塞进 Expand</h3>
+      <p><strong>Ambiguity:</strong> 原设计 <code>Expand func(args string) string</code> 只产出 prompt 文本，结构上无法表达「切换模型」这类控制动作。需求（支持 /model）没规定如何扩展。</p>
+      <p><strong>Choice:</strong> 新增 <code>Action func(args string) string</code> 字段与 <code>ResolveOutcome</code>，返回结构化 <code>SlashOutcome{Handled, Kind, Prompt, Message}</code>。Action 命令执行副作用并返回状态行，不产出 prompt；Expand 命令保持原样。</p>
+      <p><strong>Rationale:</strong> 两类命令语义根本不同（一个生成 prompt 交给 agent 跑，一个改运行时状态后直接展示结果）。用独立字段区分比让 Expand 兼职副作用清晰得多，且 <code>Action</code> 闭包可捕获并修改 live 状态，这是纯函数 Expand 做不到的。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 新增实例级 AddBuiltin，而非只用全局 RegisterBuiltin</h3>
+      <p><strong>Ambiguity:</strong> 现有内置命令走 init() 期的全局 <code>RegisterBuiltin</code>；但 /model 的闭包必须捕获 main 里创建的 live 运行配置，init() 时该状态还不存在。</p>
+      <p><strong>Choice:</strong> 给 <code>*SlashRegistry</code> 加 <code>AddBuiltin</code>，把内置命令直接装到 registry 实例上，同样标 <code>SourceBuiltin</code>（对 user 命令仍胜出）。</p>
+      <p><strong>Rationale:</strong> 保留 init()-only 的全局路径（并发契约不变），又让需要 per-run 状态的动作命令有合法注册点，无需引入全局可变状态或锁。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> live 运行配置无锁，靠 Update goroutine 单线程约束</h3>
+      <p><strong>Ambiguity:</strong> /model 会 mid-session 改 model/provider，run 闭包每轮读它——是否需要同步？</p>
+      <p><strong>Choice:</strong> <code>liveRunConfig</code> 不加锁，注释声明「只在 bubbletea 单一 Update goroutine 上读写」（slash action 在该 goroutine 执行，startRun 也同步在其中调用 run 闭包）。</p>
+      <p><strong>Rationale:</strong> bubbletea 契约保证所有状态变更都在 Update goroutine，符合项目既有 uiState 的无锁设计，避免过度工程。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">None</span> 无 spec 可偏离</h3>
+      <p>本功能无正式 PRD/issue，是对用户「为啥没有 /model」追问的直接响应。实现目标（可注册内置命令 + 支持动作型命令 + /model 运行时切换 + /help 列表）均已达成，build/vet/gofmt/test 全绿。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 保留旧 Resolve 字符串 API 而非直接替换</h3>
+      <p><strong>Alternatives:</strong> (a) 破坏性地把 <code>Resolve</code> 改成返回 outcome；(b) 新增 <code>ResolveOutcome</code>，<code>Resolve</code> 委托它并保持旧签名。</p>
+      <p><strong>Chosen:</strong> (b)。</p>
+      <p><strong>Why it won:</strong> 现有测试与潜在只处理 prompt 命令的调用方仍可用旧 API；旧 <code>Resolve</code> 对 action 命令报「handled 但 prompt 空、动作不执行」，语义安全。代价是两个入口并存，但注释已标明 action 命令必须走 <code>ResolveOutcome</code>。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> /model 切换失败时返回状态行而非报错中断</h3>
+      <p><strong>Alternatives:</strong> (a) resolveProvider 失败即 abort/报致命错；(b) 返回「cannot switch」状态行，保持原模型不变。</p>
+      <p><strong>Chosen:</strong> (b)。</p>
+      <p><strong>Why it won:</strong> 交互式会话里误输入模型 id 很常见，静默保持当前模型并提示，比打断会话体验好。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> /model 是否应校验模型 id 真实可用</h3>
+      <p>当前 <code>resolveProvider</code> 只按前缀映射 provider（ollama/ 走 Ollama，其余走 OpenRouter），不校验模型是否真实存在——非法 id 要到下一轮真正请求时才失败。是否需要在切换时做一次轻量校验（如查模型列表）？留待确认。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 是否需要 /model 的补全或候选列表</h3>
+      <p>现在 /model 无参数只显示当前模型。是否要让它列出内置 provider 支持的常用模型 id 作为候选，方便用户切换？本次未做。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 动作命令的状态行样式</h3>
+      <p>动作结果与错误都走 <code>entrySystem</code>（· 前缀，system 主题色）。是否需要为「成功切换」与「错误」区分样式（如成功用 accent、失败用警告色）？当前统一 system 色，简单且够用。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

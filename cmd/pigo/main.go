@@ -98,6 +98,7 @@ func main() {
 			model:        model,
 			providerName: providerName,
 			provider:     provider,
+			baseURL:      baseURL,
 			tools:        tools,
 			sysPrompt:    sysPrompt,
 			resumeID:     resumeID,
