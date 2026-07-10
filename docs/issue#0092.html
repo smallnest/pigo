@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0092</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F2F0EC; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/92">#92</a> &mdash; TUI: 视口滚动浏览长对话 &mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 用 bubbles/v2/viewport 承载 transcript，而非自建 chatScrollOffset</h3>
+      <p><strong>Ambiguity:</strong> AC 写「引入 <code>viewport</code>（或等价的 <code>chatScrollOffset</code> 滚动状态）」，二选一。</p>
+      <p><strong>Choice:</strong> 在 <code>Model</code> 里加 <code>viewport.Model</code> 字段，每次 transcript 变化调 <code>refreshViewport()</code> 把折行后的整段文本 <code>SetContent</code> 进视口，由视口负责裁剪与滚动。</p>
+      <p><strong>Rationale:</strong> viewport 已实现 PgUp/PgDn/方向键、<code>AtBottom</code>、<code>GotoBottom</code>、resize 等全部所需能力，自己维护 offset 等于重写它且更易出 off-by-one。与 #90 textinput 一样，widget 放在 Model 层，<code>uiState</code> 保持 framework-free（FR-14）。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> follow-tail 状态放在 Model，靠 <code>AtBottom()</code> 推导</h3>
+      <p><strong>Ambiguity:</strong> AC 要求「在底部则自动跟随，已上滚则不打断」，未规定如何判定"在底部"。</p>
+      <p><strong>Choice:</strong> Model 持一个 <code>follow bool</code>：新内容到达时若 <code>follow</code> 则 <code>GotoBottom()</code>；滚动键处理后用 <code>m.viewport.AtBottom()</code> 重算 <code>follow</code>。提交(steering)消息回显时强制 <code>follow=true</code> 以便用户看到自己的输入。</p>
+      <p><strong>Rationale:</strong> 把"是否在底部"交给视口的权威判断，避免自己累计行数判断底部的漂移；用户上滚 → <code>AtBottom()</code> 为假 → 停止跟随；滚回底部 → 为真 → 自动重新跟随，恰好满足 AC 的双向语义。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 视口高度 = 窗口高度 − 2 行 composer 预留</h3>
+      <p><strong>Ambiguity:</strong> AC 要求「resize 时视口尺寸更新，渲染不溢出」，未给出具体高度分配。</p>
+      <p><strong>Choice:</strong> 常量 <code>composerReservedRows = 2</code>（一空行 + "> " 输入行），视口高 = <code>height - 2</code>（下限 1）。<code>WindowSizeMsg</code> 里同步 <code>SetWidth</code>/<code>SetHeight</code>。</p>
+      <p><strong>Rationale:</strong> 固定预留保证输入行永不被高 transcript 挤出屏幕，且 resize 时随窗口重算，避免溢出。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">None</span> 实现遵循 spec</h3>
+      <p>AC 五项（引入 viewport、键盘上下滚动、底部自动跟随/上滚不打断、resize 更新视口、build+test 全绿）均按字面满足。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 首帧（WindowSizeMsg 未到）的降级渲染</h3>
+      <p><strong>Alternatives:</strong> (a) 视口未就绪时 <code>View</code> 回退为直接 dump 整段 transcript（#91 前行为）；(b) 用默认尺寸先建视口。</p>
+      <p><strong>Chosen:</strong> (a)，以 <code>vpReady</code> 标志切换。</p>
+      <p><strong>Why it won:</strong> 猜默认尺寸可能与真实终端不符，造成首帧错位；直接 dump 至少不破坏，首个 <code>WindowSizeMsg</code> 到达后自然进入视口模式。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 每次内容变化整体 SetContent 重渲</h3>
+      <p><strong>Alternatives:</strong> (a) 每次 transcript 变化重新拼接整段并 <code>SetContent</code>；(b) 增量只追加新行。</p>
+      <p><strong>Chosen:</strong> (a)。</p>
+      <p><strong>Why it won:</strong> 流式 assistant 消息是"就地增长"（<code>upsertStreamingAssistant</code> 覆盖末条），增量追加难以表达"改写最后一行"，整体重渲最简单且正确；transcript 规模对终端渲染而言开销可忽略。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 滚动键与 composer 编辑键的边界</h3>
+      <p>目前把 <code>up/down/pgup/pgdown/ctrl+u/ctrl+d</code> 全部划给视口滚动，因此这些键不再进入 textinput。若后续希望方向键在输入行内移动光标（多行输入场景），需要区分"输入为空/多行"来决定归属。当前单行 composer 下此取舍无碍。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 鼠标滚轮未启用</h3>
+      <p>viewport 支持 <code>MouseWheelEnabled</code>，但需在 bubbletea 程序层开启鼠标上报。本 issue 只做键盘滚动（AC 要求），鼠标滚轮留待后续按需接入。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

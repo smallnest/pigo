@@ -14,11 +14,18 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/runtime"
 )
+
+// composerReservedRows is the number of terminal rows reserved below the
+// scrolling transcript viewport for the composer: one blank spacer row plus the
+// "> " input row. The viewport gets the remaining height so a tall transcript
+// scrolls instead of pushing the input off-screen.
+const composerReservedRows = 2
 
 // RunFn starts an agent run for prompt and returns a stream of its events plus
 // a cancel func the TUI calls on Ctrl+C interrupt. Injected so the Model is
@@ -54,6 +61,21 @@ type Model struct {
 	// dropped. uiState stays framework-free; the model bridges the widget to it.
 	input textinput.Model
 
+	// viewport scrolls the transcript (#92). The transcript is rendered to a
+	// string, folded to width, and set as the viewport's content; the viewport
+	// clips it to its height and lets the user page/scroll through history. It is
+	// a pure display widget — uiState stays framework-free.
+	viewport viewport.Model
+	// vpReady is set once the first WindowSizeMsg has sized the viewport. Before
+	// that the terminal dimensions are unknown, so View falls back to dumping the
+	// whole transcript (pre-#92 behavior).
+	vpReady bool
+	// follow tracks whether the viewport should auto-scroll to the bottom on new
+	// content. It starts true (follow the latest output) and is cleared when the
+	// user scrolls up to read history, so streaming updates don't yank them back
+	// down; re-armed once they scroll back to the bottom.
+	follow bool
+
 	// cancel interrupts the in-flight run's context (set while running).
 	cancel context.CancelFunc
 	// program is set by SetProgram so the event-drain goroutine can Send events
@@ -83,7 +105,7 @@ func newComposer() textinput.Model {
 
 // NewModel builds a Model driven by run.
 func NewModel(run RunFn) *Model {
-	return &Model{state: newUIState(), run: run, input: newComposer()}
+	return &Model{state: newUIState(), run: run, input: newComposer(), viewport: viewport.New(), follow: true}
 }
 
 // NewModelWithHistory builds a Model whose transcript is pre-seeded from a
@@ -91,7 +113,7 @@ func NewModel(run RunFn) *Model {
 // prior conversation before any new input; the model starts idle so the next
 // submit continues the session via the injected run func.
 func NewModelWithHistory(run RunFn, history []agentcore.AgentMessage) *Model {
-	m := &Model{state: newUIState(), run: run, input: newComposer()}
+	m := &Model{state: newUIState(), run: run, input: newComposer(), viewport: viewport.New(), follow: true}
 	m.state.replay(history)
 	return m
 }
@@ -110,6 +132,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		// Size the transcript viewport to the window minus the composer rows.
+		vh := m.height - composerReservedRows
+		if vh < 1 {
+			vh = 1
+		}
+		m.viewport.SetWidth(m.width)
+		m.viewport.SetHeight(vh)
+		m.vpReady = true
+		m.refreshViewport()
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -117,14 +148,39 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agentEventMsg:
 		m.state.applyEvent(msg.runID, msg.event)
+		m.refreshViewport()
 		return m, nil
 
 	case runDoneMsg:
 		m.state.finishRun(msg.runID, msg.err)
 		m.cancel = nil
+		m.refreshViewport()
 		return m, nil
 	}
 	return m, nil
+}
+
+// refreshViewport re-renders the transcript into the viewport, folding each
+// entry to the viewport width on rune boundaries (#91) so CJK/wide characters
+// wrap without being split. If the user is following the tail (follow), the
+// viewport is pinned to the bottom so streaming output stays visible; if they
+// have scrolled up to read history, their position is preserved. A no-op until
+// the first WindowSizeMsg sizes the viewport.
+func (m *Model) refreshViewport() {
+	if !m.vpReady {
+		return
+	}
+	var b strings.Builder
+	for i, e := range m.state.transcript {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(wrapWidth(renderEntry(e, m.viewport.Width()), m.viewport.Width()))
+	}
+	m.viewport.SetContent(b.String())
+	if m.follow {
+		m.viewport.GotoBottom()
+	}
 }
 
 // handleKey processes a key press. Ctrl+C and Enter are handled explicitly
@@ -168,7 +224,21 @@ func (m *Model) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, m.startRun(prompt)
 		}
+		// A submitted (steering) message appended to the transcript should snap
+		// the view back to the bottom so the user sees their echoed input.
+		m.follow = true
+		m.refreshViewport()
 		return m, nil
+
+	case "up", "down", "pgup", "pgdown", "ctrl+u", "ctrl+d":
+		// Transcript scrolling (#92). Delegate to the viewport, then recompute
+		// follow: if the user scrolled up off the bottom, stop auto-following so
+		// streaming output doesn't yank them back; re-arm once they return to the
+		// bottom. Scroll keys don't disarm the two-phase Ctrl+C (they aren't edits).
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(k)
+		m.follow = m.viewport.AtBottom()
+		return m, cmd
 
 	default:
 		// Any other key edits the composer. Delegating to textinput gives
@@ -209,18 +279,26 @@ func (m *Model) drain(runID int, stream *runtime.LoopEventStream) {
 	}
 }
 
-// View implements tea.Model: it renders the transcript then the input line as a
-// plain string; bubbletea diffs and paints it (no custom incremental render).
-// Each transcript entry is folded to the terminal width on rune boundaries so
-// double-width CJK/emoji wrap without being split (#91).
+// View implements tea.Model: it renders the scrolling transcript viewport then
+// the input line as a plain string; bubbletea diffs and paints it (no custom
+// incremental render). The transcript is held in a viewport (#92) that clips a
+// tall history to the window and lets the user page/scroll through it; each
+// entry inside is folded to width on rune boundaries so double-width CJK/emoji
+// wrap without being split (#91). Before the first WindowSizeMsg sizes the
+// viewport, View falls back to dumping the whole transcript (pre-#92 behavior).
 func (m *Model) View() tea.View {
 	if m.quitting {
 		return tea.NewView("bye\n")
 	}
 	var b strings.Builder
-	for _, e := range m.state.transcript {
-		b.WriteString(wrapWidth(renderEntry(e, m.width), m.width))
+	if m.vpReady {
+		b.WriteString(m.viewport.View())
 		b.WriteByte('\n')
+	} else {
+		for _, e := range m.state.transcript {
+			b.WriteString(wrapWidth(renderEntry(e, m.width), m.width))
+			b.WriteByte('\n')
+		}
 	}
 	b.WriteString("\n")
 	b.WriteString("> ")
