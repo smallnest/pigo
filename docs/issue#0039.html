@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0039</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/39">#39</a> &mdash; [impl] headless/stdio 运行模式（US-020）&mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 退出码经「返回 error」而非在库内 os.Exit</h3>
+      <p><strong>Ambiguity:</strong> 验收要求"退出码正确反映成功/失败"，但没说这个映射在哪一层做。</p>
+      <p><strong>Choice:</strong> <code>RunHeadless</code> 返回 <code>error</code>（成功 nil，失败 <code>*ErrRunFailed</code>），由 <code>cmd/pigo/main.go</code> 负责 <code>os.Exit(1)</code>；库层从不 <code>os.Exit</code>。</p>
+      <p><strong>Rationale:</strong> 库函数直接退出进程不可测、不可组合。返回 error 让 e2e 测试能在同进程内断言成功/失败语义，退出码映射只在 main 这一薄壳里发生。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> stream-json 事件封装为白名单字段的 envelope</h3>
+      <p><strong>Ambiguity:</strong> "事件以行分隔 JSON 输出"没规定每行的 schema。</p>
+      <p><strong>Choice:</strong> <code>eventEnvelope</code> 对每种 AgentEvent 显式挑选安全字段（type 判别式 + text/toolName/isError/stopReason/messageCount），逐行 <code>json.Marshal</code> + <code>\n</code>。</p>
+      <p><strong>Rationale:</strong> 白名单而非整体序列化，既保证消费者能按 <code>type</code> 分派，又杜绝把 API key/内部结构等敏感或易变字段泄漏到线上（US-012 不记录敏感值）。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Provider 从 --model 前缀解析，key 取自环境经 CredentialStore</h3>
+      <p><strong>Ambiguity:</strong> 验收只给了 <code>pigo -p "..."</code>，未规定 provider/密钥装配方式。</p>
+      <p><strong>Choice:</strong> <code>ollama/</code> 前缀或含 <code>11434</code> 的 base-url → 本地 Ollama（无鉴权）；否则默认 OpenRouter。密钥经 <code>NewCredentialStore(nil).GetAPIKey</code> 从环境按 provider 名解析，绝不落日志。</p>
+      <p><strong>Rationale:</strong> 复用既有 provider 与 auth 组件（US-011/US-012），CLI 只做装配；密钥按 key 名引用符合安全约束。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 额外交付 cmd/pigo/main.go，超出"仅运行模式"的字面范围</h3>
+      <p><strong>Spec:</strong> #39 标题聚焦"headless/stdio 运行模式"，验收含库层能力。</p>
+      <p><strong>Implemented:</strong> 除 <code>internal/agent/headless.go</code> 的 <code>RunHeadless</code> 外，新建了 <code>cmd/pigo/main.go</code> 可执行入口。</p>
+      <p><strong>Why:</strong> 验收明列"真实终端验证：<code>pigo -p '读取 README 并总结'</code> 出结果"——没有 CLI 二进制无法满足。仓库此前无 <code>cmd/</code> 目录，故一并建立。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> stream-json 写失败后继续 drain，而非立即 return</h3>
+      <p><strong>Alternatives:</strong> (A) 首个写错误即记录到 <code>writeErr</code>、停止再写但继续消费 <code>Events()</code> 到 channel 关闭，循环后才 return；(B) 写错误立即 return。</p>
+      <p><strong>Pros/Cons:</strong> B 更短，但 loop 的 producer goroutine 在 buffer=0 的同步 <code>Emit</code> 上会因消费者提前退出而永久阻塞——goroutine 泄漏。A 多几行，却兑现了 headless.go 顶部"never leak a goroutine"的契约。</p>
+      <p><strong>Winner:</strong> A——正确性优先于简洁；broken pipe 下仍不泄漏。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 测试用本地 as() shim 而非 errors.As</h3>
+      <p><strong>Alternatives:</strong> (A) 测试内写一个只解一层的 <code>as(err, **ErrRunFailed)</code>；(B) import <code>errors</code> 用 <code>errors.As</code>。</p>
+      <p><strong>Pros/Cons:</strong> B 更标准；A 免去测试文件为单次一层解包引入额外 import。</p>
+      <p><strong>Winner:</strong> A——轻量且意图清晰；若将来出现错误包裹链再切回 <code>errors.As</code>。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> systemPrompt 是否够用</h3>
+      <p><strong>Assumption:</strong> 当前 <code>cmd/pigo</code> 的 <code>systemPrompt</code> 是最小版（cwd/OS/date），完整上下文装配留待 US-021。</p>
+      <p><strong>Verify:</strong> 若 US-021 引入统一的 system-prompt 组装，应让 <code>cmd/pigo</code> 改调用它，避免两处漂移。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> --output-format 之外是否需要 --input-format stream-json</h3>
+      <p><strong>Assumption:</strong> #39 只要求输出侧的 print 与 stream-json；输入固定为单个 prompt。</p>
+      <p><strong>Verify:</strong> pi 的 rpc 模式支持从 stdin 持续读入 JSON 消息；若后续需要交互式 stdio 协议，需扩展 main 的输入解析（可能是独立 issue）。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
