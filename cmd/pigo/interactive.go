@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -42,6 +43,7 @@ type interactiveOptions struct {
 	model        string
 	providerName string
 	provider     provider.Provider
+	baseURL      string
 	tools        []agentcore.AgentTool
 	sysPrompt    string
 
@@ -97,6 +99,17 @@ func runInteractive(opts interactiveOptions) error {
 		}
 	}
 
+	// live holds the run configuration that a control command (e.g. /model) may
+	// mutate mid-session. The run closure reads it on each prompt so a model
+	// switch takes effect on the next turn; header is updated so the switch is
+	// persisted with the session.
+	live := &liveRunConfig{
+		model:        opts.model,
+		providerName: opts.providerName,
+		provider:     opts.provider,
+		baseURL:      opts.baseURL,
+	}
+
 	// run appends the new prompt to the shared context, launches a loop run over
 	// the whole context, and returns its event stream. Steering is bridged into
 	// the loop's per-turn hook. The context grows in place as the loop appends
@@ -109,9 +122,9 @@ func runInteractive(opts interactiveOptions) error {
 		})
 		cfg := runtime.RunConfig{
 			LoopConfig: runtime.LoopConfig{
-				Model:     opts.model,
-				Provider:  opts.providerName,
-				Stream:    provider.StreamFnFromProvider(opts.provider),
+				Model:     live.model,
+				Provider:  live.providerName,
+				Stream:    provider.StreamFnFromProvider(live.provider),
 				GetAPIKey: creds.GetAPIKey,
 			},
 			Batch: agenttool.BatchConfig{
@@ -136,6 +149,8 @@ func runInteractive(opts interactiveOptions) error {
 		go func() {
 			_, _ = stream.Result(context.Background())
 			header.UpdatedAt = time.Now().UTC()
+			header.Model = live.model
+			header.Provider = live.providerName
 			if err := store.Save(header, agentCtx.Messages); err != nil {
 				fmt.Fprintf(os.Stderr, "pigo: session save failed: %v\n", err)
 			}
@@ -151,8 +166,9 @@ func runInteractive(opts interactiveOptions) error {
 	}
 	// Wire slash-commands: built-ins (compile-time) plus any user templates under
 	// ~/.pigo/commands (对标 the commands/*.md convention). A load error is
-	// non-fatal — the TUI still runs with the built-ins.
-	if slash, err := buildSlashRegistry(); err == nil {
+	// non-fatal — the TUI still runs with the built-ins. Instance built-ins that
+	// need live state (/model, /help) are registered against `live`.
+	if slash, err := buildSlashRegistry(live); err == nil {
 		m.SetSlashRegistry(slash)
 	} else {
 		fmt.Fprintf(os.Stderr, "pigo: slash-commands: %v\n", err)
@@ -213,12 +229,14 @@ func stdoutIsTerminal() bool {
 }
 
 // buildSlashRegistry assembles the TUI slash-command registry: compile-time
-// built-ins seeded by runtime.NewSlashRegistry plus user declarative templates
-// loaded from ~/.pigo/commands (or $PIGO_HOME/commands). A missing directory is
-// not an error. User commands that collide with a built-in are shadowed (the
-// built-in wins) and reported on stderr.
-func buildSlashRegistry() (*runtime.SlashRegistry, error) {
+// built-ins seeded by runtime.NewSlashRegistry, the live-state action commands
+// (/model, /help) bound to live, plus user declarative templates loaded from
+// ~/.pigo/commands (or $PIGO_HOME/commands). A missing directory is not an
+// error. User commands that collide with a built-in are shadowed (the built-in
+// wins) and reported on stderr.
+func buildSlashRegistry(live *liveRunConfig) (*runtime.SlashRegistry, error) {
 	reg := runtime.NewSlashRegistry()
+	registerLiveCommands(reg, live)
 	dir := os.Getenv("PIGO_HOME")
 	if dir == "" {
 		home, err := os.UserHomeDir()
@@ -238,4 +256,59 @@ func buildSlashRegistry() (*runtime.SlashRegistry, error) {
 		fmt.Fprintf(os.Stderr, "pigo: user commands shadowed by built-ins (rename to use): %v\n", shadowed)
 	}
 	return reg, nil
+}
+
+// liveRunConfig is the mutable run configuration a control command may change
+// mid-session. The run closure reads it on every prompt, so a /model switch
+// takes effect on the next turn. It carries no lock: it is read and written
+// only on bubbletea's single Update goroutine (slash actions run there, and the
+// run closure is invoked synchronously from that goroutine's startRun).
+type liveRunConfig struct {
+	model        string
+	providerName string
+	provider     provider.Provider
+	baseURL      string
+}
+
+// registerLiveCommands installs the built-in action commands that need live
+// runtime state. /model views or switches the active model; /help lists the
+// available commands. These are instance built-ins (AddBuiltin) because their
+// closures must capture live and the registry — state unreachable from an
+// init()-time global registration.
+func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
+	reg.AddBuiltin(runtime.SlashCommand{
+		Name:        "model",
+		Description: "view or switch the active model: /model [model-id]",
+		Action: func(args string) string {
+			id := strings.TrimSpace(args)
+			if id == "" {
+				return fmt.Sprintf("model: %s (provider: %s)", live.model, live.providerName)
+			}
+			prov, providerName, err := resolveProvider(id, live.baseURL)
+			if err != nil {
+				return fmt.Sprintf("model: cannot switch to %q: %v", id, err)
+			}
+			live.model = id
+			live.providerName = providerName
+			live.provider = prov
+			return fmt.Sprintf("model switched to %s (provider: %s)", id, providerName)
+		},
+	})
+	reg.AddBuiltin(runtime.SlashCommand{
+		Name:        "help",
+		Description: "list available slash commands",
+		Action: func(string) string {
+			var b strings.Builder
+			b.WriteString("available commands:")
+			for _, c := range reg.List() {
+				b.WriteString("\n  /")
+				b.WriteString(c.Name)
+				if c.Description != "" {
+					b.WriteString(" — ")
+					b.WriteString(c.Description)
+				}
+			}
+			return b.String()
+		},
+	})
 }

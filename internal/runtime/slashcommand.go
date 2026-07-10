@@ -46,16 +46,59 @@ func (s SlashCommandSource) String() string {
 }
 
 // SlashCommand is a resolved command: its name (without the leading "/"), a
-// short description for the command palette, its source, and an Expand function
-// that turns the invocation arguments into the prompt text fed to the agent.
+// short description for the command palette, and its source. A command is one
+// of two kinds, distinguished by which callback is set:
+//
+//   - A prompt command sets Expand: it turns the invocation arguments into the
+//     prompt text fed to the agent (the original slash-command behavior).
+//   - An action command sets Action instead: it performs a side effect (e.g.
+//     switching the runtime model) and returns a status line to show the user,
+//     rather than producing a prompt. No agent run is started.
+//
+// Exactly one of Expand/Action should be set. When both are set Action wins
+// (an action command never doubles as a prompt). This split is what lets a
+// control command like "/model" change runtime state — the old design could
+// only emit prompt text.
 type SlashCommand struct {
 	Name        string
 	Description string
 	Source      SlashCommandSource
 	// Expand maps the argument string (everything after "/name ") to the prompt
 	// text the command produces. For a built-in it may be arbitrary Go; for a
-	// user template it substitutes $ARGUMENTS into the markdown body.
+	// user template it substitutes $ARGUMENTS into the markdown body. Nil for an
+	// action command.
 	Expand func(args string) string
+	// Action performs a side effect for the invocation and returns a status
+	// message to display (may be empty). Set instead of Expand for a control
+	// command like "/model". Because it is an arbitrary Go closure it can capture
+	// and mutate live runtime state, which Expand (a pure prompt producer)
+	// cannot. Nil for a prompt command.
+	Action func(args string) string
+}
+
+// SlashKind classifies how a resolved invocation should be handled by the
+// caller: run its prompt through the agent, or treat it as a completed action.
+type SlashKind int
+
+const (
+	// SlashPrompt means the outcome carries prompt text to run (or, when not a
+	// command at all, the verbatim input).
+	SlashPrompt SlashKind = iota
+	// SlashAction means an action command already ran; the outcome carries only
+	// a status Message and no agent run should start.
+	SlashAction
+)
+
+// SlashOutcome is the structured result of resolving one input line. Handled is
+// false when the input was not a slash command (Prompt holds the verbatim input
+// to run). When Handled is true, Kind says whether Prompt should be run
+// (SlashPrompt) or an action already ran and Message should be shown without
+// starting a run (SlashAction).
+type SlashOutcome struct {
+	Handled bool
+	Kind    SlashKind
+	Prompt  string
+	Message string
 }
 
 // builtinCommands holds compile-time registered commands, keyed by name. It is
@@ -100,6 +143,24 @@ func NewSlashRegistry() *SlashRegistry {
 	return r
 }
 
+// AddBuiltin installs a built-in command directly on this registry instance,
+// bypassing the compile-time global. It exists for action commands whose
+// closure must capture live, per-run state (e.g. a model controller created in
+// main) — such state cannot be reached from an init()-time RegisterBuiltin. The
+// command is marked SourceBuiltin so it wins over a same-named user command,
+// exactly like a globally registered built-in. A duplicate name panics, since
+// two built-ins claiming one name is a programming error.
+func (r *SlashRegistry) AddBuiltin(cmd SlashCommand) {
+	if cmd.Name == "" {
+		panic("agent: AddBuiltin with empty name")
+	}
+	if existing, ok := r.commands[cmd.Name]; ok && existing.Source == SourceBuiltin {
+		panic(fmt.Sprintf("agent: duplicate built-in slash command %q", cmd.Name))
+	}
+	cmd.Source = SourceBuiltin
+	r.commands[cmd.Name] = cmd
+}
+
 // AddUser installs a user command unless a built-in already owns the name, in
 // which case the command is recorded as shadowed and the built-in is kept
 // (built-in-wins). A user command may override another user command of the same
@@ -135,13 +196,32 @@ func (r *SlashRegistry) List() []SlashCommand {
 
 // Resolve parses a raw input line and, if it is a slash-command invocation,
 // expands it to the prompt text the agent should run. It returns (prompt, true)
-// when input begins with "/" and names a known command; (input, false) when the
-// input is not a slash command (the caller runs it verbatim); and an error when
-// input is a "/name" for an unknown command.
+// when input begins with "/" and names a known PROMPT command; (input, false)
+// when the input is not a slash command (the caller runs it verbatim); and an
+// error when input is a "/name" for an unknown command.
+//
+// This is the legacy string API, kept for callers that only handle prompt
+// commands. It reports an action command as handled with an empty prompt (the
+// action does NOT run here) — callers that want action commands to execute must
+// use ResolveOutcome instead.
 func (r *SlashRegistry) Resolve(input string) (prompt string, handled bool, err error) {
+	out, err := r.ResolveOutcome(input)
+	if err != nil {
+		return "", false, err
+	}
+	return out.Prompt, out.Handled, nil
+}
+
+// ResolveOutcome parses a raw input line into a structured SlashOutcome. For a
+// non-command it returns {Handled:false, Prompt:input}. For a known prompt
+// command it returns {Handled:true, Kind:SlashPrompt, Prompt:<expanded>}. For a
+// known action command it RUNS the action and returns {Handled:true,
+// Kind:SlashAction, Message:<status>} — no prompt to run. An unknown "/name"
+// yields an error.
+func (r *SlashRegistry) ResolveOutcome(input string) (SlashOutcome, error) {
 	trimmed := strings.TrimLeft(input, " \t")
 	if !strings.HasPrefix(trimmed, "/") {
-		return input, false, nil
+		return SlashOutcome{Handled: false, Kind: SlashPrompt, Prompt: input}, nil
 	}
 	rest := trimmed[1:]
 	name := rest
@@ -152,9 +232,12 @@ func (r *SlashRegistry) Resolve(input string) (prompt string, handled bool, err 
 	}
 	cmd, ok := r.commands[name]
 	if !ok {
-		return "", false, fmt.Errorf("unknown command %q", "/"+name)
+		return SlashOutcome{}, fmt.Errorf("unknown command %q", "/"+name)
 	}
-	return cmd.Expand(args), true, nil
+	if cmd.Action != nil {
+		return SlashOutcome{Handled: true, Kind: SlashAction, Message: cmd.Action(args)}, nil
+	}
+	return SlashOutcome{Handled: true, Kind: SlashPrompt, Prompt: cmd.Expand(args)}, nil
 }
 
 // LoadUserCommandsDir loads declarative markdown command templates from dir

@@ -289,15 +289,27 @@ func (m *Model) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if start {
 			// Expand a slash-command into its prompt text before running. An
 			// unknown "/name" is surfaced as a local system line and no run
-			// starts; a non-command prompt passes through unchanged.
+			// starts. An action command (e.g. /model) runs its side effect here
+			// and shows a status line without starting an agent run. A
+			// non-command prompt passes through unchanged.
 			if m.slash != nil {
-				expanded, handled, err := m.slash.Resolve(prompt)
+				out, err := m.slash.ResolveOutcome(prompt)
 				if err != nil {
 					m.state.abortStartedRun(err.Error())
+					m.follow = true
+					m.refreshViewport()
 					return m, nil
 				}
-				if handled {
-					prompt = expanded
+				if out.Handled && out.Kind == runtime.SlashAction {
+					// Action already ran; don't start a run. Undo the run submit()
+					// began and echo the action's status as a local system line.
+					m.state.abortStartedRun(out.Message)
+					m.follow = true
+					m.refreshViewport()
+					return m, nil
+				}
+				if out.Handled {
+					prompt = out.Prompt
 				}
 			}
 			return m, m.startRun(prompt)
