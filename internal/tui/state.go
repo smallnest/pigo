@@ -16,7 +16,7 @@ package tui
 import (
 	"strings"
 
-	"github.com/smallnest/pigo/internal/agent"
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // entryKind classifies a transcript line for rendering.
@@ -75,21 +75,21 @@ func newUIState() *uiState {
 // assistant tool calls, and tool results — the same shapes applyEvent produces
 // for a live run, so a replayed transcript is indistinguishable from one built
 // turn-by-turn. It does not touch runID/running (a resumed session starts idle).
-func (s *uiState) replay(messages []agent.AgentMessage) {
+func (s *uiState) replay(messages []agentcore.AgentMessage) {
 	for _, m := range messages {
 		switch msg := m.(type) {
-		case agent.UserMessage:
+		case agentcore.UserMessage:
 			if text := userText(msg); text != "" {
 				s.transcript = append(s.transcript, transcriptEntry{Kind: entryUser, Text: text})
 			}
-		case agent.AssistantMessage:
+		case agentcore.AssistantMessage:
 			if text := assistantText(msg); text != "" {
 				s.transcript = append(s.transcript, transcriptEntry{Kind: entryAssistant, Text: text})
 			}
 			for _, c := range msg.ToolCalls() {
 				s.transcript = append(s.transcript, transcriptEntry{Kind: entryToolCall, Text: c.Name})
 			}
-		case agent.ToolResultMessage:
+		case agentcore.ToolResultMessage:
 			s.transcript = append(s.transcript, transcriptEntry{Kind: entryToolResult, Text: toolResultText(msg)})
 		}
 	}
@@ -160,16 +160,16 @@ func (s *uiState) disarmCtrlC() { s.ctrlCArmed = false }
 // applyEvent folds one agent event into the transcript, guarding on runID: an
 // event from a superseded run (runID != s.runID) is dropped. It returns false
 // when the event was stale (dropped), true when applied.
-func (s *uiState) applyEvent(runID int, ev agent.AgentEvent) bool {
+func (s *uiState) applyEvent(runID int, ev agentcore.AgentEvent) bool {
 	if runID != s.runID {
 		return false // stale-guard: event from an interrupted/old run
 	}
 	switch e := ev.(type) {
-	case agent.MessageUpdateEvent:
-		if a, ok := e.Message.(agent.AssistantMessage); ok {
+	case agentcore.MessageUpdateEvent:
+		if a, ok := e.Message.(agentcore.AssistantMessage); ok {
 			s.upsertStreamingAssistant(assistantText(a))
 		}
-	case agent.TurnEndEvent:
+	case agentcore.TurnEndEvent:
 		// Finalize the streaming assistant text, then surface any tool calls.
 		if text := assistantText(e.Message); text != "" {
 			s.upsertStreamingAssistant(text)
@@ -232,10 +232,10 @@ func (s *uiState) finalizeStreaming() {
 }
 
 // assistantText extracts the plain text of an assistant message.
-func assistantText(a agent.AssistantMessage) string {
+func assistantText(a agentcore.AssistantMessage) string {
 	var b strings.Builder
 	for _, c := range a.Content {
-		if tc, ok := c.(agent.TextContent); ok {
+		if tc, ok := c.(agentcore.TextContent); ok {
 			b.WriteString(tc.Text)
 		}
 	}
@@ -244,10 +244,10 @@ func assistantText(a agent.AssistantMessage) string {
 
 // userText extracts the plain text of a user message (used when replaying a
 // persisted session into the transcript).
-func userText(u agent.UserMessage) string {
+func userText(u agentcore.UserMessage) string {
 	var b strings.Builder
 	for _, c := range u.Content {
-		if tc, ok := c.(agent.TextContent); ok {
+		if tc, ok := c.(agentcore.TextContent); ok {
 			b.WriteString(tc.Text)
 		}
 	}
@@ -255,10 +255,10 @@ func userText(u agent.UserMessage) string {
 }
 
 // toolResultText extracts the plain text of a tool result message.
-func toolResultText(tr agent.ToolResultMessage) string {
+func toolResultText(tr agentcore.ToolResultMessage) string {
 	var b strings.Builder
 	for _, c := range tr.Content {
-		if tc, ok := c.(agent.TextContent); ok {
+		if tc, ok := c.(agentcore.TextContent); ok {
 			b.WriteString(tc.Text)
 		}
 	}

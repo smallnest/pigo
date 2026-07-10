@@ -2,14 +2,14 @@
 // (US-024, #43). A session is stored as a single append-only JSONL file: the
 // first line is a SessionHeader (schema version + metadata), and every
 // subsequent line is one persisted message (user / assistant / toolResult),
-// using the same "role"-discriminated encoding as agent.MessageList.
+// using the same "role"-discriminated encoding as agentcore.MessageList.
 //
 // The format is internally self-consistent and deliberately NOT wire-compatible
 // with pi's session files (spec #16, 会话格式 decision #5): pigo owns the schema
 // and versions it via SessionHeader.Version so future migrations have a hook.
 //
-// A persisted session round-trips into an agent.AgentContext, so a run can be
-// resumed by feeding the reconstructed context to agent.ContinueRun and the
+// A persisted session round-trips into an agentcore.AgentContext, so a run can be
+// resumed by feeding the reconstructed context to runtime.ContinueRun and the
 // transcript replays correctly in the TUI.
 package session
 
@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/smallnest/pigo/internal/agent"
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // SchemaVersion is the current session file schema version. It is written into
@@ -89,7 +89,7 @@ func (s *Store) path(id string) string { return filepath.Join(s.dir, FileName(id
 // existing file for the same id. The header's Version is forced to
 // SchemaVersion; CreatedAt/UpdatedAt are left as the caller set them. Save is
 // the whole-session write; Append adds messages to an existing file.
-func (s *Store) Save(header SessionHeader, messages agent.MessageList) error {
+func (s *Store) Save(header SessionHeader, messages agentcore.MessageList) error {
 	header.Version = SchemaVersion
 	if header.ID == "" {
 		return fmt.Errorf("session: header ID must not be empty")
@@ -123,7 +123,7 @@ func (s *Store) Save(header SessionHeader, messages agent.MessageList) error {
 }
 
 // writeSession emits the header line followed by one line per message.
-func writeSession(w io.Writer, header SessionHeader, messages agent.MessageList) error {
+func writeSession(w io.Writer, header SessionHeader, messages agentcore.MessageList) error {
 	enc := json.NewEncoder(w)
 	if err := enc.Encode(header); err != nil {
 		return fmt.Errorf("session: encode header: %w", err)
@@ -138,8 +138,8 @@ func writeSession(w io.Writer, header SessionHeader, messages agent.MessageList)
 
 // Load reads a session file and returns its header and messages. It validates
 // the schema version (an unknown version is rejected) and decodes each message
-// line using the same role-discriminated logic as agent.MessageList.
-func (s *Store) Load(id string) (SessionHeader, agent.MessageList, error) {
+// line using the same role-discriminated logic as agentcore.MessageList.
+func (s *Store) Load(id string) (SessionHeader, agentcore.MessageList, error) {
 	f, err := os.Open(s.path(id))
 	if err != nil {
 		return SessionHeader{}, nil, fmt.Errorf("session: open %s: %w", id, err)
@@ -149,7 +149,7 @@ func (s *Store) Load(id string) (SessionHeader, agent.MessageList, error) {
 }
 
 // readSession decodes a session stream: header line first, then messages.
-func readSession(r io.Reader) (SessionHeader, agent.MessageList, error) {
+func readSession(r io.Reader) (SessionHeader, agentcore.MessageList, error) {
 	sc := bufio.NewScanner(r)
 	// Session lines can be large (long tool results); grow the buffer well past
 	// the default 64KB token cap.
@@ -172,7 +172,7 @@ func readSession(r io.Reader) (SessionHeader, agent.MessageList, error) {
 		return SessionHeader{}, nil, fmt.Errorf("session: file schema version %d newer than supported %d", header.Version, SchemaVersion)
 	}
 
-	var messages agent.MessageList
+	var messages agentcore.MessageList
 	for line := 2; sc.Scan(); line++ {
 		raw := sc.Bytes()
 		if len(strings.TrimSpace(string(raw))) == 0 {
@@ -180,7 +180,7 @@ func readSession(r io.Reader) (SessionHeader, agent.MessageList, error) {
 		}
 		// Reuse MessageList's discriminated decoding by wrapping the single object
 		// in a one-element array.
-		var one agent.MessageList
+		var one agentcore.MessageList
 		if err := json.Unmarshal([]byte("["+string(raw)+"]"), &one); err != nil {
 			return SessionHeader{}, nil, fmt.Errorf("session: parse message line %d: %w", line, err)
 		}
@@ -241,12 +241,12 @@ func (s *Store) loadHeader(id string) (SessionHeader, error) {
 	return header, nil
 }
 
-// Resume loads a session and reconstructs an agent.AgentContext from it, ready
-// to hand to agent.ContinueRun. The system prompt is taken from the header. The
+// Resume loads a session and reconstructs an agentcore.AgentContext from it, ready
+// to hand to runtime.ContinueRun. The system prompt is taken from the header. The
 // returned header lets the caller re-establish model/provider. It errors if the
 // session has no messages or its last message is an assistant message (nothing
 // to continue from — mirrors agentLoopContinue's precondition).
-func (s *Store) Resume(id string) (*agent.AgentContext, SessionHeader, error) {
+func (s *Store) Resume(id string) (*agentcore.AgentContext, SessionHeader, error) {
 	header, messages, err := s.Load(id)
 	if err != nil {
 		return nil, SessionHeader{}, err
@@ -254,10 +254,10 @@ func (s *Store) Resume(id string) (*agent.AgentContext, SessionHeader, error) {
 	if len(messages) == 0 {
 		return nil, SessionHeader{}, fmt.Errorf("session %s: no messages to resume", id)
 	}
-	if _, isAssistant := messages[len(messages)-1].(agent.AssistantMessage); isAssistant {
+	if _, isAssistant := messages[len(messages)-1].(agentcore.AssistantMessage); isAssistant {
 		return nil, SessionHeader{}, fmt.Errorf("session %s: last message is an assistant message, nothing to continue", id)
 	}
-	ctx := &agent.AgentContext{
+	ctx := &agentcore.AgentContext{
 		SystemPrompt: header.SystemPrompt,
 		Messages:     messages,
 	}
@@ -276,7 +276,7 @@ func (s *Store) Resume(id string) (*agent.AgentContext, SessionHeader, error) {
 // load-modify-save under the hood, which is simple and correct for the session
 // sizes pigo produces. Callers that never need UpdatedAt precision can batch
 // with Save at session end instead.
-func (s *Store) Append(id string, updatedAt time.Time, messages agent.MessageList) error {
+func (s *Store) Append(id string, updatedAt time.Time, messages agentcore.MessageList) error {
 	header, existing, err := s.Load(id)
 	if err != nil {
 		return err

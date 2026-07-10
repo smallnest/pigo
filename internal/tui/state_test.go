@@ -9,30 +9,30 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/smallnest/pigo/internal/agent"
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // assistantEvent builds a MessageUpdateEvent carrying streamed assistant text.
-func assistantUpdate(text string) agent.MessageUpdateEvent {
-	return agent.MessageUpdateEvent{
-		Message: agent.AssistantMessage{
-			RoleField: agent.RoleAssistant,
-			Content:   agent.ContentList{agent.NewTextContent(text)},
+func assistantUpdate(text string) agentcore.MessageUpdateEvent {
+	return agentcore.MessageUpdateEvent{
+		Message: agentcore.AssistantMessage{
+			RoleField: agentcore.RoleAssistant,
+			Content:   agentcore.ContentList{agentcore.NewTextContent(text)},
 		},
 	}
 }
 
 // turnEnd builds a TurnEndEvent with the given final text and tool call names.
-func turnEnd(text string, toolNames ...string) agent.TurnEndEvent {
-	content := agent.ContentList{}
+func turnEnd(text string, toolNames ...string) agentcore.TurnEndEvent {
+	content := agentcore.ContentList{}
 	if text != "" {
-		content = append(content, agent.NewTextContent(text))
+		content = append(content, agentcore.NewTextContent(text))
 	}
 	for _, n := range toolNames {
-		content = append(content, agent.NewToolCallContent("id-"+n, n, json.RawMessage(`{}`)))
+		content = append(content, agentcore.NewToolCallContent("id-"+n, n, json.RawMessage(`{}`)))
 	}
-	return agent.TurnEndEvent{
-		Message: agent.AssistantMessage{RoleField: agent.RoleAssistant, Content: content},
+	return agentcore.TurnEndEvent{
+		Message: agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, Content: content},
 	}
 }
 
@@ -272,14 +272,14 @@ func TestAbortStartedRunClearsRunning(t *testing.T) {
 // prior conversation. A resumed session starts idle (running=false, runID=0).
 func TestReplaySeedsTranscript(t *testing.T) {
 	s := newUIState()
-	history := []agent.AgentMessage{
-		agent.UserMessage{RoleField: agent.RoleUser, Content: agent.ContentList{agent.NewTextContent("read main.go")}},
-		agent.AssistantMessage{
-			RoleField: agent.RoleAssistant,
-			Content:   agent.ContentList{agent.NewTextContent("Reading."), agent.NewToolCallContent("c1", "read", json.RawMessage(`{}`))},
+	history := []agentcore.AgentMessage{
+		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("read main.go")}},
+		agentcore.AssistantMessage{
+			RoleField: agentcore.RoleAssistant,
+			Content:   agentcore.ContentList{agentcore.NewTextContent("Reading."), agentcore.NewToolCallContent("c1", "read", json.RawMessage(`{}`))},
 		},
-		agent.ToolResultMessage{RoleField: agent.RoleToolResult, ToolCallID: "c1", ToolName: "read", Content: agent.ContentList{agent.NewTextContent("package main")}},
-		agent.AssistantMessage{RoleField: agent.RoleAssistant, Content: agent.ContentList{agent.NewTextContent("It is package main.")}},
+		agentcore.ToolResultMessage{RoleField: agentcore.RoleToolResult, ToolCallID: "c1", ToolName: "read", Content: agentcore.ContentList{agentcore.NewTextContent("package main")}},
+		agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, Content: agentcore.ContentList{agentcore.NewTextContent("It is package main.")}},
 	}
 	s.replay(history)
 
