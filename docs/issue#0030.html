@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0030</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/30">#30</a> &mdash; Gemini provider decoder（US-010）&mdash; 2026-07-10</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> functionCall 无 id，分配稳定合成 id <code>call_&lt;序号&gt;</code></h3>
+      <p><strong>Ambiguity:</strong> 验收要求"解析 functionCall"，但 Gemini 的 functionCall part 不携带调用 id，而 pigo 的 <code>ToolCallContent</code> 及后续 tool-result 关联依赖非空 id。</p>
+      <p><strong>Choice:</strong> 按到达顺序为每个 functionCall 分配 <code>call_0</code>、<code>call_1</code>… 的合成 id。</p>
+      <p><strong>Rationale:</strong> 下游 <code>executeToolCalls</code> 用 id 关联 tool-result；合成 id 稳定、唯一、可预期，且 Gemini 回传 tool-result 时按 name/顺序匹配而非 id，故合成 id 不影响与 Gemini 的往返。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> functionCall 的 args 作为完整 JSON 对象一次性承载，非增量拼接</h3>
+      <p><strong>Ambiguity:</strong> 其它 provider（OpenAI/Anthropic）的工具参数是跨分片累积的字符串，验收未说明 Gemini 是否相同。</p>
+      <p><strong>Choice:</strong> Gemini 在单个 part 里给出完整的 <code>args</code> 对象（<code>json.RawMessage</code>），直接透传，不做增量 builder 累积。</p>
+      <p><strong>Rationale:</strong> Gemini wire 格式本就单片交付完整 args；强行套用累积模型反而引入无谓状态。终态仍做 <code>{}</code> 兜底以防空 args。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>thought=true</code> 的 part 归为 thinking 内容</h3>
+      <p><strong>Ambiguity:</strong> Gemini 2.x 的 thinking 以带 <code>thought:true</code> 标记的 text part 表达，验收只提"解析文本与 functionCall"未明确 thinking。</p>
+      <p><strong>Choice:</strong> part 若 <code>thought=true</code> 则累积进 thinking builder 并发 <code>StreamThinkingEvent</code>；否则普通 text。terminal 消息中 thinking 块在 text 块之前。</p>
+      <p><strong>Rationale:</strong> 与 Anthropic decoder 的 thinking 处理对齐；提前正确归类避免把推理内容混入正文。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> finishReason=STOP 在存在 functionCall 时映射为 tool_use 而非 end_turn</h3>
+      <p><strong>Spec:</strong> 验收要求"stopReason 映射正确（length/tool_use/end_turn）"。</p>
+      <p><strong>Implemented:</strong> Gemini 即便产生 functionCall 也报 <code>finishReason=STOP</code>（不像 OpenAI 有专门的 <code>tool_calls</code>）。因此 <code>mapGeminiFinishReason</code> 与 <code>finishDone</code> 均优先判断"是否出现过 functionCall"：出现即映射 <code>tool_use</code>，与 loop 的工具执行分支对齐。</p>
+      <p><strong>Why:</strong> 若照字面把 STOP 映射为 end_turn，loop 会误判为自然终止而不执行工具调用，导致 Gemini 的工具能力失效。以"是否有 tool call"为准更贴近语义与 pi 行为。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> usageMetadata 覆盖式记录 vs 累加</h3>
+      <p><strong>Alternatives:</strong> (A) 每次出现 <code>usageMetadata</code> 覆盖式写入 input/output tokens；(B) 累加各 chunk 的增量。</p>
+      <p><strong>Pros/Cons:</strong> A 简单，符合 Gemini "usageMetadata 携累积总量、通常仅在末尾 chunk 出现"的行为；B 在 Gemini 报增量时才需要，但 Gemini 实际报累积值，累加会翻倍。</p>
+      <p><strong>Winner:</strong> A——与 Anthropic decoder 的 usage 处理一致；Gemini 的 usageMetadata 是累积快照，覆盖即正确。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 复用 <code>feedSSE</code>/<code>sseServer</code> 录制 fixture vs 独立测试骨架</h3>
+      <p><strong>Alternatives:</strong> (A) 复用共享的 <code>feedSSE</code>/<code>eventKinds</code>/<code>sseServer</code>/<code>newReqFn</code>，一份 Gemini fixture 同时跑纯 decoder 单测与 transport 全链路；(B) 为 Gemini 单建骨架。</p>
+      <p><strong>Pros/Cons:</strong> A 与 Anthropic/OpenAI 测试范式统一、零重复；B 隔离性略好但重复。</p>
+      <p><strong>Winner:</strong> A——三个 provider decoder 共享 transport 契约与测试骨架，保证行为一致。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 合成 tool-call id 是否影响 Gemini 多轮 tool-result 回传</h3>
+      <p><strong>Assumption:</strong> 假设 Gemini 的 functionResponse 按函数 name 匹配，不依赖调用方回传 id，故合成 <code>call_N</code> 安全。</p>
+      <p><strong>Verify:</strong> 接入真实多轮工具调用后核对：向 Gemini 回传 tool-result 时是否需要原样带回某个 id；若需要，则合成方案需改为透传 Gemini 侧标识。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 并行 functionCall 与 thinking 的顺序假设</h3>
+      <p><strong>Assumption:</strong> 当前按 part 到达顺序处理，terminal 内容块顺序为 thinking→text→functionCall。</p>
+      <p><strong>Verify:</strong> 若 Gemini 在单响应内交错多个 functionCall 与 text，需确认展示顺序是否仍符合预期；必要时保留严格的 part 到达序。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
