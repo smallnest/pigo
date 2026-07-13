@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0107</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.8em; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/107">#107</a> &mdash; REPL 斜杠命令、技能与模型切换 &mdash; 2026-07-13</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 斜杠输入统一经 ResolveOutcome 分流</h3>
+      <p><strong>Ambiguity:</strong> Spec 要求 action / prompt / 技能 / 未知命令四种分支各有不同行为，但未规定分流机制。</p>
+      <p><strong>Choice:</strong> REPL 对以 <code>/</code> 开头的输入统一调用 <code>SlashRegistry.ResolveOutcome</code>，返回 <code>SlashOutcome{Kind, Message, Prompt}</code>：<code>SlashAction</code> 打印 Message 不发起 run；prompt/技能返回展开的 Prompt 作为本轮输入；未知命令返回 error 打印 <code>unknown command "/foo"</code>。</p>
+      <p><strong>Rationale:</strong> 单一分流点让 REPL 循环保持极薄，四种行为的差异完全收敛在 registry 一侧，是既有 seam 的自然复用。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> /model 切换通过 liveRunConfig 生效于下一轮</h3>
+      <p><strong>Ambiguity:</strong> "下一轮生效" 的实现方式未规定。</p>
+      <p><strong>Choice:</strong> <code>registerLiveCommands</code> 把 <code>/model</code> 的闭包绑定到共享的 <code>*liveRunConfig</code>；命令经 <code>resolveProvider</code> 解析后原地改写 live 的 model/provider，<code>streamRun</code> 每轮从 live 读取，因此切换在下一轮自然生效。</p>
+      <p><strong>Rationale:</strong> live 是 REPL 主 goroutine 上唯一可变的运行配置，无需锁；action 命令与 run 都同步串行执行。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <p class="none">None — 斜杠命令分流、技能加载（<code>~/.agents/skills</code> 经 <code>buildSlashRegistry</code>）、<code>/model</code>/<code>/models</code>/<code>/help</code> 均在 #106 落地时已实现并覆盖测试。本 Issue 仅补齐 US-005/US-007 的 <code>/model</code> 运行中切换验收测试，未偏离 spec。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 切换到 Ollama preset 作为测试目标 vs mock provider 解析</h3>
+      <p><strong>Alternatives:</strong> (A) 测试中 <code>/model</code> 切到 <code>ollama/llama3.3</code>（Ollama 预置、无需 API key）；(B) 注入一个假的 resolveProvider。</p>
+      <p><strong>Pros/Cons:</strong> (A) 走真实 <code>resolveProvider</code> 路径，验证的是生产逻辑，且 Ollama 无需密钥不触发早退错误；(B) 更隔离但绕过了真实解析，测试价值低。</p>
+      <p><strong>Why chosen:</strong> 选 (A)——验收标准要求 <code>/model &lt;id&gt;</code> "通过 resolveProvider 切换"，测试应打到真实路径。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> /model 切换到需要密钥的 provider 时的失败反馈</h3>
+      <p><strong>Assumption:</strong> 切到无效或缺密钥的 provider 时，<code>resolveProvider</code> 返回 error，<code>/model</code> 打印 <code>cannot switch to ...</code> 且不改动 live。</p>
+      <p><strong>Verify:</strong> 该失败路径当前无专门测试覆盖；是否需要补一条 <code>/model</code> 切换失败保持原配置的断言？</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
