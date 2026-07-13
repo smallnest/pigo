@@ -92,7 +92,7 @@ type cliOptions struct {
 func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 	// --list-sessions is a standalone action: print and exit.
 	if opts.listSessions {
-		if err := printSessions(); err != nil {
+		if err := printSessions(out); err != nil {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
 			return 1
 		}

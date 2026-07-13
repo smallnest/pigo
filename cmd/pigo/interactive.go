@@ -7,6 +7,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -130,8 +131,8 @@ func runInteractive(opts interactiveOptions) error {
 	})
 }
 
-// printSessions prints the stored sessions, most-recent first, to stdout.
-func printSessions() error {
+// printSessions prints the stored sessions, most-recent first, to out.
+func printSessions(out io.Writer) error {
 	store, err := sessionStore()
 	if err != nil {
 		return err
@@ -141,11 +142,11 @@ func printSessions() error {
 		return err
 	}
 	if len(headers) == 0 {
-		fmt.Println("no sessions")
+		fmt.Fprintln(out, "no sessions")
 		return nil
 	}
 	for _, h := range headers {
-		fmt.Printf("%s\t%s\t%s\n", h.ID, h.UpdatedAt.Local().Format("2006-01-02 15:04"), h.Model)
+		fmt.Fprintf(out, "%s\t%s\t%s\n", h.ID, h.UpdatedAt.Local().Format("2006-01-02 15:04"), h.Model)
 	}
 	return nil
 }
