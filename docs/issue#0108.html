@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0108</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.8em; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/108">#108</a> &mdash; REPL 会话持久化与恢复 &mdash; 2026-07-13</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> printSessions 改为写入注入的 io.Writer</h3>
+      <p><strong>Ambiguity:</strong> 验收要求 <code>--list-sessions</code> 保持现有输出格式，但原实现把结果直接 <code>fmt.Println</code> 到进程 stdout，忽略了 <code>dispatch</code> 已经持有的 <code>out</code> writer。</p>
+      <p><strong>Choice:</strong> 把 <code>printSessions()</code> 改为 <code>printSessions(out io.Writer)</code>，<code>dispatch</code> 传入自己的 <code>out</code>。</p>
+      <p><strong>Rationale:</strong> dispatch 是 run-assembly seam，其"输出经参数注入"的契约应贯穿到底；否则 <code>--list-sessions</code> 无法在测试中断言输出，也无法重定向。这是修复一处可测性缺陷，行为对终端用户不变。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 恢复会话在启动时按角色回显</h3>
+      <p><strong>Ambiguity:</strong> "回显既有对话"的呈现形式未规定。</p>
+      <p><strong>Choice:</strong> <code>replayTranscript</code> 遍历消息，user 前缀 <code>&gt; </code>、assistant 直出文本 + <code>→ tool:</code> 行、toolResult 折叠为 <code>← result:</code> 行——与 REPL 运行时的实时呈现保持一致。</p>
+      <p><strong>Rationale:</strong> 回显与实时输出用同一套单行约定，用户在恢复与新对话间看到的格式统一。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <p class="none">None — 每轮持久化到 <code>~/.pigo/sessions</code>（或 <code>$PIGO_HOME/sessions</code>）、<code>--list-sessions</code>/<code>--resume</code>/<code>--continue</code>、模型随 SessionHeader 持久化、旧会话向后兼容（SchemaVersion 守卫）均在 #106 落地时已实现。本 Issue 补齐 US-006 验收测试并顺带修复 printSessions 可测性缺陷。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> t.Setenv(PIGO_HOME) 隔离 vs 注入 Store</h3>
+      <p><strong>Alternatives:</strong> (A) 测试用 <code>t.Setenv("PIGO_HOME", t.TempDir())</code> 让 <code>--list-sessions</code>/<code>--continue</code> 打到隔离目录；(B) 把 <code>*session.Store</code> 作为参数注入 dispatch。</p>
+      <p><strong>Pros/Cons:</strong> (A) 零改动生产签名、覆盖真实的 sessionStore 解析路径；(B) 更纯粹但需要改 dispatch 签名、扩大改动面。</p>
+      <p><strong>Why chosen:</strong> 选 (A)——sessionStore 已支持 PIGO_HOME 覆盖，用它隔离最小侵入且验证的是真实路径。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> --resume 加载后的完整 REPL 恢复路径未做端到端测试</h3>
+      <p><strong>Assumption:</strong> <code>replayTranscript</code> 的回显与 <code>store.Load</code> 的往返分别有单测覆盖，二者组合的 <code>runInteractive(resumeID=...)</code> 完整路径依赖组件正确性。</p>
+      <p><strong>Verify:</strong> 是否需要一条端到端测试：Save 一个会话 → 以 resumeID 进入 REPL → 断言历史回显且新一轮追加到既有消息尾部？当前靠组件级测试间接保证。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
