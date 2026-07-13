@@ -101,11 +101,98 @@ type Model struct {
 	// slash optionally resolves "/name" input into prompt text before a run is
 	// started (US-029). When nil, input is submitted verbatim.
 	slash *runtime.SlashRegistry
+
+	// pickerItems supplies the selectable model catalog when the user opens the
+	// interactive picker (mouse-navigable /models). onPickModel switches the live
+	// model to the chosen id and returns a status line to echo. Both are injected
+	// by the cmd layer so the tui package stays free of provider data; when unset,
+	// the picker is unavailable and /models falls back to its text listing.
+	pickerItems func() []PickerItem
+	onPickModel func(id string) string
+}
+
+// SetModelPicker wires the interactive model picker (对标 pi agent's picker).
+// items supplies the selectable catalog and onSelect switches the live model to
+// the chosen id, returning a status line to echo in the transcript. Optional:
+// when unset, the picker cannot open and /models keeps its text listing.
+func (m *Model) SetModelPicker(items func() []PickerItem, onSelect func(id string) string) {
+	m.pickerItems = items
+	m.onPickModel = onSelect
+}
+
+// OpenModelPicker enters picker mode over the injected catalog. It is a no-op
+// when no picker was wired or the catalog is empty; callers (the TUI's /models
+// interception) should fall back to the text listing in that case. Returns true
+// when the picker opened.
+func (m *Model) OpenModelPicker() bool {
+	if m.pickerItems == nil {
+		return false
+	}
+	items := m.pickerItems()
+	if len(items) == 0 {
+		return false
+	}
+	m.state.openPicker(items)
+	return true
 }
 
 // SetSlashRegistry wires a slash-command registry so typed "/name" input is
 // expanded before a run starts. Optional; when unset, input runs verbatim.
 func (m *Model) SetSlashRegistry(r *runtime.SlashRegistry) { m.slash = r }
+
+// slashMenuLimit caps how many rows the autocomplete popup shows at once so a
+// large command/skill catalog does not push the transcript off-screen.
+const slashMenuLimit = 8
+
+// menuMatches returns the slash commands (and skills) whose names start with
+// the given prefix (the text after "/"), sorted by name and capped at
+// slashMenuLimit. An empty prefix matches every command. Returns nil when no
+// registry is wired or nothing matches.
+func (m *Model) menuMatches(prefix string) []menuItem {
+	if m.slash == nil {
+		return nil
+	}
+	prefix = strings.ToLower(prefix)
+	var items []menuItem
+	for _, c := range m.slash.List() {
+		if prefix == "" || strings.HasPrefix(strings.ToLower(c.Name), prefix) {
+			items = append(items, menuItem{Name: c.Name, Desc: c.Description})
+		}
+	}
+	if len(items) > slashMenuLimit {
+		items = items[:slashMenuLimit]
+	}
+	return items
+}
+
+// refreshMenu recomputes the autocomplete menu from the current composer value:
+// it opens when the input is a "/prefix" with no space yet (still naming a
+// command) and closes otherwise. Called after every composer edit so the menu
+// tracks what the user types.
+func (m *Model) refreshMenu() {
+	v := m.input.Value()
+	if name, ok := slashMenuPrefix(v); ok {
+		m.state.setMenu(m.menuMatches(name))
+		return
+	}
+	m.state.closeMenu()
+}
+
+// slashMenuPrefix reports whether the composer value is in "naming a slash
+// command" state — it begins with "/" and has not yet reached a space (after
+// which the rest is arguments, not a command name) — and returns the partial
+// name typed so far. "/mod" → ("mod", true); "/model x" → ("", false); "hi" →
+// ("", false).
+func slashMenuPrefix(v string) (string, bool) {
+	if !strings.HasPrefix(v, "/") {
+		return "", false
+	}
+	rest := v[1:]
+	if strings.ContainsAny(rest, " \t") {
+		return "", false
+	}
+	return rest, true
+}
 
 // newComposer builds the textinput widget used for the composer line. It is
 // focused so it accepts keystrokes, with an empty prompt (the View draws its
@@ -166,7 +253,43 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
+		// In picker mode, keys navigate/select the model list instead of editing
+		// the composer or scrolling the transcript.
+		if m.state.pick.active {
+			return m.handlePickerKey(msg)
+		}
 		return m.handleKey(msg)
+
+	case tea.MouseWheelMsg:
+		// Wheel scrolls the picker selection when it is open; otherwise it falls
+		// through to the transcript viewport so history scrolls with the wheel too.
+		mouse := msg.Mouse()
+		if m.state.pick.active {
+			switch mouse.Button {
+			case tea.MouseWheelUp:
+				m.state.pickerMoveBy(-1)
+			case tea.MouseWheelDown:
+				m.state.pickerMoveBy(1)
+			}
+			return m, nil
+		}
+		if m.vpReady {
+			var cmd tea.Cmd
+			m.viewport, cmd = m.viewport.Update(msg)
+			m.follow = m.viewport.AtBottom()
+			return m, cmd
+		}
+		return m, nil
+
+	case tea.MouseClickMsg:
+		// A left click on a picker row selects that row and confirms the switch.
+		if m.state.pick.active && msg.Mouse().Button == tea.MouseLeft {
+			if row := m.pickerRowAt(msg.Mouse().Y); row >= 0 {
+				m.state.pick.cursor = row
+				return m, m.confirmPick()
+			}
+		}
+		return m, nil
 
 	case spinner.TickMsg:
 		// Advance the spinner only while a run is in flight; once idle we stop
@@ -267,6 +390,34 @@ func (m *Model) styleEntry(kind entryKind, text string) string {
 // rune-level cursor movement/deletion. Any such key also disarms the two-phase
 // Ctrl+C.
 func (m *Model) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// When the slash-command autocomplete menu is open, it captures the
+	// navigation/completion keys before they reach the composer or transcript.
+	// Tab always completes the highlighted command into the composer. Enter
+	// completes it too UNLESS the composer already spells a complete command name
+	// (the user typed it in full), in which case Enter submits — so a fully-typed
+	// "/model" runs without a second keystroke, while Enter on a partial "/mod"
+	// completes to "/model " rather than submitting an unknown command.
+	if m.state.menu.active {
+		switch k.String() {
+		case "up", "ctrl+p":
+			m.state.menuMoveBy(-1)
+			return m, nil
+		case "down", "ctrl+n":
+			m.state.menuMoveBy(1)
+			return m, nil
+		case "tab":
+			return m.completeMenu()
+		case "esc":
+			m.state.closeMenu()
+			return m, nil
+		case "enter":
+			if !m.composerNamesCommand() {
+				return m.completeMenu()
+			}
+			m.state.closeMenu()
+			// fall through to the outer switch's "enter" case to submit.
+		}
+	}
 	switch k.String() {
 	case "ctrl+c":
 		switch m.state.pressCtrlC() {
@@ -284,9 +435,20 @@ func (m *Model) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "enter":
+		m.state.closeMenu()
 		prompt, start := m.state.submit(m.input.Value())
 		m.input.Reset()
 		if start {
+			// "/models" (no args) opens the interactive picker if one is wired,
+			// instead of echoing the static text listing. With an argument (e.g.
+			// "/models nvidia") it falls through to the slash action so the filtered
+			// text listing still works.
+			if isBareModelsCommand(prompt) && m.OpenModelPicker() {
+				// submit() bumped runID and echoed the "/models" line; undo both so
+				// the picker opens cleanly with no stray transcript entry.
+				m.state.cancelStartedRun()
+				return m, nil
+			}
 			// Expand a slash-command into its prompt text before running. An
 			// unknown "/name" is surfaced as a local system line and no run
 			// starts. An action command (e.g. /model) runs its side effect here
@@ -337,8 +499,115 @@ func (m *Model) handleKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.state.disarmCtrlC()
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(k)
+		// After the edit, recompute the slash-command autocomplete menu so it
+		// tracks the "/prefix" being typed (opening, filtering, or closing it).
+		m.refreshMenu()
 		return m, cmd
 	}
+}
+
+// composerNamesCommand reports whether the composer value is exactly "/name"
+// where name is a command the registry knows (no arguments yet). It is the
+// signal that Enter should submit the fully-typed command rather than complete
+// the highlighted menu row. Returns false when no registry is wired.
+func (m *Model) composerNamesCommand() bool {
+	if m.slash == nil {
+		return false
+	}
+	name, naming := slashMenuPrefix(m.input.Value())
+	if !naming || name == "" {
+		return false
+	}
+	_, ok := m.slash.Lookup(name)
+	return ok
+}
+
+// completeMenu completes the highlighted autocomplete row into the composer:
+// the input becomes "/name " (trailing space so the user types arguments next)
+// and the menu closes. A no-op returning nil when the menu has no selection.
+func (m *Model) completeMenu() (tea.Model, tea.Cmd) {
+	item, ok := m.state.menuCurrent()
+	if !ok {
+		return m, nil
+	}
+	m.input.SetValue("/" + item.Name + " ")
+	m.input.CursorEnd()
+	m.state.closeMenu()
+	return m, nil
+}
+
+// pickerHeaderRows is the number of lines the picker draws above its first
+// selectable row (a title line plus a blank spacer). Click-to-select maps a
+// mouse Y back to an item index by subtracting these rows, so it must match the
+// header the View renders.
+const pickerHeaderRows = 2
+
+// handlePickerKey processes a key press while the model picker is open. Up/down
+// (and j/k, ctrl+p/ctrl+n) move the selection, Enter confirms the switch, and
+// Esc/ctrl+c/q closes the picker without changing the model. All other keys are
+// swallowed so stray typing does not leak into the composer behind the picker.
+func (m *Model) handlePickerKey(k tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch k.String() {
+	case "up", "ctrl+p", "k":
+		m.state.pickerMoveBy(-1)
+		return m, nil
+	case "down", "ctrl+n", "j":
+		m.state.pickerMoveBy(1)
+		return m, nil
+	case "pgup":
+		m.state.pickerMoveBy(-10)
+		return m, nil
+	case "pgdown":
+		m.state.pickerMoveBy(10)
+		return m, nil
+	case "home":
+		m.state.pickerMoveBy(-len(m.state.pick.items))
+		return m, nil
+	case "end":
+		m.state.pickerMoveBy(len(m.state.pick.items))
+		return m, nil
+	case "enter":
+		return m, m.confirmPick()
+	case "esc", "ctrl+c", "q":
+		m.state.closePicker()
+		m.refreshViewport()
+		return m, nil
+	default:
+		return m, nil
+	}
+}
+
+// confirmPick applies the model under the cursor via the injected onPickModel
+// callback, echoes its status line into the transcript, and closes the picker.
+// It returns no command; the switch takes effect on the next prompt (the live
+// run config is mutated by the callback).
+func (m *Model) confirmPick() tea.Cmd {
+	item, ok := m.state.pickerCurrent()
+	m.state.closePicker()
+	if ok && m.onPickModel != nil {
+		m.state.pushSystem(m.onPickModel(item.ID))
+	}
+	m.follow = true
+	m.refreshViewport()
+	return nil
+}
+
+// pickerRowAt maps a terminal row (mouse Y) to an item index in the open
+// picker, or -1 when the row is outside the selectable list. It mirrors the
+// layout View draws: pickerHeaderRows lines precede row 0.
+func (m *Model) pickerRowAt(y int) int {
+	idx := y - pickerHeaderRows
+	if idx < 0 || idx >= len(m.state.pick.items) {
+		return -1
+	}
+	return idx
+}
+
+// isBareModelsCommand reports whether prompt is the "/models" slash command
+// with no argument (so it should open the interactive picker). "/models nvidia"
+// keeps the filtered text-listing path, and any non-command returns false.
+func isBareModelsCommand(prompt string) bool {
+	return strings.TrimSpace(prompt) == "/models"
 }
 
 // startRun launches the agent run for prompt and returns a command that drains
@@ -385,6 +654,13 @@ func (m *Model) View() tea.View {
 	if m.quitting {
 		return tea.NewView("bye\n")
 	}
+	// Picker mode takes over the whole view: the transcript is replaced by the
+	// selectable model list so mouse/keyboard navigation is unambiguous.
+	if m.state.pick.active {
+		v := tea.NewView(m.renderPicker())
+		v.MouseMode = tea.MouseModeCellMotion
+		return v
+	}
 	var b strings.Builder
 	if m.vpReady {
 		b.WriteString(m.viewport.View())
@@ -396,6 +672,12 @@ func (m *Model) View() tea.View {
 		}
 	}
 	b.WriteString("\n")
+	// The slash-command autocomplete popup renders just above the composer when
+	// active, so the user sees the matching commands/skills while typing "/".
+	if m.state.menu.active {
+		b.WriteString(m.renderMenu())
+		b.WriteByte('\n')
+	}
 	b.WriteString("> ")
 	b.WriteString(m.input.View())
 	if m.state.running {
@@ -406,7 +688,71 @@ func (m *Model) View() tea.View {
 	} else if m.state.ctrlCArmed {
 		b.WriteString(m.theme.system.Render("  (press Ctrl+C again to quit)"))
 	}
-	return tea.NewView(b.String())
+	// Enable the mouse wheel so the transcript can be scrolled with it (the
+	// picker uses the same mode for wheel-selection).
+	v := tea.NewView(b.String())
+	v.MouseMode = tea.MouseModeCellMotion
+	return v
+}
+
+// renderPicker draws the interactive model picker: a title line, a blank
+// spacer, then one row per item with the cursor row highlighted via the theme
+// accent. The row layout matches pickerHeaderRows / pickerRowAt so click-to-
+// select maps a mouse Y back to the right item. Each row is folded to width on
+// rune boundaries so long CJK labels do not overflow (#91).
+func (m *Model) renderPicker() string {
+	width := m.width
+	var b strings.Builder
+	b.WriteString(m.theme.accent.Render("select a model  (↑/↓ or wheel to move, Enter/click to switch, Esc to cancel)"))
+	b.WriteByte('\n')
+	for i, it := range m.state.pick.items {
+		b.WriteByte('\n')
+		marker := "  "
+		line := it.Label
+		if line == "" {
+			line = it.ID
+		}
+		if i == m.state.pick.cursor {
+			marker = "▸ "
+		}
+		row := truncateWidth(marker+line, width)
+		if i == m.state.pick.cursor {
+			b.WriteString(m.theme.accent.Render(row))
+		} else {
+			b.WriteString(row)
+		}
+	}
+	return b.String()
+}
+
+// renderMenu draws the slash-command autocomplete popup: one row per matching
+// command, "/name — description", with the highlighted row marked and accented.
+// Rows are folded to width on rune boundaries so long CJK descriptions do not
+// overflow. It is drawn above the composer and does not take over the view, so
+// the user keeps typing to filter.
+func (m *Model) renderMenu() string {
+	width := m.width
+	var b strings.Builder
+	for i, it := range m.state.menu.items {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		marker := "  "
+		if i == m.state.menu.cursor {
+			marker = "▸ "
+		}
+		line := "/" + it.Name
+		if it.Desc != "" {
+			line += " — " + it.Desc
+		}
+		row := truncateWidth(marker+line, width)
+		if i == m.state.menu.cursor {
+			b.WriteString(m.theme.accent.Render(row))
+		} else {
+			b.WriteString(m.theme.system.Render(row))
+		}
+	}
+	return b.String()
 }
 
 // rolePrefix returns the leading role marker (glyph + trailing space) for an

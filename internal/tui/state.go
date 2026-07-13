@@ -61,6 +61,143 @@ type uiState struct {
 	// (requesting interrupt of a run, or a warning when idle); a second press
 	// before anything else resets it confirms the quit.
 	ctrlCArmed bool
+
+	// pick holds the interactive model-picker state. When pick.active is true the
+	// TUI is in picker mode: keyboard/mouse navigation moves pick.cursor and
+	// selection switches the live model, rather than editing the composer or
+	// scrolling the transcript.
+	pick picker
+
+	// menu holds the slash-command autocomplete state. When menu.active is true a
+	// popup above the composer lists the slash commands (and skills) matching the
+	// "/prefix" currently typed; arrow keys move menu.cursor and Tab/Enter
+	// completes the highlighted command into the composer. Unlike the picker it
+	// does NOT take over the view — the user keeps typing to filter.
+	menu slashMenu
+}
+
+// menuItem is one row in the slash-command autocomplete menu: the command name
+// (without the leading "/") and its description.
+type menuItem struct {
+	Name string
+	Desc string
+}
+
+// slashMenu is the pure state of the slash-command autocomplete popup. Like the
+// picker it is framework-free so its transitions are unit-tested directly.
+type slashMenu struct {
+	active bool
+	items  []menuItem
+	cursor int
+}
+
+// setMenu opens (or refreshes) the autocomplete menu over items, preserving the
+// cursor where possible but clamping it into range. An empty item list closes
+// the menu (nothing matches the typed prefix).
+func (s *uiState) setMenu(items []menuItem) {
+	if len(items) == 0 {
+		s.menu = slashMenu{}
+		return
+	}
+	cursor := s.menu.cursor
+	if cursor > len(items)-1 {
+		cursor = len(items) - 1
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	s.menu = slashMenu{active: true, items: items, cursor: cursor}
+}
+
+// closeMenu dismisses the autocomplete menu.
+func (s *uiState) closeMenu() { s.menu = slashMenu{} }
+
+// menuMoveBy moves the menu selection by delta (negative = up), clamped to the
+// item range. A no-op when the menu is inactive.
+func (s *uiState) menuMoveBy(delta int) {
+	if !s.menu.active {
+		return
+	}
+	c := s.menu.cursor + delta
+	if c < 0 {
+		c = 0
+	}
+	if c > len(s.menu.items)-1 {
+		c = len(s.menu.items) - 1
+	}
+	s.menu.cursor = c
+}
+
+// menuCurrent returns the highlighted menu item and true, or a zero item and
+// false when the menu is inactive/empty.
+func (s *uiState) menuCurrent() (menuItem, bool) {
+	if !s.menu.active || len(s.menu.items) == 0 {
+		return menuItem{}, false
+	}
+	return s.menu.items[s.menu.cursor], true
+}
+
+// PickerItem is one selectable row in the model picker: the model id to switch
+// to and the human label shown in the list. Exported so the cmd layer can
+// supply the preset catalog without the tui package importing provider data.
+type PickerItem struct {
+	ID    string
+	Label string
+}
+
+// picker is the pure state of the interactive model picker (对标 pi agent's
+// model picker). It is framework-free like the rest of uiState so its
+// navigation transitions are unit-tested directly.
+type picker struct {
+	active bool
+	items  []PickerItem
+	cursor int
+}
+
+// openPicker enters picker mode over items with the cursor on the first row. It
+// is a no-op when items is empty (nothing to pick), leaving the picker closed.
+func (s *uiState) openPicker(items []PickerItem) {
+	if len(items) == 0 {
+		return
+	}
+	s.ctrlCArmed = false
+	s.pick = picker{active: true, items: items, cursor: 0}
+}
+
+// pickerMoveBy moves the selection cursor by delta (negative = up), clamped to
+// the item range so wheel/arrow spam at either end stops at the edge rather
+// than wrapping. A no-op when the picker is inactive.
+func (s *uiState) pickerMoveBy(delta int) {
+	if !s.pick.active {
+		return
+	}
+	c := s.pick.cursor + delta
+	if c < 0 {
+		c = 0
+	}
+	if c > len(s.pick.items)-1 {
+		c = len(s.pick.items) - 1
+	}
+	s.pick.cursor = c
+}
+
+// pickerCurrent returns the item under the cursor and true, or a zero item and
+// false when the picker is inactive/empty.
+func (s *uiState) pickerCurrent() (PickerItem, bool) {
+	if !s.pick.active || len(s.pick.items) == 0 {
+		return PickerItem{}, false
+	}
+	return s.pick.items[s.pick.cursor], true
+}
+
+// closePicker leaves picker mode.
+func (s *uiState) closePicker() { s.pick = picker{} }
+
+// pushSystem appends a local system status line to the transcript (used by the
+// picker to echo the outcome of a model switch, since a picker action is not an
+// agent run).
+func (s *uiState) pushSystem(text string) {
+	s.transcript = append(s.transcript, transcriptEntry{Kind: entrySystem, Text: text})
 }
 
 // newUIState returns an empty interactive state.
@@ -207,6 +344,17 @@ func (s *uiState) abortStartedRun(reason string) {
 	s.finalizeStreaming()
 	s.running = false
 	s.transcript = append(s.transcript, transcriptEntry{Kind: entrySystem, Text: reason})
+}
+
+// cancelStartedRun undoes a run that submit() started but that is being handled
+// locally instead (e.g. opening the model picker). It clears running and
+// removes the user entry submit() echoed, leaving no trace in the transcript.
+// The runID stays bumped so any late events from a prior run remain stale.
+func (s *uiState) cancelStartedRun() {
+	s.running = false
+	if n := len(s.transcript); n > 0 && s.transcript[n-1].Kind == entryUser {
+		s.transcript = s.transcript[:n-1]
+	}
 }
 
 // upsertStreamingAssistant sets the text of the current streaming assistant
