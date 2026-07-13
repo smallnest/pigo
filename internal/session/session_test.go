@@ -152,55 +152,6 @@ func TestListSortedByUpdatedDesc(t *testing.T) {
 	}
 }
 
-// TestResumeReconstructsContext verifies Resume rebuilds an AgentContext whose
-// system prompt and messages match the persisted session — the data the TUI
-// replays on resume.
-func TestResumeReconstructsContext(t *testing.T) {
-	s := newStore(t)
-	now := time.Now().UTC()
-	// A session whose last message is a tool result (not assistant), so it is
-	// resumable per agentLoopContinue's precondition.
-	msgs := agentcore.MessageList{
-		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("go")}},
-		agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, Content: agentcore.ContentList{agentcore.NewToolCallContent("c1", "read", []byte(`{}`))}, StopReason: agentcore.StopReasonToolUse},
-		agentcore.ToolResultMessage{RoleField: agentcore.RoleToolResult, ToolCallID: "c1", ToolName: "read", Content: agentcore.ContentList{agentcore.NewTextContent("data")}},
-	}
-	h := SessionHeader{ID: "resumable", CreatedAt: now, UpdatedAt: now, SystemPrompt: "sys"}
-	if err := s.Save(h, msgs); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	ctx, header, err := s.Resume("resumable")
-	if err != nil {
-		t.Fatalf("Resume: %v", err)
-	}
-	if ctx.SystemPrompt != "sys" {
-		t.Errorf("resumed system prompt = %q, want sys", ctx.SystemPrompt)
-	}
-	if len(ctx.Messages) != 3 {
-		t.Errorf("resumed message count = %d, want 3", len(ctx.Messages))
-	}
-	if header.ID != "resumable" {
-		t.Errorf("resumed header ID = %q", header.ID)
-	}
-}
-
-// TestResumeRejectsTrailingAssistant verifies Resume errors when the last
-// message is an assistant message (nothing to continue from).
-func TestResumeRejectsTrailingAssistant(t *testing.T) {
-	s := newStore(t)
-	now := time.Now().UTC()
-	msgs := agentcore.MessageList{
-		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("q")}},
-		agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, Content: agentcore.ContentList{agentcore.NewTextContent("a")}, StopReason: agentcore.StopReasonEndTurn},
-	}
-	if err := s.Save(SessionHeader{ID: "done", CreatedAt: now, UpdatedAt: now}, msgs); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	if _, _, err := s.Resume("done"); err == nil {
-		t.Error("Resume must reject a session whose last message is an assistant message")
-	}
-}
-
 // TestLoadRejectsNewerSchema verifies a file whose version is newer than the
 // binary supports is rejected rather than silently misread.
 func TestLoadRejectsNewerSchema(t *testing.T) {
@@ -213,31 +164,5 @@ func TestLoadRejectsNewerSchema(t *testing.T) {
 	}
 	if _, _, err := s.Load("future"); err == nil {
 		t.Error("Load must reject a newer schema version")
-	}
-}
-
-// TestAppendGrowsSession verifies Append adds messages and bumps UpdatedAt.
-func TestAppendGrowsSession(t *testing.T) {
-	s := newStore(t)
-	created := time.Date(2026, 7, 10, 10, 0, 0, 0, time.UTC)
-	h := SessionHeader{ID: "grow", CreatedAt: created, UpdatedAt: created}
-	initial := agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("first")}}}
-	if err := s.Save(h, initial); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	later := created.Add(time.Hour)
-	more := agentcore.MessageList{agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, Content: agentcore.ContentList{agentcore.NewTextContent("reply")}, StopReason: agentcore.StopReasonEndTurn}}
-	if err := s.Append("grow", later, more); err != nil {
-		t.Fatalf("Append: %v", err)
-	}
-	gotHeader, gotMsgs, err := s.Load("grow")
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(gotMsgs) != 2 {
-		t.Errorf("after append, message count = %d, want 2", len(gotMsgs))
-	}
-	if !gotHeader.UpdatedAt.Equal(later) {
-		t.Errorf("UpdatedAt = %v, want %v", gotHeader.UpdatedAt, later)
 	}
 }

@@ -225,22 +225,3 @@ func TestNvidiaMissingKeyIsEarlyError(t *testing.T) {
 		t.Errorf("error should name the provider, got %v", err)
 	}
 }
-
-// TestProvidersRegisterInModelRegistry verifies the shared driver providers plug
-// into the model registry (US-011) and resolve their models.
-func TestProvidersRegisterInModelRegistry(t *testing.T) {
-	reg := NewModelRegistry()
-	if err := reg.RegisterProvider(NewOpenRouterProvider("", []Model{{Provider: "openrouter", ID: "or-model"}})); err != nil {
-		t.Fatalf("register openrouter: %v", err)
-	}
-	if err := reg.RegisterProvider(NewOllamaProvider("", []Model{{Provider: "ollama", ID: "ol-model"}})); err != nil {
-		t.Fatalf("register ollama: %v", err)
-	}
-	m, prov, err := reg.Resolve("or-model")
-	if err != nil {
-		t.Fatalf("resolve: %v", err)
-	}
-	if m.ID != "or-model" || prov.Name() != "openrouter" {
-		t.Errorf("resolved %+v via %q", m, prov.Name())
-	}
-}

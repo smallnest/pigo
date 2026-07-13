@@ -115,26 +115,19 @@ func (t *SubAgentTool) Execute(ctx context.Context, id string, args json.RawMess
 	}
 
 	stream := StartRun(ctx, childCtx, t.spec.NewRunConfig())
-	// Drain events so the producer goroutine is never blocked on back-pressure;
-	// forward streamed child text as tool-execution updates when a sink is set.
-	for ev := range stream.Events() {
-		if onUpdate == nil {
-			continue
-		}
-		if u, ok := ev.(agentcore.MessageUpdateEvent); ok {
-			if am, ok := u.Message.(agentcore.AssistantMessage); ok {
-				if text := agentcore.ContentToText(am.Content); text != "" {
-					onUpdate(agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(text)}})
-				}
-			}
+	// Drain events (DrainStream never returns early, so the producer goroutine is
+	// never blocked on back-pressure); forward streamed child text as
+	// tool-execution updates when a sink is set.
+	var h StreamHandler
+	if onUpdate != nil {
+		h.OnText = func(delta string) {
+			onUpdate(agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(delta)}})
 		}
 	}
-
-	msgs, err := stream.Result(ctx)
+	final, err := DrainStream(ctx, stream, h)
 	if err != nil {
 		return agentcore.AgentToolResult{}, fmt.Errorf("sub-agent %q: %w", t.spec.Name, err)
 	}
-	final := agentcore.LastAssistantOf(msgs)
 	text := ""
 	if final != nil {
 		text = agentcore.ContentToText(final.Content)

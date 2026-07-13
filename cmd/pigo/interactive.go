@@ -1,26 +1,21 @@
-// This file wires the interactive TUI (US-022) and session persistence
+// This file wires the line-based REPL (US-003) and session persistence
 // (US-024, #43) into the pigo command. When invoked without a prompt on a
-// terminal, pigo starts the bubbletea interactive loop; each run's messages are
+// terminal, pigo starts the REPL loop (see repl.go); each run's messages are
 // persisted to a local JSONL session so the conversation can be listed, resumed
 // and replayed later.
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
 	"github.com/smallnest/pigo/internal/session"
-	"github.com/smallnest/pigo/internal/tui"
 )
 
 // sessionStore returns the session store rooted at ~/.pigo/sessions (or under
@@ -48,13 +43,14 @@ type interactiveOptions struct {
 	sysPrompt    string
 
 	// resumeID, when non-empty, resumes an existing session: its messages seed
-	// the context and TUI transcript. Otherwise a fresh session is created.
+	// the context and replayed transcript. Otherwise a fresh session is created.
 	resumeID string
 }
 
-// runInteractive starts the bubbletea TUI over a persisted session. It keeps a
-// single growing AgentContext across prompts (so turns share history) and saves
-// the session's messages after each run completes.
+// runInteractive starts the line-based REPL over a persisted session. It keeps
+// a single growing AgentContext across prompts (so turns share history) and
+// saves the session's messages after each run completes (see runREPL/streamRun
+// in repl.go).
 func runInteractive(opts interactiveOptions) error {
 	creds := provider.NewCredentialStore(nil)
 	reg := toolRegistry(opts.tools)
@@ -72,11 +68,9 @@ func runInteractive(opts interactiveOptions) error {
 		history  []agentcore.AgentMessage
 	)
 	if opts.resumeID != "" {
-		// Interactive resume differs from headless continue: the user re-prompts,
-		// so a new user message is always appended before the loop runs. A session
-		// that ended normally (trailing assistant reply) is therefore resumable
-		// here, unlike store.Resume (which guards agentLoopContinue). So load the
-		// raw session and rebuild the context directly.
+		// Interactive resume always appends a fresh user message before running,
+		// so a session that ended normally (trailing assistant reply) is resumable
+		// here. Load the raw session and rebuild the context directly.
 		h, msgs, err := store.Load(opts.resumeID)
 		if err != nil {
 			return err
@@ -100,9 +94,9 @@ func runInteractive(opts interactiveOptions) error {
 	}
 
 	// live holds the run configuration that a control command (e.g. /model) may
-	// mutate mid-session. The run closure reads it on each prompt so a model
-	// switch takes effect on the next turn; header is updated so the switch is
-	// persisted with the session.
+	// mutate mid-session. streamRun reads it on each prompt so a model switch
+	// takes effect on the next turn; header is updated so the switch is persisted
+	// with the session.
 	live := &liveRunConfig{
 		model:        opts.model,
 		providerName: opts.providerName,
@@ -110,88 +104,30 @@ func runInteractive(opts interactiveOptions) error {
 		baseURL:      opts.baseURL,
 	}
 
-	// run appends the new prompt to the shared context, launches a loop run over
-	// the whole context, and returns its event stream. Steering is bridged into
-	// the loop's per-turn hook. The context grows in place as the loop appends
-	// assistant/tool messages, so the next prompt continues the conversation.
-	run := func(ctx context.Context, prompt string, steering func() []string) (*runtime.LoopEventStream, context.CancelFunc) {
-		runCtx, cancel := context.WithCancel(ctx)
-		agentCtx.Messages = append(agentCtx.Messages, agentcore.UserMessage{
-			RoleField: agentcore.RoleUser,
-			Content:   agentcore.ContentList{agentcore.NewTextContent(prompt)},
-		})
-		cfg := runtime.RunConfig{
-			LoopConfig: runtime.LoopConfig{
-				Model:     live.model,
-				Provider:  live.providerName,
-				Stream:    provider.StreamFnFromProvider(live.provider),
-				GetAPIKey: creds.GetAPIKey,
-			},
-			Batch: agenttool.BatchConfig{
-				ToolExecutorConfig: agenttool.ToolExecutorConfig{Registry: reg},
-			},
-			GetSteeringMessages: func(context.Context) []agentcore.AgentMessage {
-				texts := steering()
-				if len(texts) == 0 {
-					return nil
-				}
-				msgs := make([]agentcore.AgentMessage, 0, len(texts))
-				for _, t := range texts {
-					msgs = append(msgs, agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent(t)}})
-				}
-				return msgs
-			},
-		}
-		stream := runtime.StartRun(runCtx, agentCtx, cfg)
-		// Persist the session once this run settles. Result blocks until the loop
-		// ends; calling it here (in addition to the TUI's drain) is safe — Result
-		// resolves once and can be read by multiple goroutines.
-		go func() {
-			_, _ = stream.Result(context.Background())
-			header.UpdatedAt = time.Now().UTC()
-			header.Model = live.model
-			header.Provider = live.providerName
-			if err := store.Save(header, agentCtx.Messages); err != nil {
-				fmt.Fprintf(os.Stderr, "pigo: session save failed: %v\n", err)
-			}
-		}()
-		return stream, cancel
-	}
-
-	var m *tui.Model
-	if len(history) > 0 {
-		m = tui.NewModelWithHistory(run, history)
-	} else {
-		m = tui.NewModel(run)
-	}
 	// Wire slash-commands: built-ins (compile-time) plus any user templates under
-	// ~/.pigo/commands (对标 the commands/*.md convention). A load error is
-	// non-fatal — the TUI still runs with the built-ins. Instance built-ins that
-	// need live state (/model, /help) are registered against `live`.
-	if slash, err := buildSlashRegistry(live); err == nil {
-		m.SetSlashRegistry(slash)
-	} else {
+	// ~/.pigo/commands (对标 the commands/*.md convention) plus skills under
+	// ~/.agents/skills. A load error is non-fatal — the REPL still runs with the
+	// built-ins. Instance built-ins that need live state (/model, /help) are
+	// registered against `live`.
+	slash, err := buildSlashRegistry(live)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "pigo: slash-commands: %v\n", err)
 	}
-	// Wire the interactive model picker (对标 pi agent's picker): /models with no
-	// argument opens a mouse/keyboard-navigable list, and selecting a row switches
-	// the live model via the same resolveProvider path /model uses.
-	m.SetModelPicker(presetPickerItems, func(id string) string {
-		prov, providerName, err := resolveProvider(id, live.baseURL)
-		if err != nil {
-			return fmt.Sprintf("model: cannot switch to %q: %v", id, err)
-		}
-		live.model = id
-		live.providerName = providerName
-		live.provider = prov
-		return fmt.Sprintf("model switched to %s (provider: %s)", id, providerName)
-	})
-	p := tea.NewProgram(m)
-	m.SetProgram(p)
-	if _, err := p.Run(); err != nil {
-		return fmt.Errorf("tui: %w", err)
+
+	// Replay the resumed conversation so the user sees history before re-prompting.
+	if len(history) > 0 {
+		replayTranscript(os.Stdout, history)
 	}
-	return nil
+
+	return runREPL(os.Stdin, os.Stdout, replDeps{
+		store:    store,
+		header:   header,
+		agentCtx: agentCtx,
+		live:     live,
+		reg:      reg,
+		slash:    slash,
+		creds:    creds,
+	})
 }
 
 // printSessions prints the stored sessions, most-recent first, to stdout.
@@ -241,7 +177,7 @@ func stdoutIsTerminal() bool {
 	return fi.Mode()&os.ModeCharDevice != 0
 }
 
-// buildSlashRegistry assembles the TUI slash-command registry: compile-time
+// buildSlashRegistry assembles the REPL slash-command registry: compile-time
 // built-ins seeded by runtime.NewSlashRegistry, the live-state action commands
 // (/model, /help) bound to live, user declarative templates loaded from
 // ~/.pigo/commands (or $PIGO_HOME/commands), plus skills loaded from
@@ -322,8 +258,8 @@ func loadSkillCommands() ([]runtime.SlashCommand, error) {
 // liveRunConfig is the mutable run configuration a control command may change
 // mid-session. The run closure reads it on every prompt, so a /model switch
 // takes effect on the next turn. It carries no lock: it is read and written
-// only on bubbletea's single Update goroutine (slash actions run there, and the
-// run closure is invoked synchronously from that goroutine's startRun).
+// only on the REPL's single main goroutine (slash actions and the run are both
+// invoked synchronously from runREPL's loop, never concurrently).
 type liveRunConfig struct {
 	model        string
 	providerName string
@@ -377,23 +313,6 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
 			return b.String()
 		},
 	})
-}
-
-// presetPickerItems returns the preset catalog as picker rows in display order
-// (grouped by provider like presetListing), each labeled "provider · id — name"
-// so the interactive picker shows the same information the text listing does.
-func presetPickerItems() []tui.PickerItem {
-	var items []tui.PickerItem
-	for _, pv := range provider.PresetProviders {
-		for _, mdl := range provider.PresetsByProvider(pv.Name) {
-			label := pv.Name + " · " + mdl.ID
-			if mdl.DisplayName != "" {
-				label += "  — " + mdl.DisplayName
-			}
-			items = append(items, tui.PickerItem{ID: mdl.ID, Label: label})
-		}
-	}
-	return items
 }
 
 // presetListing renders the preset provider/model catalog for /models. With an

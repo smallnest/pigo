@@ -1,5 +1,5 @@
 // This file implements slash-commands (US-029, #45): typed "/name" shortcuts a
-// user invokes in the TUI. There are two sources, resolved with a fixed
+// user invokes in the REPL. There are two sources, resolved with a fixed
 // priority:
 //
 //   - Built-in commands are registered at compile time via RegisterBuiltin

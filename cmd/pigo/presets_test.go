@@ -3,7 +3,7 @@ package main
 // Tests for provider resolution and the /models preset listing. resolveProvider
 // maps a model id to the right gateway (preset catalog first, then prefix rules,
 // then OpenRouter default); presetListing renders the curated catalog for the
-// TUI /models command.
+// REPL /models command.
 
 import (
 	"strings"
