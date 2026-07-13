@@ -225,6 +225,50 @@ func TestREPLModelSwitchTakesEffect(t *testing.T) {
 	}
 }
 
+// TestREPLPersistsModelIntoHeader verifies that after a run the session header
+// records the live model/provider (US-006: a /model switch is persisted with the
+// session), by reloading the saved session and inspecting its header.
+func TestREPLPersistsModelIntoHeader(t *testing.T) {
+	p := &replProvider{reply: "ok"}
+	deps, store := newTestDeps(t, p)
+	var out bytes.Buffer
+	if err := runREPL(strings.NewReader("hello\n/exit\n"), &out, deps); err != nil {
+		t.Fatalf("runREPL: %v", err)
+	}
+	headers, err := store.List()
+	if err != nil {
+		t.Fatalf("store.List: %v", err)
+	}
+	if len(headers) != 1 {
+		t.Fatalf("expected 1 saved session, got %d", len(headers))
+	}
+	if headers[0].Model != "faux" || headers[0].Provider != "faux" {
+		t.Errorf("header model/provider = %q/%q, want live faux/faux", headers[0].Model, headers[0].Provider)
+	}
+}
+
+// TestReplayTranscriptRendersRoles verifies a resumed session's prior messages
+// are echoed by role (user / assistant / tool result) before the first new
+// prompt (US-006 acceptance: resumed conversation is replayed).
+func TestReplayTranscriptRendersRoles(t *testing.T) {
+	msgs := []agentcore.AgentMessage{
+		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("what is 2+2")}},
+		agentcore.AssistantMessage{
+			RoleField: agentcore.RoleAssistant,
+			Content:   agentcore.ContentList{agentcore.NewTextContent("Let me compute."), agentcore.NewToolCallContent("c1", "calc", []byte(`{}`))},
+		},
+		agentcore.ToolResultMessage{RoleField: agentcore.RoleToolResult, ToolCallID: "c1", ToolName: "calc", Content: agentcore.ContentList{agentcore.NewTextContent("4")}},
+	}
+	var out bytes.Buffer
+	replayTranscript(&out, msgs)
+	s := out.String()
+	for _, want := range []string{"> what is 2+2", "Let me compute.", "→ tool: calc", "← result: 4"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("replay missing %q, out=%q", want, s)
+		}
+	}
+}
+
 // TestREPLStreamsAndAccumulatesHistory verifies a plain prompt runs, its reply
 // is printed, and history accumulates across two turns in the shared context.
 func TestREPLStreamsAndAccumulatesHistory(t *testing.T) {
