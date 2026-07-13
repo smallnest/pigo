@@ -173,6 +173,19 @@ func runInteractive(opts interactiveOptions) error {
 	} else {
 		fmt.Fprintf(os.Stderr, "pigo: slash-commands: %v\n", err)
 	}
+	// Wire the interactive model picker (对标 pi agent's picker): /models with no
+	// argument opens a mouse/keyboard-navigable list, and selecting a row switches
+	// the live model via the same resolveProvider path /model uses.
+	m.SetModelPicker(presetPickerItems, func(id string) string {
+		prov, providerName, err := resolveProvider(id, live.baseURL)
+		if err != nil {
+			return fmt.Sprintf("model: cannot switch to %q: %v", id, err)
+		}
+		live.model = id
+		live.providerName = providerName
+		live.provider = prov
+		return fmt.Sprintf("model switched to %s (provider: %s)", id, providerName)
+	})
 	p := tea.NewProgram(m)
 	m.SetProgram(p)
 	if _, err := p.Run(); err != nil {
@@ -230,10 +243,12 @@ func stdoutIsTerminal() bool {
 
 // buildSlashRegistry assembles the TUI slash-command registry: compile-time
 // built-ins seeded by runtime.NewSlashRegistry, the live-state action commands
-// (/model, /help) bound to live, plus user declarative templates loaded from
-// ~/.pigo/commands (or $PIGO_HOME/commands). A missing directory is not an
-// error. User commands that collide with a built-in are shadowed (the built-in
-// wins) and reported on stderr.
+// (/model, /help) bound to live, user declarative templates loaded from
+// ~/.pigo/commands (or $PIGO_HOME/commands), plus skills loaded from
+// ~/.agents/skills — each surfaced as a "/skill-name" command (对标 Claude
+// Code's /skill invocation). A missing directory is not an error. Names that
+// collide with a built-in are shadowed (the built-in wins) and reported on
+// stderr.
 func buildSlashRegistry(live *liveRunConfig) (*runtime.SlashRegistry, error) {
 	reg := runtime.NewSlashRegistry()
 	registerLiveCommands(reg, live)
@@ -252,10 +267,56 @@ func buildSlashRegistry(live *liveRunConfig) (*runtime.SlashRegistry, error) {
 	for _, c := range cmds {
 		reg.AddUser(c)
 	}
+	// Load skills from ~/.agents/skills and register each as a /skill-name
+	// command. A skill invocation expands to the skill's instructions as the next
+	// prompt. A partial parse error is non-fatal: the skills that DID load are
+	// still registered, and the error is only reported on stderr — so one
+	// malformed skill file cannot hide every other skill.
+	skillCmds, serr := loadSkillCommands()
+	for _, c := range skillCmds {
+		reg.AddUser(c)
+	}
+	if serr != nil {
+		fmt.Fprintf(os.Stderr, "pigo: skills: some skills failed to load: %v\n", serr)
+	}
 	if shadowed := reg.Shadowed(); len(shadowed) > 0 {
 		fmt.Fprintf(os.Stderr, "pigo: user commands shadowed by built-ins (rename to use): %v\n", shadowed)
 	}
 	return reg, nil
+}
+
+// skillsDir returns the directory skills are loaded from. It defaults to
+// ~/.agents/skills and can be overridden with PIGO_SKILLS_DIR (useful for tests
+// and non-standard layouts). An empty string is returned when the home
+// directory cannot be resolved and no override is set.
+func skillsDir() string {
+	if dir := os.Getenv("PIGO_SKILLS_DIR"); dir != "" {
+		return dir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".agents", "skills")
+}
+
+// loadSkillCommands loads skills from skillsDir() and returns each as a
+// /skill-name slash command. A missing directory yields no commands and no
+// error (skills are optional). A partial parse error is returned alongside the
+// skills that DID load — callers should register the returned commands and
+// treat the error as a non-fatal warning, so one malformed skill file does not
+// suppress every other skill.
+func loadSkillCommands() ([]runtime.SlashCommand, error) {
+	dir := skillsDir()
+	if dir == "" {
+		return nil, nil
+	}
+	skills, err := runtime.LoadSkillsDir(dir)
+	cmds := make([]runtime.SlashCommand, 0, len(skills))
+	for _, s := range skills {
+		cmds = append(cmds, s.SlashCommand())
+	}
+	return cmds, err
 }
 
 // liveRunConfig is the mutable run configuration a control command may change
@@ -316,6 +377,23 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
 			return b.String()
 		},
 	})
+}
+
+// presetPickerItems returns the preset catalog as picker rows in display order
+// (grouped by provider like presetListing), each labeled "provider · id — name"
+// so the interactive picker shows the same information the text listing does.
+func presetPickerItems() []tui.PickerItem {
+	var items []tui.PickerItem
+	for _, pv := range provider.PresetProviders {
+		for _, mdl := range provider.PresetsByProvider(pv.Name) {
+			label := pv.Name + " · " + mdl.ID
+			if mdl.DisplayName != "" {
+				label += "  — " + mdl.DisplayName
+			}
+			items = append(items, tui.PickerItem{ID: mdl.ID, Label: label})
+		}
+	}
+	return items
 }
 
 // presetListing renders the preset provider/model catalog for /models. With an

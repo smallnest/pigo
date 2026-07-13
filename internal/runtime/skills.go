@@ -10,6 +10,7 @@
 package runtime
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,10 +30,50 @@ type SkillFrontmatter struct {
 	// injected into the capability list, so it should be action-oriented.
 	Description string `yaml:"description"`
 	// AllowedTools optionally restricts the tools the skill's sub-agent may use,
-	// by tool name. Empty means "inherit the provided tool set as-is".
-	AllowedTools []string `yaml:"allowed-tools"`
+	// by tool name. Empty means "inherit the provided tool set as-is". Real
+	// Claude Code skills write this either as a YAML list or as a single
+	// scalar string (e.g. "Bash(foo:*), Read"), so it tolerates both forms.
+	AllowedTools stringList `yaml:"allowed-tools"`
 	// Model optionally pins the skill to a specific model; empty inherits.
 	Model string `yaml:"model"`
+}
+
+// stringList is a []string that unmarshals from either a YAML sequence
+// (- a\n- b) or a single scalar. A scalar is split on commas so the common
+// Claude Code form `allowed-tools: Bash(foo:*), Read` parses into two entries.
+// This tolerance matters: a strict []string field rejects the scalar form and,
+// because LoadSkillsDir aborts on the first parse error, one such skill would
+// hide every other skill in the directory.
+type stringList []string
+
+// UnmarshalYAML accepts a scalar or a sequence node.
+func (l *stringList) UnmarshalYAML(node *yaml.Node) error {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		var s string
+		if err := node.Decode(&s); err != nil {
+			return err
+		}
+		parts := strings.Split(s, ",")
+		out := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if t := strings.TrimSpace(p); t != "" {
+				out = append(out, t)
+			}
+		}
+		*l = out
+		return nil
+	case yaml.SequenceNode:
+		var ss []string
+		if err := node.Decode(&ss); err != nil {
+			return err
+		}
+		*l = ss
+		return nil
+	default:
+		// An empty/null node leaves the list nil (no restriction).
+		return nil
+	}
 }
 
 // Skill is a parsed skill file: its metadata plus the markdown body that serves
@@ -102,8 +143,14 @@ func splitFrontmatter(content []byte) (frontmatter, body []byte, err error) {
 // LoadSkillsDir loads every "*.md" skill file in dir (non-recursively) plus any
 // "<name>/SKILL.md" nested layout (对标 the SKILL.md convention). It returns the
 // parsed skills sorted by name. A missing directory yields no skills and no
-// error (skills are optional). A malformed skill file is an error so problems
-// surface at load time rather than silently disappearing.
+// error (skills are optional).
+//
+// A malformed skill file does NOT abort the load: the file is skipped and its
+// error accumulated, so one bad skill cannot hide every other skill in the
+// directory (a real ~/.agents/skills holds 100+ skills authored to varying
+// conventions). The successfully parsed skills are always returned; the error,
+// when non-nil, joins every skip reason for the caller to surface as a
+// non-fatal warning.
 func LoadSkillsDir(dir string) ([]*Skill, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -113,6 +160,7 @@ func LoadSkillsDir(dir string) ([]*Skill, error) {
 		return nil, fmt.Errorf("read skills dir %s: %w", dir, err)
 	}
 	var skills []*Skill
+	var errs []error
 	for _, e := range entries {
 		var path string
 		switch {
@@ -130,18 +178,20 @@ func LoadSkillsDir(dir string) ([]*Skill, error) {
 		}
 		content, readErr := os.ReadFile(path)
 		if readErr != nil {
-			return nil, fmt.Errorf("read skill %s: %w", path, readErr)
+			errs = append(errs, fmt.Errorf("read skill %s: %w", path, readErr))
+			continue
 		}
 		skill, parseErr := ParseSkill(path, content)
 		if parseErr != nil {
-			return nil, parseErr
+			errs = append(errs, parseErr)
+			continue
 		}
 		skills = append(skills, skill)
 	}
 	sort.Slice(skills, func(i, j int) bool {
 		return skills[i].Frontmatter.Name < skills[j].Frontmatter.Name
 	})
-	return skills, nil
+	return skills, errors.Join(errs...)
 }
 
 // SubAgentSpec turns a skill into a sub-agent spec: the skill body becomes the
@@ -163,6 +213,29 @@ func (s *Skill) SubAgentSpec(tools []agentcore.AgentTool, newRunConfig func(tool
 // SkillTool materializes a skill as an invocable sub-agent tool.
 func (s *Skill) SkillTool(tools []agentcore.AgentTool, newRunConfig func(tools []agentcore.AgentTool) RunConfig) *SubAgentTool {
 	return NewSubAgentTool(s.SubAgentSpec(tools, newRunConfig))
+}
+
+// SlashCommand exposes the skill as a "/name" slash command (对标 Claude Code's
+// /skill-name invocation). Invoking it expands to the skill's instructions (its
+// markdown body) as the prompt, with any arguments appended, so the skill runs
+// in the current conversation. It is a prompt command (not an action): the
+// expanded text is fed to the agent loop as the next user turn.
+func (s *Skill) SlashCommand() SlashCommand {
+	body := s.Body
+	return SlashCommand{
+		Name:        s.Frontmatter.Name,
+		Description: s.Frontmatter.Description,
+		Source:      SourceUser,
+		Expand: func(args string) string {
+			if strings.Contains(body, "$ARGUMENTS") {
+				return strings.ReplaceAll(body, "$ARGUMENTS", args)
+			}
+			if strings.TrimSpace(args) == "" {
+				return body
+			}
+			return body + "\n\n" + args
+		},
+	}
 }
 
 // filterToolsByName keeps only tools whose Name is in allow. An empty allow
