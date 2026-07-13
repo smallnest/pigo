@@ -16,14 +16,11 @@
 // truncated by the token cap) fails every tool call so the model resends
 // (failToolCallsFromTruncatedMessage); error / aborted end the run immediately.
 //
-// agentLoop starts a fresh run from a prompt already appended to the context;
-// agentLoopContinue resumes an existing context and validates that the last
-// message is not an assistant message (nothing to continue from otherwise).
+// agentLoop starts a fresh run from a prompt already appended to the context.
 package runtime
 
 import (
 	"context"
-	"errors"
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
@@ -73,12 +70,6 @@ type RunConfig struct {
 // AgentEvents and yields the messages newly produced during the run.
 type LoopEventStream = agentcore.EventStream[agentcore.AgentEvent, []agentcore.AgentMessage]
 
-// ErrContinueLastAssistant is the result error when agentLoopContinue is called
-// on a context whose last message is an assistant message (nothing to respond
-// to — the loop would immediately stream another assistant turn against a stale
-// context).
-var ErrContinueLastAssistant = errors.New("agent: cannot continue loop, last message is an assistant message")
-
 // agentLoop starts a fresh run. The caller has already appended the initiating
 // user message(s) to agentCtx.Messages. It returns immediately with an
 // EventStream; a producer goroutine drives the loop and closes the stream when
@@ -90,33 +81,11 @@ func agentLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunCon
 }
 
 // StartRun is the exported entry point for a fresh run, used by out-of-package
-// drivers (the interactive TUI, US-022). It is a thin wrapper over agentLoop so
+// drivers (the interactive REPL, US-022). It is a thin wrapper over agentLoop so
 // the loop internals stay unexported while callers outside the package can
 // still launch a run and consume its event stream.
 func StartRun(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfig) *LoopEventStream {
 	return agentLoop(ctx, agentCtx, cfg)
-}
-
-// ContinueRun is the exported entry point for resuming an existing context
-// (session continuation, US-024). It wraps agentLoopContinue.
-func ContinueRun(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfig) *LoopEventStream {
-	return agentLoopContinue(ctx, agentCtx, cfg)
-}
-
-// agentLoopContinue resumes an existing context. It validates that the last
-// message is not an assistant message before running; on violation it returns a
-// stream that yields ErrContinueLastAssistant with no events.
-func agentLoopContinue(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfig) *LoopEventStream {
-	stream := agentcore.NewEventStream[agentcore.AgentEvent, []agentcore.AgentMessage](cfg.EventBuffer)
-	if n := len(agentCtx.Messages); n > 0 {
-		if _, isAssistant := agentCtx.Messages[n-1].(agentcore.AssistantMessage); isAssistant {
-			stream.SetError(ErrContinueLastAssistant)
-			stream.Close()
-			return stream
-		}
-	}
-	go runLoop(ctx, agentCtx, cfg, stream)
-	return stream
 }
 
 // runLoop is the producer: it drives the two-layer loop, emitting events onto

@@ -71,34 +71,28 @@ func RunHeadless(ctx context.Context, agentCtx *agentcore.AgentContext, cfg Head
 	}
 	stream := agentLoop(ctx, agentCtx, cfg.Run)
 
-	var lastAssistant *agentcore.AssistantMessage
-	// writeErr holds the first stream-json write failure. We keep draining
-	// after it so the loop's producer goroutine never blocks on a synchronous
-	// (unbuffered) Emit — honoring the no-leak contract even on a broken pipe.
+	// writeErr holds the first stream-json write failure. We keep draining after
+	// it (DrainStream never returns early) so the loop's producer goroutine never
+	// blocks on a synchronous Emit — honoring the no-leak contract on a broken
+	// pipe. In stream-json mode every event is serialised; print mode only needs
+	// the final message, which DrainStream returns.
 	var writeErr error
-	for ev := range stream.Events() {
-		if cfg.Mode == StreamJSONMode && writeErr == nil {
-			if err := writeEventJSON(cfg.Out, ev); err != nil {
-				writeErr = err
+	h := StreamHandler{}
+	if cfg.Mode == StreamJSONMode {
+		h.OnEvent = func(ev agentcore.AgentEvent) {
+			if writeErr == nil {
+				if err := writeEventJSON(cfg.Out, ev); err != nil {
+					writeErr = err
+				}
 			}
 		}
-		if te, ok := ev.(agentcore.TurnEndEvent); ok {
-			m := te.Message
-			lastAssistant = &m
-		}
 	}
+	lastAssistant, resErr := DrainStream(ctx, stream, h)
 	if writeErr != nil {
 		return writeErr
 	}
-
-	msgs, resErr := stream.Result(ctx)
 	if resErr != nil {
 		return resErr
-	}
-	// Prefer the final assistant message from the result messages, falling back
-	// to the last turn_end message observed on the stream.
-	if final := agentcore.LastAssistantOf(msgs); final != nil {
-		lastAssistant = final
 	}
 
 	if cfg.Mode == PrintMode {

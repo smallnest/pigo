@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0106</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.8em; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/106">#106</a> &mdash; 实现行式 REPL 并替换 TUI 交互入口 &mdash; 2026-07-13</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 用单行工具活动提示替代全屏渲染</h3>
+      <p><strong>Ambiguity:</strong> Spec 要求 REPL 展示工具调用/结果，但未规定展示形式。</p>
+      <p><strong>Choice:</strong> 在助手回复流式输出后，用 <code>→ tool: read</code> 与 <code>← result: …</code> 两行紧凑提示呈现工具活动，多行结果折叠成单行并截断到 120 字符（见 <code>oneLine</code>）。</p>
+      <p><strong>Rationale:</strong> 行式 REPL 的核心目标是"保持代码简洁"。全屏 viewport 渲染正是被删除的 bubbletea TUI 的复杂度来源；单行提示信息足够、无状态、无需重绘。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 跨轮次共享同一个不断增长的 AgentContext</h3>
+      <p><strong>Ambiguity:</strong> Spec 要求"多轮对话共享历史"，但未规定上下文的生命周期管理方式。</p>
+      <p><strong>Choice:</strong> <code>runInteractive</code> 构造单个 <code>*agentcore.AgentContext</code>，<code>streamRun</code> 每轮把用户消息 append 进去并原地增长，运行结束后整体持久化到 JSONL session。</p>
+      <p><strong>Rationale:</strong> 单一可变上下文比每轮重建更简单，且天然满足"下一个 prompt 延续对话"的要求；session 持久化复用已有的 <code>Store.Save</code> 全量写。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> SIGINT 只取消当前运行，空闲时才退出</h3>
+      <p><strong>Ambiguity:</strong> Spec 要求 EOF/<code>/exit</code>/<code>/quit</code> 干净退出（code 0），但未明确运行中按 Ctrl+C 的语义。</p>
+      <p><strong>Choice:</strong> 为整个 REPL 安装一个 SIGINT handler，通过互斥保护的 <code>runCancel</code> 只取消当前 run 的 context，打印 <code>^C interrupted</code> 后回到提示符；空闲时读到 EOF 才退出。</p>
+      <p><strong>Rationale:</strong> 对标常见 REPL 交互习惯——中断一次长运行不应杀死整个会话。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <p class="none">None — 实现遵循了 Issue #106 的九条验收标准（行式 REPL、共享上下文、忽略空行、EOF/<code>/exit</code>/<code>/quit</code> code 0、非终端且无 prompt 无 resume 报错、经 <code>runtime.StartRun</code>/<code>LoopEventStream</code> 增量输出助手文本、单行工具调用/结果提示、<code>cmd/pigo</code> 中无 <code>internal/tui</code> 引用、build+vet 通过）。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 行式 REPL vs 保留 bubbletea 全屏 TUI</h3>
+      <p><strong>Alternatives:</strong> (A) 保留 bubbletea TUI 并做增量优化；(B) 完全删除 TUI，改为行式 read→run→print 循环。</p>
+      <p><strong>Pros/Cons:</strong> TUI 提供富交互（菜单、viewport、主题），但带来大量状态机、渲染与测试复杂度（15 个已删除文件）；行式 REPL 功能更朴素，但代码量极小、无隐藏状态、易测试。</p>
+      <p><strong>Why chosen:</strong> 用户的总目标即"tui 代码逻辑太复杂了，删除 tui 相关，保持代码简洁"——简洁性压倒富交互。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 每轮全量 Save vs 增量 Append 持久化</h3>
+      <p><strong>Alternatives:</strong> (A) 每轮 <code>Store.Save</code> 全量重写 session 文件；(B) 用 <code>Store.Append</code> 只追加新消息。</p>
+      <p><strong>Pros/Cons:</strong> 全量写每轮重写整个文件（会话越长开销越大），但逻辑最简单且天然更新 header 的 UpdatedAt/Model；Append 更省 I/O，但因 header 在首行，仍需 load-modify-save。</p>
+      <p><strong>Why chosen:</strong> pigo 产生的会话规模下全量写完全够用，且 REPL 需要每轮更新 header 的 model/provider（可能被 <code>/model</code> 中途切换），全量写路径最直接。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 单行结果截断阈值是否需要可配置</h3>
+      <p><strong>Assumption:</strong> <code>oneLine</code> 硬编码 120 字符上限。</p>
+      <p><strong>Verify:</strong> 对于宽终端或需要看到更多工具输出的场景，是否要暴露一个配置项或 <code>/verbose</code> 开关？当前默认值在多数场景下够用。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 是否需要在 REPL 中展示 token/用量统计</h3>
+      <p><strong>Assumption:</strong> 当前 REPL 只打印助手文本与工具活动，不展示每轮 token 消耗。</p>
+      <p><strong>Verify:</strong> 被删除的 TUI 是否曾展示用量信息？若用户依赖该信息，可考虑在 turn-end 追加一行简报。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

@@ -263,31 +263,6 @@ func TestAgentLoopAllTerminateStopsRun(t *testing.T) {
 	}
 }
 
-func TestAgentLoopContinueRejectsAssistantLast(t *testing.T) {
-	cfg := newRunCfg(scriptedStream(nil))
-	agentCtx := &agentcore.AgentContext{Messages: agentcore.MessageList{agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant}}}
-	s := agentLoopContinue(context.Background(), agentCtx, cfg)
-	for range s.Events() { // should be empty
-	}
-	if _, err := s.Result(context.Background()); err != ErrContinueLastAssistant {
-		t.Errorf("expected ErrContinueLastAssistant, got %v", err)
-	}
-}
-
-func TestAgentLoopContinueRunsWhenLastNonAssistant(t *testing.T) {
-	cfg := newRunCfg(scriptedStream([]agentcore.AssistantMessage{
-		{RoleField: agentcore.RoleAssistant, StopReason: agentcore.StopReasonEndTurn, Content: agentcore.ContentList{agentcore.NewTextContent("resumed")}},
-	}))
-	agentCtx := &agentcore.AgentContext{Messages: agentcore.MessageList{
-		agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant},
-		agentcore.ToolResultMessage{RoleField: agentcore.RoleToolResult, ToolCallID: "c1"},
-	}}
-	kinds, _ := collectStream(t, agentLoopContinue(context.Background(), agentCtx, cfg))
-	if countKind(kinds, agentcore.EventTurnStart) != 1 {
-		t.Errorf("continue should run one turn, got %v", kinds)
-	}
-}
-
 func assertEventKinds(t *testing.T, got, want []string) {
 	t.Helper()
 	if len(got) != len(want) {

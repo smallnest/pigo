@@ -8,9 +8,9 @@
 // with pi's session files (spec #16, 会话格式 decision #5): pigo owns the schema
 // and versions it via SessionHeader.Version so future migrations have a hook.
 //
-// A persisted session round-trips into an agentcore.AgentContext, so a run can be
-// resumed by feeding the reconstructed context to runtime.ContinueRun and the
-// transcript replays correctly in the TUI.
+// A persisted session round-trips into an agentcore.AgentContext via Load, so a
+// run can be resumed by feeding the reconstructed context to a fresh run and the
+// transcript replays correctly in the REPL.
 package session
 
 import (
@@ -241,41 +241,16 @@ func (s *Store) loadHeader(id string) (SessionHeader, error) {
 	return header, nil
 }
 
-// Resume loads a session and reconstructs an agentcore.AgentContext from it, ready
-// to hand to runtime.ContinueRun. The system prompt is taken from the header. The
-// returned header lets the caller re-establish model/provider. It errors if the
-// session has no messages or its last message is an assistant message (nothing
-// to continue from — mirrors agentLoopContinue's precondition).
-func (s *Store) Resume(id string) (*agentcore.AgentContext, SessionHeader, error) {
-	header, messages, err := s.Load(id)
-	if err != nil {
-		return nil, SessionHeader{}, err
-	}
-	if len(messages) == 0 {
-		return nil, SessionHeader{}, fmt.Errorf("session %s: no messages to resume", id)
-	}
-	if _, isAssistant := messages[len(messages)-1].(agentcore.AssistantMessage); isAssistant {
-		return nil, SessionHeader{}, fmt.Errorf("session %s: last message is an assistant message, nothing to continue", id)
-	}
-	ctx := &agentcore.AgentContext{
-		SystemPrompt: header.SystemPrompt,
-		Messages:     messages,
-	}
-	return ctx, header, nil
-}
-
 // Append adds messages to an existing session file and bumps its UpdatedAt to
-// updatedAt. It is the incremental-persistence path: after each turn the driver
-// appends only the newly produced messages rather than rewriting the whole
-// file. The header's UpdatedAt is rewritten in place (line 0), then the new
-// messages are appended. If the session does not exist it is an error — use
-// Save to create one first.
+// updatedAt. It is the incremental-persistence primitive: a driver that wants to
+// grow a session turn-by-turn appends only the newly produced messages rather
+// than rewriting the whole file itself. If the session does not exist it is an
+// error — use Save to create one first.
 //
 // Because the header lives on the first line and JSONL is otherwise
 // append-only, updating UpdatedAt requires rewriting the file; Append does a
 // load-modify-save under the hood, which is simple and correct for the session
-// sizes pigo produces. Callers that never need UpdatedAt precision can batch
-// with Save at session end instead.
+// sizes pigo produces.
 func (s *Store) Append(id string, updatedAt time.Time, messages agentcore.MessageList) error {
 	header, existing, err := s.Load(id)
 	if err != nil {
