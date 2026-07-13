@@ -193,6 +193,38 @@ func TestREPLUnknownCommandNoRun(t *testing.T) {
 	}
 }
 
+// TestREPLModelSwitchTakesEffect verifies the /model action command switches the
+// live model mid-session (via registerLiveCommands + resolveProvider) without
+// launching a run, and that the switch is reflected in live for the next turn.
+func TestREPLModelSwitchTakesEffect(t *testing.T) {
+	p := &replProvider{reply: "hi"}
+	deps, _ := newTestDeps(t, p)
+	// Register the real live action commands (/model, /models, /help) against the
+	// same live config the REPL runs on, so /model mutates it.
+	registerLiveCommands(deps.slash, deps.live)
+
+	var out bytes.Buffer
+	// /model with no arg reports the current model; /model <id> switches to an
+	// Ollama preset (no API key required); /exit ends the loop.
+	in := strings.NewReader("/model\n/model ollama/llama3.3\n/exit\n")
+	if err := runREPL(in, &out, deps); err != nil {
+		t.Fatalf("runREPL: %v", err)
+	}
+	if p.calls != 0 {
+		t.Errorf("/model actions must not launch a run, got %d calls", p.calls)
+	}
+	if deps.live.model != "ollama/llama3.3" || deps.live.providerName != "ollama" {
+		t.Errorf("live not switched: model=%q provider=%q", deps.live.model, deps.live.providerName)
+	}
+	s := out.String()
+	if !strings.Contains(s, "faux") {
+		t.Errorf("/model (no arg) should report the current model, out=%q", s)
+	}
+	if !strings.Contains(s, "ollama/llama3.3") {
+		t.Errorf("/model switch should confirm the new model, out=%q", s)
+	}
+}
+
 // TestREPLStreamsAndAccumulatesHistory verifies a plain prompt runs, its reply
 // is printed, and history accumulates across two turns in the shared context.
 func TestREPLStreamsAndAccumulatesHistory(t *testing.T) {
