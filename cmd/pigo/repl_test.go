@@ -255,14 +255,14 @@ func TestReplayTranscriptRendersRoles(t *testing.T) {
 		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("what is 2+2")}},
 		agentcore.AssistantMessage{
 			RoleField: agentcore.RoleAssistant,
-			Content:   agentcore.ContentList{agentcore.NewTextContent("Let me compute."), agentcore.NewToolCallContent("c1", "calc", []byte(`{}`))},
+			Content:   agentcore.ContentList{agentcore.NewTextContent("Let me compute."), agentcore.NewToolCallContent("c1", "calc", []byte(`{"expr":"2+2"}`))},
 		},
 		agentcore.ToolResultMessage{RoleField: agentcore.RoleToolResult, ToolCallID: "c1", ToolName: "calc", Content: agentcore.ContentList{agentcore.NewTextContent("4")}},
 	}
 	var out bytes.Buffer
 	replayTranscript(&out, msgs)
 	s := out.String()
-	for _, want := range []string{"> what is 2+2", "Let me compute.", "→ tool: calc", "← result: 4"} {
+	for _, want := range []string{"> what is 2+2", "Let me compute.", `→ tool: calc {"expr":"2+2"}`, "← result: 4"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("replay missing %q, out=%q", want, s)
 		}

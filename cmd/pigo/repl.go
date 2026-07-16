@@ -168,7 +168,7 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 				atLineStart = true
 			}
 			for _, c := range msg.ToolCalls() {
-				fmt.Fprintf(out, "  → tool: %s\n", c.Name)
+				fmt.Fprintf(out, "  → tool: %s\n", toolCallLabel(c))
 			}
 			for _, tr := range results {
 				fmt.Fprintf(out, "  ← result: %s\n", oneLine(agentcore.ContentToText(tr.Content)))
@@ -198,12 +198,23 @@ func replayTranscript(out io.Writer, messages []agentcore.AgentMessage) {
 				fmt.Fprintln(out, t)
 			}
 			for _, c := range msg.ToolCalls() {
-				fmt.Fprintf(out, "  → tool: %s\n", c.Name)
+				fmt.Fprintf(out, "  → tool: %s\n", toolCallLabel(c))
 			}
 		case agentcore.ToolResultMessage:
 			fmt.Fprintf(out, "  ← result: %s\n", oneLine(agentcore.ContentToText(msg.Content)))
 		}
 	}
+}
+
+// toolCallLabel renders a tool call as "name args" for the compact "→ tool:"
+// status, so the user can see what a tool was actually invoked with (e.g. the
+// shell command bash ran). Empty or "{}" arguments collapse to just the name.
+func toolCallLabel(c agentcore.ToolCallContent) string {
+	args := strings.TrimSpace(string(c.Arguments))
+	if args == "" || args == "{}" {
+		return c.Name
+	}
+	return c.Name + " " + oneLine(args)
 }
 
 // oneLine collapses a possibly multi-line tool result into a single trimmed

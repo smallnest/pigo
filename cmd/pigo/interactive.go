@@ -301,19 +301,31 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
 		Name:        "help",
 		Description: "list available slash commands",
 		Action: func(string) string {
+			color := colorEnabled()
 			var b strings.Builder
-			b.WriteString("available commands:")
+			b.WriteString(colorize(color, ansiBold, "available commands:"))
 			for _, c := range reg.List() {
-				b.WriteString("\n  /")
-				b.WriteString(c.Name)
+				b.WriteString("\n  ")
+				b.WriteString(colorize(color, ansiCyan, "/"+c.Name))
 				if c.Description != "" {
-					b.WriteString(" — ")
-					b.WriteString(c.Description)
+					b.WriteString(" ")
+					b.WriteString(colorize(color, ansiDim, "— "+c.Description))
 				}
 			}
 			return b.String()
 		},
 	})
+	// /exit and /quit are intercepted by the REPL loop before slash resolution
+	// (they must return from the loop, which an Action closure cannot do). They
+	// are registered here only so /help lists them; their Action is never
+	// actually reached.
+	for _, name := range []string{"exit", "quit"} {
+		reg.AddBuiltin(runtime.SlashCommand{
+			Name:        name,
+			Description: "exit the REPL",
+			Action:      func(string) string { return "" },
+		})
+	}
 }
 
 // presetListing renders the preset provider/model catalog for /models. With an
