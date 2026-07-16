@@ -78,6 +78,34 @@ func TestCredentialStoreResolutionOrder(t *testing.T) {
 	}
 }
 
+// TestCredentialStoreOverride verifies an explicit --api-key override wins over
+// env and config, but not over a live OAuth token, and that an empty override
+// is ignored (so a bare flag does not clobber env/config).
+func TestCredentialStoreOverride(t *testing.T) {
+	cfg, _ := LoadAPIKeyConfig([]byte(`{"keys":{"openai":"sk-openai-cfg"}}`))
+	store := NewCredentialStore(cfg)
+	t.Setenv("OPENAI_API_KEY", "sk-openai-env")
+
+	// Empty override is a no-op: env still wins over config.
+	store.SetOverride("openai", "")
+	if got := store.GetAPIKey(context.Background(), "openai"); got != "sk-openai-env" {
+		t.Errorf("empty override should not clobber env, got %q", got)
+	}
+
+	// Non-empty override wins over env and config.
+	store.SetOverride("openai", "sk-flag")
+	if got := store.GetAPIKey(context.Background(), "openai"); got != "sk-flag" {
+		t.Errorf("override should win over env/config, got %q", got)
+	}
+
+	// OAuth still wins over an override.
+	store.RegisterOAuth("openai", NewTokenSource(
+		OAuthToken{AccessToken: "oauth-token", Expiry: time.Now().Add(time.Hour)}, nil))
+	if got := store.GetAPIKey(context.Background(), "openai"); got != "oauth-token" {
+		t.Errorf("oauth should win over override, got %q", got)
+	}
+}
+
 // TestTokenSourceRefresh verifies an expired token triggers a refresh returning
 // a new token.
 func TestTokenSourceRefresh(t *testing.T) {

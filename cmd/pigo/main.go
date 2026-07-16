@@ -12,6 +12,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 
@@ -25,13 +26,15 @@ import (
 func main() {
 	var opts cliOptions
 	flag.StringVarP(&opts.prompt, "print", "p", "", "prompt to run in headless print mode")
-	flag.StringVar(&opts.model, "model", "openrouter/free", "model id to run against")
-	flag.StringVar(&opts.baseURL, "base-url", "", "override provider base URL (e.g. local Ollama)")
-	flag.StringVar(&opts.outputFmt, "output-format", "text", "output format: text | stream-json")
-	flag.BoolVar(&opts.noTools, "no-tools", false, "disable the built-in file/shell tools")
-	flag.BoolVar(&opts.listSessions, "list-sessions", false, "list stored interactive sessions and exit")
-	flag.StringVar(&opts.resumeID, "resume", "", "resume the interactive session with this id")
-	flag.BoolVar(&opts.continueLast, "continue", false, "resume the most recent interactive session")
+	flag.StringVarP(&opts.model, "model", "m", "openrouter/free", "model id to run against")
+	flag.StringVarP(&opts.baseURL, "base-url", "u", "", "override provider base URL (e.g. local Ollama)")
+	flag.StringVarP(&opts.apiKey, "api-key", "k", "", "API key for the resolved provider (overrides env/config; else <PROVIDER>_API_KEY)")
+	flag.StringVarP(&opts.protocol, "protocol", "P", "", "force wire protocol for a custom endpoint: openai | anthropic (default: inferred from model id)")
+	flag.StringVarP(&opts.outputFmt, "output-format", "o", "text", "output format: text | stream-json")
+	flag.BoolVarP(&opts.noTools, "no-tools", "n", false, "disable the built-in file/shell tools")
+	flag.BoolVarP(&opts.listSessions, "list-sessions", "l", false, "list stored interactive sessions and exit")
+	flag.StringVarP(&opts.resumeID, "resume", "r", "", "resume the interactive session with this id")
+	flag.BoolVarP(&opts.continueLast, "continue", "c", false, "resume the most recent interactive session")
 	flag.Parse()
 
 	// A prompt may also be supplied as positional args.
@@ -42,14 +45,39 @@ func main() {
 	os.Exit(dispatch(context.Background(), opts, os.Stdout, os.Stderr))
 }
 
-// resolveProvider maps a model id to a built-in provider. Resolution order:
+// resolveProvider maps a model id to a built-in provider. When protocol is a
+// non-empty explicit selection ("openai" or "anthropic") it wins over all
+// heuristics: the provider is built directly for that wire format against
+// baseURL, which is how a user points pigo at a self-hosted or third-party
+// endpoint and says which protocol it speaks. An "anthropic" selection with no
+// baseURL targets the public Anthropic API.
+//
+// When protocol is empty, resolution falls back to model-id heuristics:
 //
 //  1. If the id is in the preset catalog, use its declared provider (this is how
 //     OpenRouter/NVIDIA/Ollama presets pick the right gateway).
 //  2. An "ollama/" prefix (or a base URL on the Ollama port) → local Ollama.
 //  3. An "nvidia/" prefix → NVIDIA NIM (strips the prefix for the wire id).
 //  4. Everything else → OpenRouter, the reference OpenAI-compatible gateway.
-func resolveProvider(model, baseURL string) (provider.Provider, string, error) {
+//
+// An unknown protocol value is an error, surfaced to the caller for exit-code
+// mapping rather than silently falling back.
+func resolveProvider(model, baseURL, protocol string) (provider.Provider, string, error) {
+	// 0. Explicit protocol selection wins over every heuristic.
+	switch protocol {
+	case "openai":
+		if strings.TrimSpace(baseURL) == "" {
+			return nil, "", fmt.Errorf("--protocol openai requires --base-url")
+		}
+		return provider.NewOpenAICompatibleProvider(baseURL, []provider.Model{{Provider: "openai", ID: model}}), "openai", nil
+	case "anthropic":
+		return provider.NewAnthropicProvider(baseURL, []provider.Model{{Provider: "anthropic", ID: model}}), "anthropic", nil
+	case "":
+		// fall through to heuristic resolution
+	default:
+		return nil, "", fmt.Errorf("unknown --protocol %q (want openai|anthropic)", protocol)
+	}
+
 	// 1. Preset catalog wins: a curated id knows its own provider.
 	if p, ok := provider.LookupPreset(model); ok {
 		switch p.Provider {

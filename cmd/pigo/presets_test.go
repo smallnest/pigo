@@ -23,7 +23,7 @@ func TestResolveProviderPresetCatalog(t *testing.T) {
 		{"anthropic/claude-3.5-sonnet", "openrouter"}, // OpenRouter preset
 	}
 	for _, c := range cases {
-		_, name, err := resolveProvider(c.model, "")
+		_, name, err := resolveProvider(c.model, "", "")
 		if err != nil {
 			t.Errorf("resolveProvider(%q) error: %v", c.model, err)
 			continue
@@ -48,7 +48,7 @@ func TestResolveProviderPrefixAndDefault(t *testing.T) {
 		{"m", "http://host:11434/v1", "ollama"},   // ollama port
 	}
 	for _, c := range cases {
-		_, name, err := resolveProvider(c.model, c.baseURL)
+		_, name, err := resolveProvider(c.model, c.baseURL, "")
 		if err != nil {
 			t.Errorf("resolveProvider(%q) error: %v", c.model, err)
 			continue
@@ -56,6 +56,28 @@ func TestResolveProviderPrefixAndDefault(t *testing.T) {
 		if name != c.wantName {
 			t.Errorf("resolveProvider(%q, %q) = %q, want %q", c.model, c.baseURL, name, c.wantName)
 		}
+	}
+}
+
+// TestResolveProviderExplicitProtocol verifies an explicit --protocol wins over
+// model-id heuristics: openai (with base-url) and anthropic select the matching
+// wire driver, an empty base-url for openai errors, and an unknown protocol
+// errors instead of silently falling back.
+func TestResolveProviderExplicitProtocol(t *testing.T) {
+	// openai protocol → "openai" provider name, requires base-url.
+	if _, name, err := resolveProvider("any-model", "https://example.com/v1", "openai"); err != nil || name != "openai" {
+		t.Errorf("protocol=openai = (%q, %v), want (openai, nil)", name, err)
+	}
+	if _, _, err := resolveProvider("any-model", "", "openai"); err == nil {
+		t.Error("protocol=openai with no base-url should error")
+	}
+	// anthropic protocol → "anthropic" provider name, base-url optional (defaults).
+	if _, name, err := resolveProvider("claude-x", "", "anthropic"); err != nil || name != "anthropic" {
+		t.Errorf("protocol=anthropic = (%q, %v), want (anthropic, nil)", name, err)
+	}
+	// Unknown protocol errors rather than falling back to a heuristic.
+	if _, _, err := resolveProvider("any-model", "", "grpc"); err == nil {
+		t.Error("unknown protocol should error")
 	}
 }
 

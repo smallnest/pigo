@@ -46,6 +46,12 @@ const (
 	// region-specific (bedrock-runtime.<region>.amazonaws.com) and supplied at
 	// construction. It is exported as a field so callers set the resolved URL.
 	bedrockBaseURL = "https://bedrock-runtime.us-east-1.amazonaws.com"
+	// anthropicBaseURL is the public Anthropic Messages API endpoint, the default
+	// for a --protocol=anthropic provider when no --base-url is given.
+	anthropicBaseURL = "https://api.anthropic.com/v1"
+	// anthropicAPIVersion is the required anthropic-version header value sent with
+	// every direct-Anthropic request.
+	anthropicAPIVersion = "2023-06-01"
 )
 
 // ---------------------------------------------------------------------------
@@ -381,6 +387,43 @@ func NewNvidiaProvider(baseURL string, models []Model) Provider {
 		baseURL:      baseURL,
 		models:       models,
 		requiresAuth: true,
+	}
+}
+
+// NewOpenAICompatibleProvider builds a generic OpenAI-compatible provider for an
+// arbitrary gateway reached by baseURL (Bearer auth). It is the target of an
+// explicit --protocol=openai selection: unlike the preset constructors it has no
+// default endpoint (baseURL must be supplied) and carries the neutral provider
+// name "openai", so an API key resolves from OPENAI_API_KEY (or the --api-key
+// override bound to that name). Secret values are never logged.
+func NewOpenAICompatibleProvider(baseURL string, models []Model) Provider {
+	return &openAICompatDriver{
+		name:         "openai",
+		baseURL:      baseURL,
+		models:       models,
+		requiresAuth: true,
+	}
+}
+
+// NewAnthropicProvider builds a provider that speaks the Anthropic Messages wire
+// format directly (POST {baseURL}/messages), the target of an explicit
+// --protocol=anthropic selection. baseURL defaults to the public Anthropic API
+// when empty. Auth uses the Anthropic conventions: an x-api-key header plus the
+// required anthropic-version header. The API key resolves by the "anthropic"
+// provider name (ANTHROPIC_API_KEY / CLAUDE_API_KEY, or the --api-key override);
+// secret values are never logged.
+func NewAnthropicProvider(baseURL string, models []Model) Provider {
+	if baseURL == "" {
+		baseURL = anthropicBaseURL
+	}
+	return &anthropicCompatDriver{
+		name:    "anthropic",
+		baseURL: baseURL,
+		models:  models,
+		authHeader: func(req *http.Request, apiKey string) {
+			req.Header.Set("x-api-key", apiKey)
+			req.Header.Set("anthropic-version", anthropicAPIVersion)
+		},
 	}
 }
 

@@ -34,9 +34,9 @@ type agentEnv struct {
 // rooted at the working directory, and constructs the system prompt — the setup
 // the REPL and headless drivers both need. It returns an error rather than
 // exiting so the caller owns exit-code mapping.
-func setupAgentEnv(model, baseURL string, noTools bool) (agentEnv, error) {
+func setupAgentEnv(model, baseURL, protocol string, noTools bool) (agentEnv, error) {
 	cwd, _ := os.Getwd()
-	prov, providerName, err := resolveProvider(model, baseURL)
+	prov, providerName, err := resolveProvider(model, baseURL, protocol)
 	if err != nil {
 		return agentEnv{}, err
 	}
@@ -78,6 +78,8 @@ type cliOptions struct {
 	prompt       string
 	model        string
 	baseURL      string
+	apiKey       string
+	protocol     string
 	outputFmt    string
 	noTools      bool
 	listSessions bool
@@ -123,7 +125,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			fmt.Fprintln(errOut, "pigo: no prompt (use -p \"...\" or positional args)")
 			return 2
 		}
-		env, err := setupAgentEnv(opts.model, opts.baseURL, opts.noTools)
+		env, err := setupAgentEnv(opts.model, opts.baseURL, opts.protocol, opts.noTools)
 		if err != nil {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
 			return 1
@@ -133,6 +135,8 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			providerName: env.providerName,
 			provider:     env.provider,
 			baseURL:      opts.baseURL,
+			apiKey:       opts.apiKey,
+			protocol:     opts.protocol,
 			tools:        env.tools,
 			sysPrompt:    env.sysPrompt,
 			resumeID:     resumeID,
@@ -149,7 +153,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		return 2
 	}
 
-	env, err := setupAgentEnv(opts.model, opts.baseURL, opts.noTools)
+	env, err := setupAgentEnv(opts.model, opts.baseURL, opts.protocol, opts.noTools)
 	if err != nil {
 		fmt.Fprintf(errOut, "pigo: %v\n", err)
 		return 1
@@ -163,7 +167,9 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 	}
 
 	// Resolve the API key by provider name from the environment (never logged).
+	// An explicit --api-key overrides env/config for the resolved provider.
 	creds := provider.NewCredentialStore(nil)
+	creds.SetOverride(env.providerName, opts.apiKey)
 	cfg := runtime.HeadlessConfig{
 		Mode: mode,
 		Out:  out,

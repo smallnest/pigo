@@ -40,6 +40,8 @@ type interactiveOptions struct {
 	providerName string
 	provider     provider.Provider
 	baseURL      string
+	apiKey       string
+	protocol     string
 	tools        []agentcore.AgentTool
 	sysPrompt    string
 
@@ -54,6 +56,7 @@ type interactiveOptions struct {
 // in repl.go).
 func runInteractive(opts interactiveOptions) error {
 	creds := provider.NewCredentialStore(nil)
+	creds.SetOverride(opts.providerName, opts.apiKey)
 	reg := toolRegistry(opts.tools)
 
 	store, err := sessionStore()
@@ -103,6 +106,7 @@ func runInteractive(opts interactiveOptions) error {
 		providerName: opts.providerName,
 		provider:     opts.provider,
 		baseURL:      opts.baseURL,
+		protocol:     opts.protocol,
 	}
 
 	// Wire slash-commands: built-ins (compile-time) plus any user templates under
@@ -266,6 +270,7 @@ type liveRunConfig struct {
 	providerName string
 	provider     provider.Provider
 	baseURL      string
+	protocol     string
 }
 
 // registerLiveCommands installs the built-in action commands that need live
@@ -282,7 +287,7 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
 			if id == "" {
 				return fmt.Sprintf("model: %s (provider: %s)\nrun /models to see presets, or /model <id> to switch", live.model, live.providerName)
 			}
-			prov, providerName, err := resolveProvider(id, live.baseURL)
+			prov, providerName, err := resolveProvider(id, live.baseURL, live.protocol)
 			if err != nil {
 				return fmt.Sprintf("model: cannot switch to %q: %v", id, err)
 			}

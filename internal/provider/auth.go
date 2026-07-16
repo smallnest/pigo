@@ -175,9 +175,10 @@ func (t *TokenSource) Token(ctx context.Context) (string, error) {
 //
 // It is safe for concurrent use.
 type CredentialStore struct {
-	mu      sync.RWMutex
-	config  *APIKeyConfig
-	sources map[string]*TokenSource // provider → OAuth token source
+	mu        sync.RWMutex
+	config    *APIKeyConfig
+	sources   map[string]*TokenSource // provider → OAuth token source
+	overrides map[string]string       // provider → explicit key (highest static priority)
 }
 
 // NewCredentialStore builds a store over an optional config file. A nil config
@@ -187,9 +188,23 @@ func NewCredentialStore(config *APIKeyConfig) *CredentialStore {
 		config = &APIKeyConfig{Keys: make(map[string]string)}
 	}
 	return &CredentialStore{
-		config:  config,
-		sources: make(map[string]*TokenSource),
+		config:    config,
+		sources:   make(map[string]*TokenSource),
+		overrides: make(map[string]string),
 	}
+}
+
+// SetOverride records an explicit API key for a provider that wins over the
+// environment variable and config file (but not a live OAuth token, which is
+// auto-refreshed). It is the seam for a CLI --api-key flag: an empty key is
+// ignored so a bare flag does not clobber env/config resolution.
+func (c *CredentialStore) SetOverride(provider, key string) {
+	if key == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.overrides[provider] = key
 }
 
 // RegisterOAuth registers an OAuth TokenSource for a provider. Once registered,
@@ -201,16 +216,17 @@ func (c *CredentialStore) RegisterOAuth(provider string, src *TokenSource) {
 }
 
 // GetAPIKey resolves the API key for a provider. Resolution order: OAuth token
-// (refreshed on expiry) → environment variable → config file. Returns "" when
-// no credential is available. This matches LoopConfig.GetAPIKey so it can be
-// assigned directly.
+// (refreshed on expiry) → explicit override (--api-key) → environment variable
+// → config file. Returns "" when no credential is available. This matches
+// LoopConfig.GetAPIKey so it can be assigned directly.
 //
-// On OAuth refresh failure it falls back to env/config rather than returning a
-// secret-bearing error; the empty return lets the caller fall back to a static
-// key. It never logs secret values.
+// On OAuth refresh failure it falls back to override/env/config rather than
+// returning a secret-bearing error; the empty return lets the caller fall back
+// to a static key. It never logs secret values.
 func (c *CredentialStore) GetAPIKey(ctx context.Context, provider string) string {
 	c.mu.RLock()
 	src := c.sources[provider]
+	override := c.overrides[provider]
 	cfgKey := ""
 	if c.config != nil {
 		cfgKey = c.config.Keys[provider]
@@ -222,6 +238,9 @@ func (c *CredentialStore) GetAPIKey(ctx context.Context, provider string) string
 			return tok
 		}
 		// Refresh failed → fall through to static layers.
+	}
+	if override != "" {
+		return override
 	}
 	if env := envAPIKey(provider); env != "" {
 		return env
