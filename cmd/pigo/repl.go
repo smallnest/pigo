@@ -41,6 +41,15 @@ type replDeps struct {
 	creds    *provider.CredentialStore
 }
 
+// replScanBufInit / replScanBufMax bound the line scanner. bufio.Scanner caps
+// lines at 64KiB by default; a REPL user may paste a long single line (a big
+// prompt or a pasted file), so the max is raised to 4MiB. The initial buffer
+// stays at 64KiB and grows on demand.
+const (
+	replScanBufInit = 64 * 1024
+	replScanBufMax  = 4 * 1024 * 1024
+)
+
 // runREPL runs the read → run → stream-print loop until EOF, /exit or /quit. It
 // reads from in (os.Stdin in production) and writes prompts, streamed replies
 // and status lines to out (os.Stdout). It is the interactive replacement for the
@@ -48,7 +57,7 @@ type replDeps struct {
 func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 	scanner := bufio.NewScanner(in)
 	// Allow long pasted lines (default bufio.Scanner caps at 64KiB).
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	scanner.Buffer(make([]byte, 0, replScanBufInit), replScanBufMax)
 
 	// A SIGINT during a run cancels only that run; the handler is installed for
 	// the whole REPL and targets whichever run is active via runCancel. runCancel

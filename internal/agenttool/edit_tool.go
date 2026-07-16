@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/smallnest/pigo/internal/agentcore"
@@ -60,39 +59,18 @@ func (t *EditTool) ExecutionMode() agentcore.ToolExecutionMode {
 	return agentcore.ToolExecutionSequential
 }
 
-// resolvePath mirrors ReadTool/WriteTool so the tools share one boundary policy.
+// resolvePath resolves p against Root via the shared resolveWithin boundary
+// policy, so every file tool enforces the same workspace-escape guard.
 func (t *EditTool) resolvePath(p string) (string, error) {
-	root := t.Root
-	if root == "" {
-		wd, err := os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("cannot determine working directory: %w", err)
-		}
-		root = wd
-	}
-	absRoot, err := filepath.Abs(root)
-	if err != nil {
-		return "", fmt.Errorf("invalid root: %w", err)
-	}
-	var full string
-	if filepath.IsAbs(p) {
-		full = filepath.Clean(p)
-	} else {
-		full = filepath.Join(absRoot, p)
-	}
-	rel, err := filepath.Rel(absRoot, full)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path %q is outside the workspace root", p)
-	}
-	return full, nil
+	return resolveWithin(t.Root, p)
 }
 
 // Execute implements AgentTool. Edit failures (no match, non-unique match,
 // missing file, out-of-root) are encoded as error results.
 func (t *EditTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
-	var a editToolArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return errorResult(fmt.Sprintf("edit: invalid arguments: %v", err)), nil
+	a, bad := decodeArgs[editToolArgs](args, "edit")
+	if bad != nil {
+		return *bad, nil
 	}
 	if a.Path == "" {
 		return errorResult("edit: path is required"), nil
@@ -128,7 +106,7 @@ func (t *EditTool) Execute(ctx context.Context, id string, args json.RawMessage,
 		updated = strings.Replace(original, a.OldString, a.NewString, 1)
 	}
 
-	if err := os.WriteFile(full, []byte(updated), 0o644); err != nil {
+	if err := os.WriteFile(full, []byte(updated), filePerm); err != nil {
 		return errorResult(fmt.Sprintf("edit: cannot write %q: %v", a.Path, err)), nil
 	}
 

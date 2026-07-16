@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/smallnest/pigo/internal/agentcore"
 )
@@ -58,41 +57,19 @@ func (t *WriteTool) ExecutionMode() agentcore.ToolExecutionMode {
 	return agentcore.ToolExecutionSequential
 }
 
-// resolvePath resolves p against Root and verifies it stays within Root. It
-// mirrors ReadTool.resolvePath so the two tools share one boundary policy.
+// resolvePath resolves p against Root via the shared resolveWithin boundary
+// policy, so every file tool enforces the same workspace-escape guard.
 func (t *WriteTool) resolvePath(p string) (string, error) {
-	root := t.Root
-	if root == "" {
-		wd, err := os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("cannot determine working directory: %w", err)
-		}
-		root = wd
-	}
-	absRoot, err := filepath.Abs(root)
-	if err != nil {
-		return "", fmt.Errorf("invalid root: %w", err)
-	}
-	var full string
-	if filepath.IsAbs(p) {
-		full = filepath.Clean(p)
-	} else {
-		full = filepath.Join(absRoot, p)
-	}
-	rel, err := filepath.Rel(absRoot, full)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path %q is outside the workspace root", p)
-	}
-	return full, nil
+	return resolveWithin(t.Root, p)
 }
 
 // Execute implements AgentTool. Write failures are encoded as error results;
 // the returned Go error is reserved for nothing here (argument decode also
 // degrades to a result), matching the read tool's contract.
 func (t *WriteTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
-	var a writeToolArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return errorResult(fmt.Sprintf("write: invalid arguments: %v", err)), nil
+	a, bad := decodeArgs[writeToolArgs](args, "write")
+	if bad != nil {
+		return *bad, nil
 	}
 	if a.Path == "" {
 		return errorResult("write: path is required"), nil
@@ -114,12 +91,12 @@ func (t *WriteTool) Execute(ctx context.Context, id string, args json.RawMessage
 
 	// Create parent directories as needed.
 	if dir := filepath.Dir(full); dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, dirPerm); err != nil {
 			return errorResult(fmt.Sprintf("write: cannot create parent directories for %q: %v", a.Path, err)), nil
 		}
 	}
 
-	if err := os.WriteFile(full, []byte(a.Content), 0o644); err != nil {
+	if err := os.WriteFile(full, []byte(a.Content), filePerm); err != nil {
 		return errorResult(fmt.Sprintf("write: cannot write %q: %v", a.Path, err)), nil
 	}
 

@@ -32,6 +32,14 @@ import (
 // hard error so a newer file is never silently misread by an older binary.
 const SchemaVersion = 1
 
+// sessionScanBufInit / sessionScanBufMax bound the line scanner used to read a
+// session file. A single line holds one message, which can be large (a long
+// tool result), so the max is raised well past bufio.Scanner's 64KiB default.
+const (
+	sessionScanBufInit = 64 * 1024
+	sessionScanBufMax  = 16 * 1024 * 1024
+)
+
 // SessionHeader is the first line of a session file: schema version plus the
 // metadata needed to list and resume a session without reading its messages.
 type SessionHeader struct {
@@ -153,7 +161,7 @@ func readSession(r io.Reader) (SessionHeader, agentcore.MessageList, error) {
 	sc := bufio.NewScanner(r)
 	// Session lines can be large (long tool results); grow the buffer well past
 	// the default 64KB token cap.
-	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	sc.Buffer(make([]byte, 0, sessionScanBufInit), sessionScanBufMax)
 
 	if !sc.Scan() {
 		if err := sc.Err(); err != nil {
@@ -227,7 +235,7 @@ func (s *Store) loadHeader(id string) (SessionHeader, error) {
 	}
 	defer f.Close()
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	sc.Buffer(make([]byte, 0, sessionScanBufInit), sessionScanBufMax)
 	if !sc.Scan() {
 		return SessionHeader{}, fmt.Errorf("session: empty file")
 	}

@@ -169,6 +169,25 @@ func errorResult(msg string) agentcore.AgentToolResult {
 	return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(msg)}}
 }
 
+// decodeArgs unmarshals a tool's JSON arguments into T. On failure it returns an
+// error result already shaped as "<tool>: invalid arguments: ...", so a tool's
+// Execute can decode and bail in one line:
+//
+//	a, bad := decodeArgs[readToolArgs](args, "read")
+//	if bad != nil {
+//		return *bad, nil
+//	}
+//
+// The ok flag distinguishes the failure case without comparing the zero value.
+func decodeArgs[T any](args json.RawMessage, tool string) (T, *agentcore.AgentToolResult) {
+	var a T
+	if err := json.Unmarshal(args, &a); err != nil {
+		res := errorResult(fmt.Sprintf("%s: invalid arguments: %v", tool, err))
+		return a, &res
+	}
+	return a, nil
+}
+
 // errorToolResult builds an error ToolResultMessage directly (used when a call
 // is aborted outside the normal finalize path).
 func errorToolResult(call agentcore.AgentToolCall, msg string) agentcore.ToolResultMessage {

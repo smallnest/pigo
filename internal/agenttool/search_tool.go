@@ -24,7 +24,9 @@ import (
 const searchMaxResults = 1000
 
 // resolveWithin resolves p against root and verifies it stays within it. It is
-// the shared boundary policy used by all search tools (mirrors ReadTool).
+// the single workspace-boundary policy shared by every file tool: the search
+// tools call it directly, and ReadTool/WriteTool/EditTool.resolvePath delegate
+// to it, so the path-traversal guard lives in exactly one place.
 func resolveWithin(root, p string) (string, error) {
 	if root == "" {
 		wd, err := os.Getwd()
@@ -57,6 +59,10 @@ func resolveWithin(root, p string) (string, error) {
 // not a full gitignore implementation (no "**" spanning, no nested .gitignore).
 type gitignore struct {
 	rules []ignoreRule
+	// hasSegmentRule is true when at least one rule matches by path segment
+	// (non-anchored, no "/"). Only then does ignored() need to split relPath into
+	// segments, so the common all-anchored case skips the split entirely.
+	hasSegmentRule bool
 }
 
 type ignoreRule struct {
@@ -64,6 +70,11 @@ type ignoreRule struct {
 	negate   bool
 	dirOnly  bool
 	anchored bool
+	// matchFull is precomputed at load time: an anchored pattern, or one that
+	// contains a "/", matches against the full relative path; otherwise the rule
+	// matches by base name or any single path segment. Hoisting this out of the
+	// per-file loop avoids a strings.Contains scan for every file × rule.
+	matchFull bool
 }
 
 // loadGitignore reads root/.gitignore. A missing file yields an empty matcher
@@ -97,6 +108,10 @@ func loadGitignore(root string) *gitignore {
 			continue
 		}
 		r.pattern = line
+		r.matchFull = r.anchored || strings.Contains(line, "/")
+		if !r.matchFull {
+			gi.hasSegmentRule = true
+		}
 		gi.rules = append(gi.rules, r)
 	}
 	return gi
@@ -104,11 +119,20 @@ func loadGitignore(root string) *gitignore {
 
 // ignored reports whether relPath (slash-separated, relative to root) is ignored.
 // isDir refines dir-only rules. Later rules win, so a negation can re-include.
+//
+// The relPath is split into segments at most once per call (only when a
+// segment-matching rule exists), rather than re-splitting inside the rule loop:
+// this keeps the per-file cost O(rules) instead of O(rules × pathSegments),
+// which matters because ignored() is called for every entry of a WalkDir.
 func (g *gitignore) ignored(relPath string, isDir bool) bool {
 	relPath = filepath.ToSlash(relPath)
 	base := relPath
 	if i := strings.LastIndex(relPath, "/"); i >= 0 {
 		base = relPath[i+1:]
+	}
+	var segs []string
+	if g.hasSegmentRule {
+		segs = strings.Split(relPath, "/")
 	}
 	result := false
 	for _, r := range g.rules {
@@ -116,14 +140,14 @@ func (g *gitignore) ignored(relPath string, isDir bool) bool {
 			continue
 		}
 		var match bool
-		if r.anchored || strings.Contains(r.pattern, "/") {
+		if r.matchFull {
 			match, _ = filepath.Match(r.pattern, relPath)
 		} else {
 			match, _ = filepath.Match(r.pattern, base)
 			if !match {
 				// A non-anchored pattern also matches any path component,
 				// so an ignored directory hides everything beneath it.
-				for _, seg := range strings.Split(relPath, "/") {
+				for _, seg := range segs {
 					if ok, _ := filepath.Match(r.pattern, seg); ok {
 						match = true
 						break
@@ -175,9 +199,9 @@ func (t *GrepTool) Schema() json.RawMessage {
 }
 
 func (t *GrepTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
-	var a grepToolArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return errorResult(fmt.Sprintf("grep: invalid arguments: %v", err)), nil
+	a, bad := decodeArgs[grepToolArgs](args, "grep")
+	if bad != nil {
+		return *bad, nil
 	}
 	if a.Pattern == "" {
 		return errorResult("grep: pattern is required"), nil
@@ -234,7 +258,7 @@ func (t *GrepTool) Execute(ctx context.Context, id string, args json.RawMessage,
 		}
 		defer f.Close()
 		sc := bufio.NewScanner(f)
-		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		sc.Buffer(make([]byte, 0, scanBufInit), grepScanBufMax)
 		lineNo := 0
 		for sc.Scan() {
 			lineNo++
@@ -299,9 +323,9 @@ func (t *FindTool) Schema() json.RawMessage {
 }
 
 func (t *FindTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
-	var a findToolArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return errorResult(fmt.Sprintf("find: invalid arguments: %v", err)), nil
+	a, bad := decodeArgs[findToolArgs](args, "find")
+	if bad != nil {
+		return *bad, nil
 	}
 	if a.Glob == "" {
 		return errorResult("find: glob is required"), nil
@@ -392,9 +416,9 @@ func (t *LsTool) Schema() json.RawMessage {
 }
 
 func (t *LsTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
-	var a lsToolArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return errorResult(fmt.Sprintf("ls: invalid arguments: %v", err)), nil
+	a, bad := decodeArgs[lsToolArgs](args, "ls")
+	if bad != nil {
+		return *bad, nil
 	}
 	full, err := resolveWithin(t.Root, a.Path)
 	if err != nil {

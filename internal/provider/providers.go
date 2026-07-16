@@ -341,37 +341,56 @@ func maxOutputTokensFor(req CompletionRequest) int {
 // Constructors.
 // ---------------------------------------------------------------------------
 
+// openAICompatPreset captures the per-gateway differences among the
+// OpenAI-compatible providers: everything the constructors used to repeat
+// (provider name, default endpoint, whether auth is required, and any extra
+// headers). Collapsing the near-identical constructors onto this table means
+// "add a gateway" is a one-line entry plus a thin exported wrapper.
+type openAICompatPreset struct {
+	name         string
+	defaultURL   string // "" ⇒ no default; baseURL must be supplied by the caller
+	requiresAuth bool
+	extraHeaders map[string]string
+}
+
+// newOpenAICompat builds an OpenAI-compatible driver from a preset, falling back
+// to the preset's default endpoint when baseURL is empty.
+func newOpenAICompat(p openAICompatPreset, baseURL string, models []Model) Provider {
+	if baseURL == "" {
+		baseURL = p.defaultURL
+	}
+	return &openAICompatDriver{
+		name:         p.name,
+		baseURL:      baseURL,
+		models:       models,
+		requiresAuth: p.requiresAuth,
+		extraHeaders: p.extraHeaders,
+	}
+}
+
 // NewOpenRouterProvider builds the OpenRouter provider — the reference
 // OpenAI-compatible gateway. baseURL defaults to the public endpoint when empty.
 func NewOpenRouterProvider(baseURL string, models []Model) Provider {
-	if baseURL == "" {
-		baseURL = openRouterBaseURL
-	}
-	return &openAICompatDriver{
+	return newOpenAICompat(openAICompatPreset{
 		name:         "openrouter",
-		baseURL:      baseURL,
-		models:       models,
+		defaultURL:   openRouterBaseURL,
 		requiresAuth: true,
 		extraHeaders: map[string]string{
 			// OpenRouter attribution headers (optional but recommended).
 			"HTTP-Referer": "https://github.com/smallnest/pigo",
 			"X-Title":      "pigo",
 		},
-	}
+	}, baseURL, models)
 }
 
 // NewOllamaProvider builds the Ollama provider (local, OpenAI-compatible, no
 // auth). baseURL defaults to the local daemon when empty.
 func NewOllamaProvider(baseURL string, models []Model) Provider {
-	if baseURL == "" {
-		baseURL = ollamaBaseURL
-	}
-	return &openAICompatDriver{
+	return newOpenAICompat(openAICompatPreset{
 		name:         "ollama",
-		baseURL:      baseURL,
-		models:       models,
+		defaultURL:   ollamaBaseURL,
 		requiresAuth: false,
-	}
+	}, baseURL, models)
 }
 
 // NewNvidiaProvider builds the NVIDIA provider (hosted NIM, OpenAI-compatible,
@@ -379,15 +398,11 @@ func NewOllamaProvider(baseURL string, models []Model) Provider {
 // The API key is resolved by the "nvidia" provider name (NVIDIA_API_KEY);
 // secret values are never logged.
 func NewNvidiaProvider(baseURL string, models []Model) Provider {
-	if baseURL == "" {
-		baseURL = nvidiaBaseURL
-	}
-	return &openAICompatDriver{
+	return newOpenAICompat(openAICompatPreset{
 		name:         "nvidia",
-		baseURL:      baseURL,
-		models:       models,
+		defaultURL:   nvidiaBaseURL,
 		requiresAuth: true,
-	}
+	}, baseURL, models)
 }
 
 // NewOpenAICompatibleProvider builds a generic OpenAI-compatible provider for an
@@ -397,11 +412,26 @@ func NewNvidiaProvider(baseURL string, models []Model) Provider {
 // name "openai", so an API key resolves from OPENAI_API_KEY (or the --api-key
 // override bound to that name). Secret values are never logged.
 func NewOpenAICompatibleProvider(baseURL string, models []Model) Provider {
-	return &openAICompatDriver{
+	return newOpenAICompat(openAICompatPreset{
 		name:         "openai",
-		baseURL:      baseURL,
-		models:       models,
+		defaultURL:   "", // no default: caller must supply the endpoint
 		requiresAuth: true,
+	}, baseURL, models)
+}
+
+// newAnthropicCompat builds an Anthropic-Messages driver, falling back to
+// defaultURL when baseURL is empty. It is the shared body of the two
+// Anthropic-wire constructors, which differ only in name, default endpoint, and
+// auth header.
+func newAnthropicCompat(name, defaultURL, baseURL string, models []Model, authHeader func(*http.Request, string)) Provider {
+	if baseURL == "" {
+		baseURL = defaultURL
+	}
+	return &anthropicCompatDriver{
+		name:       name,
+		baseURL:    baseURL,
+		models:     models,
+		authHeader: authHeader,
 	}
 }
 
@@ -413,18 +443,11 @@ func NewOpenAICompatibleProvider(baseURL string, models []Model) Provider {
 // provider name (ANTHROPIC_API_KEY / CLAUDE_API_KEY, or the --api-key override);
 // secret values are never logged.
 func NewAnthropicProvider(baseURL string, models []Model) Provider {
-	if baseURL == "" {
-		baseURL = anthropicBaseURL
-	}
-	return &anthropicCompatDriver{
-		name:    "anthropic",
-		baseURL: baseURL,
-		models:  models,
-		authHeader: func(req *http.Request, apiKey string) {
+	return newAnthropicCompat("anthropic", anthropicBaseURL, baseURL, models,
+		func(req *http.Request, apiKey string) {
 			req.Header.Set("x-api-key", apiKey)
 			req.Header.Set("anthropic-version", anthropicAPIVersion)
-		},
-	}
+		})
 }
 
 // NewBedrockProvider builds the Bedrock provider, reusing the Anthropic Messages
@@ -433,15 +456,8 @@ func NewAnthropicProvider(baseURL string, models []Model) Provider {
 // the region-specific URL. Auth is a Bearer token (Bedrock API keys); SigV4
 // signing, when required, is layered by the caller's HTTP client.
 func NewBedrockProvider(baseURL string, models []Model) Provider {
-	if baseURL == "" {
-		baseURL = bedrockBaseURL
-	}
-	return &anthropicCompatDriver{
-		name:    "bedrock",
-		baseURL: baseURL,
-		models:  models,
-		authHeader: func(req *http.Request, apiKey string) {
+	return newAnthropicCompat("bedrock", bedrockBaseURL, baseURL, models,
+		func(req *http.Request, apiKey string) {
 			req.Header.Set("Authorization", "Bearer "+apiKey)
-		},
-	}
+		})
 }

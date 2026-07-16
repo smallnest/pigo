@@ -187,3 +187,39 @@ func TestGitignoreNegation(t *testing.T) {
 		t.Error("!keep.txt should be re-included")
 	}
 }
+
+// TestGitignoreMatchModes locks in the three matching modes after the load-time
+// precompilation (matchFull / hasSegmentRule): a non-anchored name rule matches
+// any path segment (so an ignored dir hides everything beneath it); an anchored
+// rule matches only at the root; and a slash-bearing pattern matches the full
+// relative path.
+func TestGitignoreMatchModes(t *testing.T) {
+	dir := t.TempDir()
+	// node_modules: non-anchored → matches any segment (nested too).
+	// /root.log: anchored → only at repo root.
+	// a/b.tmp: contains "/" → full-path match.
+	rules := "node_modules\n/root.log\na/b.tmp\n"
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte(rules), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gi := loadGitignore(dir)
+	cases := []struct {
+		path string
+		dir  bool
+		want bool
+	}{
+		{"node_modules", true, true},             // segment rule, top level
+		{"pkg/node_modules", true, true},         // segment rule, nested
+		{"pkg/node_modules/x/y.js", false, true}, // hidden beneath ignored dir
+		{"root.log", false, true},                // anchored, at root
+		{"sub/root.log", false, false},           // anchored must not match nested
+		{"a/b.tmp", false, true},                 // full-path match
+		{"z/a/b.tmp", false, false},              // full-path rule not anchored elsewhere
+		{"keep.go", false, false},                // unrelated
+	}
+	for _, c := range cases {
+		if got := gi.ignored(c.path, c.dir); got != c.want {
+			t.Errorf("ignored(%q, dir=%v) = %v, want %v", c.path, c.dir, got, c.want)
+		}
+	}
+}

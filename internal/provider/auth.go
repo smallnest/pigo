@@ -126,11 +126,15 @@ func (t *TokenSource) now() time.Time {
 	return time.Now()
 }
 
+// defaultTokenLeeway is how far before an OAuth token's expiry it is treated as
+// already expired, so a refresh happens before a request rather than mid-flight.
+const defaultTokenLeeway = 30 * time.Second
+
 func (t *TokenSource) leeway() time.Duration {
 	if t.Leeway > 0 {
 		return t.Leeway
 	}
-	return 30 * time.Second
+	return defaultTokenLeeway
 }
 
 // expired reports whether the access token is missing or within leeway of its

@@ -98,9 +98,9 @@ func (w streamWriter) Write(p []byte) (int, error) {
 // enforces a timeout, and kills the process on context cancellation. A non-zero
 // exit returns a Go error (→ isError) carrying the exit code and output.
 func (t *BashTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
-	var a bashToolArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return errorResult(fmt.Sprintf("bash: invalid arguments: %v", err)), nil
+	a, bad := decodeArgs[bashToolArgs](args, "bash")
+	if bad != nil {
+		return *bad, nil
 	}
 	if a.Command == "" {
 		return errorResult("bash: command is required"), nil

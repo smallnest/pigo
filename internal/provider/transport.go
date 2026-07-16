@@ -48,6 +48,22 @@ type Decoder interface {
 // (a Go duration string, e.g. "3m") overrides it.
 const defaultIdleTimeout = 5 * time.Minute
 
+const (
+	// defaultMaxConnectRetries bounds connect-only retries when TransportConfig
+	// leaves MaxConnectRetries at zero.
+	defaultMaxConnectRetries = 2
+	// statusTooManyRequestsCF (529) is Cloudflare's "site overloaded" status,
+	// which some upstreams also emit; treated as retryable alongside 429/503.
+	statusTooManyRequestsCF = 529
+	// stallFactor slackens the content-stall watchdog relative to the idle
+	// window (stall = idle × stallFactor) so a slow-but-progressing stream is not
+	// killed by the stall guard.
+	stallFactor = 1.2
+	// errorBodyLimit bounds how many bytes of an upstream error body are read
+	// into the returned error message.
+	errorBodyLimit = 4096
+)
+
 // idleTimeout resolves the configured idle watchdog window.
 func idleTimeout() time.Duration {
 	if v := os.Getenv("PIGO_STREAM_IDLE_TIMEOUT"); v != "" {
@@ -89,7 +105,7 @@ func StreamRequest(ctx context.Context, cfg TransportConfig) (*AssistantMessageE
 	}
 	maxRetries := cfg.MaxConnectRetries
 	if maxRetries == 0 {
-		maxRetries = 2
+		maxRetries = defaultMaxConnectRetries
 	}
 
 	// Connect once up front so a "cannot even build the stream" failure surfaces
@@ -127,7 +143,7 @@ func connect(ctx context.Context, client *http.Client, newReq func(context.Conte
 		}
 		if resp.StatusCode == http.StatusTooManyRequests ||
 			resp.StatusCode == http.StatusServiceUnavailable ||
-			resp.StatusCode == 529 {
+			resp.StatusCode == statusTooManyRequestsCF {
 			wait := retryAfter(resp.Header)
 			resp.Body.Close()
 			lastErr = fmt.Errorf("transport: upstream %d", resp.StatusCode)
@@ -140,7 +156,7 @@ func connect(ctx context.Context, client *http.Client, newReq func(context.Conte
 			continue
 		}
 		if resp.StatusCode >= 400 {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, errorBodyLimit))
 			resp.Body.Close()
 			return nil, fmt.Errorf("transport: upstream %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 		}
@@ -157,9 +173,9 @@ func pump(ctx context.Context, stream *AssistantMessageEventStream, resp *http.R
 	defer resp.Body.Close()
 
 	idle := idleTimeout()
-	// content-stall watchdog is slightly slacker than idle (idle×1.2) so a slow
-	// but progressing stream is not killed by the stall guard.
-	stall := time.Duration(float64(idle) * 1.2)
+	// content-stall watchdog is slightly slacker than idle (idle × stallFactor)
+	// so a slow but progressing stream is not killed by the stall guard.
+	stall := time.Duration(float64(idle) * stallFactor)
 
 	// The watchdog fires by cancelling a derived context; reads race against it.
 	watchCtx, cancel := context.WithCancel(ctx)

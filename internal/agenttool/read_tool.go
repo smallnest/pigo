@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/smallnest/pigo/internal/agentcore"
@@ -24,6 +23,22 @@ const readToolMaxLines = 2000
 // readToolMaxLineLen caps how many bytes of a single line are returned; longer
 // lines are truncated with a marker.
 const readToolMaxLineLen = 2000
+
+// scanBufInit is the initial per-line scanner buffer (it grows on demand up to
+// the max). readScanBufMax is generous — a read may page through a file with
+// very long lines (minified JS, JSON) that must not error out mid-read.
+const (
+	scanBufInit    = 64 * 1024
+	readScanBufMax = 16 * 1024 * 1024
+	grepScanBufMax = 1 * 1024 * 1024
+)
+
+// filePerm / dirPerm are the modes new files and parent directories are created
+// with by the write/edit tools (standard non-executable file, traversable dir).
+const (
+	filePerm os.FileMode = 0o644
+	dirPerm  os.FileMode = 0o755
+)
 
 // ReadTool reads text files under Root. It is the first concrete AgentTool.
 type ReadTool struct {
@@ -70,41 +85,19 @@ func (t *ReadTool) ExecutionMode() agentcore.ToolExecutionMode {
 	return agentcore.ToolExecutionParallel
 }
 
-// resolvePath resolves p against Root and verifies it stays within Root.
+// resolvePath resolves p against Root via the shared resolveWithin boundary
+// policy, so every file tool enforces the same workspace-escape guard.
 func (t *ReadTool) resolvePath(p string) (string, error) {
-	root := t.Root
-	if root == "" {
-		wd, err := os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("cannot determine working directory: %w", err)
-		}
-		root = wd
-	}
-	absRoot, err := filepath.Abs(root)
-	if err != nil {
-		return "", fmt.Errorf("invalid root: %w", err)
-	}
-	var full string
-	if filepath.IsAbs(p) {
-		full = filepath.Clean(p)
-	} else {
-		full = filepath.Join(absRoot, p)
-	}
-	// Boundary check: full must be absRoot or a descendant.
-	rel, err := filepath.Rel(absRoot, full)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path %q is outside the workspace root", p)
-	}
-	return full, nil
+	return resolveWithin(t.Root, p)
 }
 
 // Execute implements AgentTool. It never returns a Go error for a read failure
 // (bad path, missing file); those are encoded as error results so the model can
 // react. The returned error is reserved for argument decode failures.
 func (t *ReadTool) Execute(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
-	var a readToolArgs
-	if err := json.Unmarshal(args, &a); err != nil {
-		return errorResult(fmt.Sprintf("read: invalid arguments: %v", err)), nil
+	a, bad := decodeArgs[readToolArgs](args, "read")
+	if bad != nil {
+		return *bad, nil
 	}
 	if a.Path == "" {
 		return errorResult("read: path is required"), nil
@@ -150,7 +143,7 @@ func readNumbered(r io.Reader, offset, limit int) (string, bool) {
 	}
 
 	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	sc.Buffer(make([]byte, 0, scanBufInit), readScanBufMax)
 	var b strings.Builder
 	lineNo := 0
 	emitted := 0
