@@ -10,6 +10,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -369,5 +371,88 @@ func TestREPLStreamsAndAccumulatesHistory(t *testing.T) {
 	}
 	if len(headers) != 1 {
 		t.Errorf("expected 1 saved session, got %d", len(headers))
+	}
+}
+
+// TestREPLExportImportRoundTrip drives /export and /import end to end over the
+// REPL: after a turn, "/export <path>" writes a JSONL file, then "/import
+// <path>" materializes it as a fresh session and switches to it (US-008, #124).
+func TestREPLExportImportRoundTrip(t *testing.T) {
+	p := &replProvider{reply: "the answer"}
+	deps, store := newTestDeps(t, p)
+	origID := deps.header.ID
+	out := filepath.Join(t.TempDir(), "sess.jsonl")
+
+	var buf bytes.Buffer
+	in := strings.NewReader("hello\n/export " + out + "\n/import " + out + "\n/exit\n")
+	if err := runREPL(in, &buf, deps); err != nil {
+		t.Fatalf("runREPL: %v", err)
+	}
+	s := buf.String()
+	if !strings.Contains(s, "exported") {
+		t.Errorf("/export should confirm, out=%q", s)
+	}
+	if !strings.Contains(s, "imported") {
+		t.Errorf("/import should confirm, out=%q", s)
+	}
+	// The export file must exist and be non-empty.
+	if info, err := os.Stat(out); err != nil || info.Size() == 0 {
+		t.Fatalf("export file missing or empty: err=%v", err)
+	}
+	// The import creates a new session distinct from the original, so the store
+	// should now hold at least 2 sessions.
+	headers, err := store.List()
+	if err != nil {
+		t.Fatalf("store.List: %v", err)
+	}
+	var foundNew bool
+	for _, h := range headers {
+		if h.ID != origID && h.ParentSession == origID {
+			foundNew = true
+		}
+	}
+	if !foundNew {
+		t.Errorf("expected an imported session with ParentSession=%q, headers=%+v", origID, headers)
+	}
+}
+
+// TestREPLExportDefaultsToJSONL verifies "/export" with no path defaults to
+// "<session-id>.jsonl" and does not launch an agent run.
+func TestREPLExportDefaultsToJSONL(t *testing.T) {
+	p := &replProvider{reply: "ok"}
+	deps, _ := newTestDeps(t, p)
+	dir := t.TempDir()
+	// Run inside a temp dir so the default relative filename lands there.
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer os.Chdir(cwd)
+
+	var buf bytes.Buffer
+	if err := runREPL(strings.NewReader("hi\n/export\n/exit\n"), &buf, deps); err != nil {
+		t.Fatalf("runREPL: %v", err)
+	}
+	want := deps.header.ID + ".jsonl"
+	if _, err := os.Stat(filepath.Join(dir, want)); err != nil {
+		t.Errorf("default export file %q not created: %v", want, err)
+	}
+}
+
+// TestREPLImportTokenBoundary verifies that a command sharing a prefix with
+// /import (e.g. "/important") is NOT treated as /import — it falls through to
+// slash resolution and reports an unknown command rather than importing.
+func TestREPLImportTokenBoundary(t *testing.T) {
+	p := &replProvider{reply: "ok"}
+	deps, _ := newTestDeps(t, p)
+	var buf bytes.Buffer
+	if err := runREPL(strings.NewReader("/important\n/exit\n"), &buf, deps); err != nil {
+		t.Fatalf("runREPL: %v", err)
+	}
+	if strings.Contains(buf.String(), "imported") {
+		t.Errorf("/important must not trigger /import, out=%q", buf.String())
+	}
+	if p.calls != 0 {
+		t.Errorf("/important should not launch a run, got %d calls", p.calls)
 	}
 }
