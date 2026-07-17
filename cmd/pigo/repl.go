@@ -151,6 +151,21 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 			runTree(out, &deps, line)
 			continue
 		}
+		if line == "/export" || strings.HasPrefix(line, "/export ") {
+			// /export writes the current session to a file. It is intercepted here
+			// (not a slash Action) because it must first persist the live turn so the
+			// export reflects unsaved messages. The exact-or-space-prefix guard keeps
+			// "/exporter" from being mistaken for "/export".
+			runExport(out, &deps, line)
+			continue
+		}
+		if line == "/import" || strings.HasPrefix(line, "/import ") {
+			// /import loads a JSONL export as a fresh session and switches to it,
+			// swapping deps.header / deps.agentCtx in place — which a slash Action
+			// closure cannot do. The guard keeps "/important" from matching.
+			runImport(out, &deps, line)
+			continue
+		}
 
 		// Resolve slash-commands: an action command runs and prints its message
 		// (no agent run); a prompt command or skill expands to the text we run; an
@@ -430,6 +445,74 @@ func runTree(out io.Writer, deps *replDeps, line string) {
 	deps.curLeaf = target.ID
 	deps.persisted = len(msgs)
 	fmt.Fprintf(out, "switched to branch at node %d (%d messages) — next prompt continues from here\n", n, len(msgs))
+}
+
+// pathCommandArg extracts the path argument for a "/cmd <path>" line, enforcing a
+// command-token boundary (so "/exporter x" is NOT "/export" with arg "x") and
+// stripping a single layer of surrounding double quotes (so a path with spaces
+// can be given as /export "my session.html"). It returns "" when line is not the
+// given command or carries no argument.
+func pathCommandArg(line, cmd string) string {
+	if line != cmd && !strings.HasPrefix(line, cmd+" ") {
+		return ""
+	}
+	arg := strings.TrimSpace(strings.TrimPrefix(line, cmd))
+	if len(arg) >= 2 && strings.HasPrefix(arg, `"`) && strings.HasSuffix(arg, `"`) {
+		arg = arg[1 : len(arg)-1]
+	}
+	return arg
+}
+
+// runExport handles the /export command (US-008, #124): it persists the live
+// turn, then writes the current session to a file. "/export" with no path
+// defaults to "<session-id>.jsonl" in the working directory; "/export path.html"
+// (or .htm) writes a self-contained HTML transcript; any other extension writes
+// JSONL. The JSONL form round-trips losslessly through /import.
+func runExport(out io.Writer, deps *replDeps, line string) {
+	persistTurn(out, deps)
+	path := pathCommandArg(line, "/export")
+	if path == "" {
+		path = deps.header.ID + ".jsonl"
+	}
+	n, err := deps.store.Export(deps.header.ID, path)
+	if err != nil {
+		fmt.Fprintf(out, "pigo: export failed: %v\n", err)
+		return
+	}
+	fmt.Fprintf(out, "exported %d entries to %s\n", n, path)
+}
+
+// runImport handles the /import command (US-008, #124): it reads a JSONL export
+// and materializes it as a fresh, independent session, then switches the live
+// REPL to it (swapping header + shared context in place) so the next prompt
+// continues the imported conversation. The original file is untouched; the new
+// session records the source id as its ParentSession.
+func runImport(out io.Writer, deps *replDeps, line string) {
+	path := pathCommandArg(line, "/import")
+	if path == "" {
+		fmt.Fprintln(out, "usage: /import <path.jsonl>")
+		return
+	}
+	newHeader, entries, err := deps.store.Import(path, time.Now().UTC())
+	if err != nil {
+		fmt.Fprintf(out, "pigo: import failed: %v\n", err)
+		return
+	}
+	// Swap the live session to the imported one: rebuild the flat message list and
+	// point the REPL at the new header. The imported file already holds the entries
+	// verbatim, so mark them all persisted and set the active leaf to the tip.
+	msgs := make(agentcore.MessageList, len(entries))
+	for i, e := range entries {
+		msgs[i] = e.Message
+	}
+	deps.header = newHeader
+	deps.agentCtx.Messages = msgs
+	deps.persisted = len(entries)
+	deps.curLeaf = ""
+	if len(entries) > 0 {
+		deps.curLeaf = entries[len(entries)-1].ID
+	}
+	fmt.Fprintf(out, "imported %d entries from %s → session %s\n", len(entries), path, newHeader.ID)
 }
 
 // runManualCompact compacts the shared context on an explicit /compact request:
