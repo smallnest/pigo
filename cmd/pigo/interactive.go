@@ -70,14 +70,22 @@ func runInteractive(opts interactiveOptions) error {
 		agentCtx *agentcore.AgentContext
 		header   session.SessionHeader
 		history  []agentcore.AgentMessage
+		curLeaf  string // active leaf id on resume; "" for a fresh session
 	)
 	if opts.resumeID != "" {
 		// Interactive resume always appends a fresh user message before running,
 		// so a session that ended normally (trailing assistant reply) is resumable
 		// here. Load the raw session and rebuild the context directly.
-		h, msgs, err := store.Load(opts.resumeID)
+		h, entries, err := store.LoadEntries(opts.resumeID)
 		if err != nil {
 			return err
+		}
+		msgs := make(agentcore.MessageList, len(entries))
+		for i, e := range entries {
+			msgs[i] = e.Message
+		}
+		if len(entries) > 0 {
+			curLeaf = entries[len(entries)-1].ID
 		}
 		header = h
 		agentCtx = &agentcore.AgentContext{SystemPrompt: h.SystemPrompt, Messages: msgs, Tools: opts.tools}
@@ -126,13 +134,15 @@ func runInteractive(opts interactiveOptions) error {
 	}
 
 	return runREPL(os.Stdin, os.Stdout, replDeps{
-		store:    store,
-		header:   header,
-		agentCtx: agentCtx,
-		live:     live,
-		reg:      reg,
-		slash:    slash,
-		creds:    creds,
+		store:     store,
+		header:    header,
+		agentCtx:  agentCtx,
+		live:      live,
+		reg:       reg,
+		slash:     slash,
+		creds:     creds,
+		curLeaf:   curLeaf,
+		persisted: len(history),
 	})
 }
 
@@ -332,10 +342,10 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
 			return b.String()
 		},
 	})
-	// /exit, /quit, /compact, /fork and /clone are intercepted by the REPL loop
-	// before slash resolution (they must return from the loop, run an agent
-	// stream, or swap the active session — none of which an Action closure can
-	// do). They are registered here only so /help lists them; their Action is
+	// /exit, /quit, /compact, /fork, /clone and /tree are intercepted by the REPL
+	// loop before slash resolution (they must return from the loop, run an agent
+	// stream, or swap the active session/leaf — none of which an Action closure
+	// can do). They are registered here only so /help lists them; their Action is
 	// never actually reached.
 	for _, c := range []struct{ name, desc string }{
 		{"exit", "exit the REPL"},
@@ -343,6 +353,7 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
 		{"compact", "summarize and compact the conversation context now"},
 		{"fork", "branch from a historical message into a new session: /fork [n]"},
 		{"clone", "duplicate the current session into an independent branch"},
+		{"tree", "show the session branch tree; switch active branch: /tree [n]"},
 	} {
 		reg.AddBuiltin(runtime.SlashCommand{
 			Name:        c.name,
