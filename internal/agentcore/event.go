@@ -22,6 +22,7 @@ const (
 	EventToolExecutionStart  = "tool_execution_start"
 	EventToolExecutionUpdate = "tool_execution_update"
 	EventToolExecutionEnd    = "tool_execution_end"
+	EventCompaction          = "compaction"
 )
 
 // AgentStartEvent is emitted once when a loop run begins.
@@ -82,6 +83,29 @@ type ToolExecutionEndEvent struct {
 	IsError    bool
 }
 
+// CompactionEvent is emitted when the loop compacts the context window, either
+// automatically (threshold/overflow) or on an explicit /compact request. It
+// carries before/after token counts and how many messages were summarized vs.
+// retained. When compaction fails it is still emitted with ErrorMessage set and
+// the token/count fields describing the unchanged context, so consumers can
+// surface the failure without the session aborting (US-004).
+type CompactionEvent struct {
+	// Reason is why compaction ran: "manual", "threshold", or "overflow".
+	Reason string
+	// TokensBefore is the estimated context tokens prior to compaction.
+	TokensBefore int
+	// TokensAfter is the estimated context tokens after compaction (equals
+	// TokensBefore when compaction failed or was a no-op).
+	TokensAfter int
+	// SummarizedCount is the number of messages folded into the summary.
+	SummarizedCount int
+	// KeptCount is the number of recent messages retained verbatim.
+	KeptCount int
+	// ErrorMessage is non-empty when compaction failed; the original context is
+	// preserved in that case.
+	ErrorMessage string
+}
+
 func (AgentStartEvent) isAgentEvent()          {}
 func (AgentEndEvent) isAgentEvent()            {}
 func (TurnStartEvent) isAgentEvent()           {}
@@ -92,6 +116,7 @@ func (MessageEndEvent) isAgentEvent()          {}
 func (ToolExecutionStartEvent) isAgentEvent()  {}
 func (ToolExecutionUpdateEvent) isAgentEvent() {}
 func (ToolExecutionEndEvent) isAgentEvent()    {}
+func (CompactionEvent) isAgentEvent()          {}
 
 func (AgentStartEvent) EventType() string          { return EventAgentStart }
 func (AgentEndEvent) EventType() string            { return EventAgentEnd }
@@ -103,3 +128,4 @@ func (MessageEndEvent) EventType() string          { return EventMessageEnd }
 func (ToolExecutionStartEvent) EventType() string  { return EventToolExecutionStart }
 func (ToolExecutionUpdateEvent) EventType() string { return EventToolExecutionUpdate }
 func (ToolExecutionEndEvent) EventType() string    { return EventToolExecutionEnd }
+func (CompactionEvent) EventType() string          { return EventCompaction }

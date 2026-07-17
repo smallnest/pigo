@@ -24,6 +24,7 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/compaction"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
 	"github.com/smallnest/pigo/internal/session"
@@ -100,6 +101,17 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 		if line == "/exit" || line == "/quit" {
 			return nil
 		}
+		if line == "/compact" {
+			// /compact is intercepted here (like /exit) because compaction must run
+			// an agent stream and mutate the shared context — neither of which a
+			// slash Action closure (string in, string out) can do.
+			runManualCompact(out, deps)
+			deps.header.UpdatedAt = time.Now().UTC()
+			if err := deps.store.Save(deps.header, deps.agentCtx.Messages); err != nil {
+				fmt.Fprintf(out, "pigo: session save failed: %v\n", err)
+			}
+			continue
+		}
 
 		// Resolve slash-commands: an action command runs and prints its message
 		// (no agent run); a prompt command or skill expands to the text we run; an
@@ -149,10 +161,12 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 	})
 	cfg := runtime.RunConfig{
 		LoopConfig: runtime.LoopConfig{
-			Model:     deps.live.model,
-			Provider:  deps.live.providerName,
-			Stream:    provider.StreamFnFromProvider(deps.live.provider),
-			GetAPIKey: deps.creds.GetAPIKey,
+			Model:         deps.live.model,
+			Provider:      deps.live.providerName,
+			Stream:        provider.StreamFnFromProvider(deps.live.provider),
+			GetAPIKey:     deps.creds.GetAPIKey,
+			ContextWindow: deps.live.contextWindow,
+			Compaction:    compaction.DefaultCompactionSettings,
 		},
 		Batch: agenttool.BatchConfig{
 			ToolExecutorConfig: agenttool.ToolExecutorConfig{Registry: deps.reg},
@@ -191,6 +205,44 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 			fmt.Fprintf(out, "error: %v\n", err)
 		}
 	}
+}
+
+// runManualCompact compacts the shared context on an explicit /compact request:
+// it runs the summarization stream, replaces the context with the checkpoint +
+// retained tail, and prints the before/after token counts and retained message
+// count. A failure is reported but non-fatal — the original context is kept
+// unchanged (US-004). It uses the same provider/model as the live run.
+func runManualCompact(out io.Writer, deps replDeps) {
+	msgs := deps.agentCtx.Messages
+	settings := compaction.DefaultCompactionSettings
+	before := compaction.EstimateContextTokens(msgs).Tokens
+
+	stream := provider.StreamFnFromProvider(deps.live.provider)
+	model := provider.Model{Provider: deps.live.providerName, ID: deps.live.model, ContextWindow: deps.live.contextWindow}
+
+	// Resolve the API key like a normal turn so summarization authenticates
+	// against auth-requiring providers (otherwise Compact fails with
+	// "missing API key" and /compact would always report a non-fatal failure).
+	scfg := provider.StreamConfig{}
+	if deps.creds != nil {
+		scfg.APIKey = deps.creds.GetAPIKey(context.Background(), deps.live.providerName)
+	}
+	res, err := compaction.Compact(context.Background(), stream, model, msgs, settings, -1, nil, "", scfg)
+	if err != nil {
+		fmt.Fprintf(out, "compaction failed: %v (context left unchanged)\n", err)
+		return
+	}
+	if res == nil {
+		fmt.Fprintf(out, "nothing to compact (%d tokens, %d messages)\n", before, len(msgs))
+		return
+	}
+	now := time.Now().UnixMilli()
+	rebuilt := res.RebuildContext(msgs, now)
+	deps.agentCtx.Messages = rebuilt
+	after := compaction.EstimateContextTokens(rebuilt).Tokens
+	summarized := len(msgs) - (len(rebuilt) - 1)
+	fmt.Fprintf(out, "compacted: %d → %d tokens, summarized %d messages, kept %d\n",
+		before, after, summarized, len(rebuilt)-1)
 }
 
 // replayTranscript prints a resumed session's prior messages to out so the user

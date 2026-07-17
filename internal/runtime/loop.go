@@ -21,10 +21,17 @@ package runtime
 
 import (
 	"context"
+	"time"
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/compaction"
+	"github.com/smallnest/pigo/internal/provider"
 )
+
+// nowMillis returns the current Unix time in milliseconds, the timestamp unit
+// used for CompactionMessage checkpoints.
+func nowMillis() int64 { return time.Now().UnixMilli() }
 
 // TurnUpdate is the optional result of PrepareNextTurn: any non-nil field
 // replaces the corresponding piece of loop state before the next turn. It lets
@@ -142,7 +149,7 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 					finish()
 					return
 				}
-				if afterTurn(ctx, agentCtx, &cfg, true) {
+				if afterTurn(ctx, agentCtx, &cfg, true, emit) {
 					finish()
 					return
 				}
@@ -161,7 +168,7 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 					finish()
 					return
 				}
-				if afterTurn(ctx, agentCtx, &cfg, false) {
+				if afterTurn(ctx, agentCtx, &cfg, false, emit) {
 					finish()
 					return
 				}
@@ -183,7 +190,7 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 				finish()
 				return
 			}
-			if afterTurn(ctx, agentCtx, &cfg, true) {
+			if afterTurn(ctx, agentCtx, &cfg, true, emit) {
 				finish()
 				return
 			}
@@ -205,9 +212,10 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 
 // afterTurn runs the per-turn hooks after a turn_end. When hadToolExecution is
 // true it first pulls getSteeringMessages and injects them before the next turn
-// (pi per-turn semantics). It then applies prepareNextTurn and finally consults
+// (pi per-turn semantics). It then applies prepareNextTurn, runs auto-compaction
+// when the context has outgrown its window, and finally consults
 // shouldStopAfterTurn, returning true when the run should end.
-func afterTurn(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunConfig, hadToolExecution bool) (stop bool) {
+func afterTurn(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunConfig, hadToolExecution bool, emit func(agentcore.AgentEvent) error) (stop bool) {
 	if hadToolExecution && cfg.GetSteeringMessages != nil {
 		if steer := cfg.GetSteeringMessages(ctx); len(steer) > 0 {
 			agentCtx.Messages = append(agentCtx.Messages, steer...)
@@ -218,10 +226,80 @@ func afterTurn(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunCo
 			applyTurnUpdate(agentCtx, cfg, upd)
 		}
 	}
+	maybeAutoCompact(ctx, agentCtx, cfg, emit)
 	if cfg.ShouldStopAfterTurn != nil {
 		return cfg.ShouldStopAfterTurn(ctx, agentCtx)
 	}
 	return false
+}
+
+// maybeAutoCompact checks whether the context has outgrown its usable window and,
+// if so, compacts it in place and emits a CompactionEvent. Compaction is a no-op
+// when disabled, when the context window is unknown (<= 0), or when usage is
+// under threshold. A compaction failure is non-fatal: the original context is
+// preserved and a CompactionEvent carrying ErrorMessage is emitted so the failure
+// is observable without aborting the run (US-004).
+func maybeAutoCompact(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunConfig, emit func(agentcore.AgentEvent) error) {
+	if !cfg.Compaction.Enabled || cfg.ContextWindow <= 0 {
+		return
+	}
+	before := compaction.EstimateContextTokens(agentCtx.Messages).Tokens
+	if !compaction.ShouldCompact(before, cfg.ContextWindow, cfg.Compaction) {
+		return
+	}
+	res, err := runCompaction(ctx, agentCtx.Messages, cfg)
+	kept := len(agentCtx.Messages)
+	if err != nil {
+		_ = emit(agentcore.CompactionEvent{
+			Reason:       "threshold",
+			TokensBefore: before,
+			TokensAfter:  before,
+			KeptCount:    kept,
+			ErrorMessage: err.Error(),
+		})
+		return
+	}
+	if res == nil {
+		// Nothing to summarize (cut point left no prefix); leave context as-is.
+		return
+	}
+	now := nowMillis()
+	rebuilt := res.RebuildContext(agentCtx.Messages, now)
+	summarized := len(agentCtx.Messages) - (len(rebuilt) - 1)
+	agentCtx.Messages = rebuilt
+	after := compaction.EstimateContextTokens(rebuilt).Tokens
+	_ = emit(agentcore.CompactionEvent{
+		Reason:          "threshold",
+		TokensBefore:    before,
+		TokensAfter:     after,
+		SummarizedCount: summarized,
+		KeptCount:       len(rebuilt) - 1,
+	})
+}
+
+// runCompaction invokes compaction.Compact with the loop's summarization config,
+// falling back to the primary Stream/Model when the summary-specific fields are
+// unset. Compact derives the cut point from settings.KeepRecentTokens.
+func runCompaction(ctx context.Context, msgs agentcore.MessageList, cfg *RunConfig) (*compaction.CompactionResult, error) {
+	stream := cfg.SummaryStream
+	if stream == nil {
+		stream = cfg.Stream
+	}
+	model := cfg.SummaryModel
+	if model.ID == "" {
+		model = provider.Model{Provider: cfg.Provider, ID: cfg.Model, ContextWindow: cfg.ContextWindow}
+	}
+	// Resolve the API key the same way the primary turn does (dynamic key wins,
+	// static APIKey is the fallback) so the summarization stream authenticates
+	// against auth-requiring providers instead of failing with "missing API key".
+	key := cfg.APIKey
+	if cfg.GetAPIKey != nil {
+		if dyn := cfg.GetAPIKey(ctx, cfg.Provider); dyn != "" {
+			key = dyn
+		}
+	}
+	scfg := provider.StreamConfig{APIKey: key, ThinkingLevel: cfg.ThinkingLevel}
+	return compaction.Compact(ctx, stream, model, msgs, cfg.Compaction, -1, nil, "", scfg)
 }
 
 // applyTurnUpdate applies a non-nil TurnUpdate to the mutable loop state: any

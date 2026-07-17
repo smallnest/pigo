@@ -102,11 +102,12 @@ func runInteractive(opts interactiveOptions) error {
 	// takes effect on the next turn; header is updated so the switch is persisted
 	// with the session.
 	live := &liveRunConfig{
-		model:        opts.model,
-		providerName: opts.providerName,
-		provider:     opts.provider,
-		baseURL:      opts.baseURL,
-		protocol:     opts.protocol,
+		model:         opts.model,
+		providerName:  opts.providerName,
+		provider:      opts.provider,
+		baseURL:       opts.baseURL,
+		protocol:      opts.protocol,
+		contextWindow: defaultContextWindow,
 	}
 
 	// Wire slash-commands: built-ins (compile-time) plus any user templates under
@@ -271,7 +272,18 @@ type liveRunConfig struct {
 	provider     provider.Provider
 	baseURL      string
 	protocol     string
+	// contextWindow is the model's total context-token budget, used to gate
+	// automatic compaction. When 0 the window is unknown and auto-compaction is
+	// disabled; the REPL seeds it with a conservative default so long sessions
+	// still compact rather than overflow.
+	contextWindow int
 }
+
+// defaultContextWindow is the fallback context-token budget used when a model's
+// true window is unknown. It is deliberately large so auto-compaction only fires
+// on genuinely long sessions (threshold = window - ReserveTokens), never on
+// ordinary short exchanges.
+const defaultContextWindow = 128000
 
 // registerLiveCommands installs the built-in action commands that need live
 // runtime state. /model views or switches the active model; /help lists the
@@ -320,14 +332,18 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
 			return b.String()
 		},
 	})
-	// /exit and /quit are intercepted by the REPL loop before slash resolution
-	// (they must return from the loop, which an Action closure cannot do). They
-	// are registered here only so /help lists them; their Action is never
-	// actually reached.
-	for _, name := range []string{"exit", "quit"} {
+	// /exit, /quit and /compact are intercepted by the REPL loop before slash
+	// resolution (they must return from the loop or run an agent stream + mutate
+	// the shared context, which an Action closure cannot do). They are registered
+	// here only so /help lists them; their Action is never actually reached.
+	for _, c := range []struct{ name, desc string }{
+		{"exit", "exit the REPL"},
+		{"quit", "exit the REPL"},
+		{"compact", "summarize and compact the conversation context now"},
+	} {
 		reg.AddBuiltin(runtime.SlashCommand{
-			Name:        name,
-			Description: "exit the REPL",
+			Name:        c.name,
+			Description: c.desc,
 			Action:      func(string) string { return "" },
 		})
 	}
