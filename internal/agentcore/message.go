@@ -10,6 +10,11 @@ const (
 	RoleUser       = "user"
 	RoleAssistant  = "assistant"
 	RoleToolResult = "toolResult"
+	// RoleCompaction marks a compaction checkpoint persisted inline in the
+	// message list: it replaces the history summarized before it (pi's
+	// "compactionSummary"). It is not sent to the model verbatim; the LLM
+	// conversion turns it into a user text block.
+	RoleCompaction = "compaction"
 )
 
 // Message is the sealed interface implemented by the three message roles.
@@ -92,6 +97,45 @@ type ToolResultMessage struct {
 func (ToolResultMessage) isMessage()     {}
 func (m ToolResultMessage) Role() string { return RoleToolResult }
 
+// CompactionMessage is a summarization checkpoint persisted inline in the
+// message list. It stands in for the history compacted before it: Summary is
+// the structured checkpoint text and TokensBefore records the estimated context
+// size at compaction time (for observability). Details optionally holds the
+// file operations extracted from the compacted range. Mirrors pi's
+// CompactionSummaryMessage + CompactionEntry.
+type CompactionMessage struct {
+	RoleField    string `json:"role"`
+	Summary      string `json:"summary"`
+	TokensBefore int    `json:"tokensBefore,omitempty"`
+	// Details is opaque at this layer (the compaction package owns its shape);
+	// kept as raw JSON so agentcore stays free of a compaction dependency.
+	Details   json.RawMessage `json:"details,omitempty"`
+	Timestamp int64           `json:"timestamp"`
+}
+
+func (CompactionMessage) isMessage()     {}
+func (m CompactionMessage) Role() string { return RoleCompaction }
+
+// compactionSummaryPrefix / compactionSummarySuffix wrap a compaction summary
+// when it is rendered into an LLM user message, matching pi's
+// COMPACTION_SUMMARY_PREFIX / COMPACTION_SUMMARY_SUFFIX.
+const (
+	compactionSummaryPrefix = "The conversation history before this point was compacted into the following summary:\n\n<summary>\n"
+	compactionSummarySuffix = "\n</summary>"
+)
+
+// AsUserMessage renders a compaction checkpoint as the user text message that
+// stands in for the compacted history when building the LLM request. The
+// provider encoders call this so a persisted compaction line replays as
+// context rather than being dropped.
+func (m CompactionMessage) AsUserMessage() UserMessage {
+	return UserMessage{
+		RoleField: RoleUser,
+		Content:   ContentList{NewTextContent(compactionSummaryPrefix + m.Summary + compactionSummarySuffix)},
+		Timestamp: m.Timestamp,
+	}
+}
+
 // StopReason values, matching pi.
 const (
 	StopReasonEndTurn = "end_turn"
@@ -148,6 +192,12 @@ func decodeMessage(raw json.RawMessage) (Message, error) {
 		return m, nil
 	case RoleToolResult:
 		var m ToolResultMessage
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return nil, err
+		}
+		return m, nil
+	case RoleCompaction:
+		var m CompactionMessage
 		if err := json.Unmarshal(raw, &m); err != nil {
 			return nil, err
 		}

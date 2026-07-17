@@ -133,6 +133,10 @@ func encodeOpenAIMessage(m agentcore.Message) []map[string]any {
 	switch msg := m.(type) {
 	case agentcore.UserMessage:
 		return []map[string]any{{"role": "user", "content": agentcore.ContentToText(msg.Content)}}
+	case agentcore.CompactionMessage:
+		// A compaction checkpoint stands in for compacted history as user text.
+		u := msg.AsUserMessage()
+		return []map[string]any{{"role": "user", "content": agentcore.ContentToText(u.Content)}}
 	case agentcore.AssistantMessage:
 		entry := map[string]any{"role": "assistant"}
 		entry["content"] = agentcore.ContentToText(msg.Content)
@@ -273,6 +277,9 @@ func encodeAnthropicMessage(m agentcore.Message) map[string]any {
 	switch msg := m.(type) {
 	case agentcore.UserMessage:
 		return map[string]any{"role": "user", "content": agentcore.ContentToText(msg.Content)}
+	case agentcore.CompactionMessage:
+		u := msg.AsUserMessage()
+		return map[string]any{"role": "user", "content": agentcore.ContentToText(u.Content)}
 	case agentcore.AssistantMessage:
 		var blocks []map[string]any
 		for _, c := range msg.Content {

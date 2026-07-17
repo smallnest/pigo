@@ -166,3 +166,63 @@ func TestLoadRejectsNewerSchema(t *testing.T) {
 		t.Error("Load must reject a newer schema version")
 	}
 }
+
+// TestLoadV1FileStillReadable verifies the v2 schema bump is backward-compatible:
+// an old v1 session file (no compaction lines) loads without error.
+func TestLoadV1FileStillReadable(t *testing.T) {
+	s := newStore(t)
+	v1 := `{"version":1,"id":"old","createdAt":"2026-07-10T00:00:00Z","updatedAt":"2026-07-10T00:00:00Z"}` + "\n" +
+		`{"role":"user","content":[{"type":"text","text":"hi"}],"timestamp":0}` + "\n"
+	path := filepath.Join(s.Dir(), FileName("old"))
+	if err := writeFile(path, v1); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	h, msgs, err := s.Load("old")
+	if err != nil {
+		t.Fatalf("Load v1: %v", err)
+	}
+	if h.Version != 1 {
+		t.Fatalf("version: got %d, want 1", h.Version)
+	}
+	if len(msgs) != 1 || msgs[0].Role() != agentcore.RoleUser {
+		t.Fatalf("messages: got %+v", msgs)
+	}
+}
+
+// TestSaveLoadCompactionEntry verifies a compaction checkpoint round-trips
+// through the JSONL store as a first-class message line under schema v2.
+func TestSaveLoadCompactionEntry(t *testing.T) {
+	s := newStore(t)
+	now := time.Date(2026, 7, 17, 0, 0, 0, 0, time.UTC)
+	header := SessionHeader{ID: NewID(now), CreatedAt: now, UpdatedAt: now}
+	msgs := agentcore.MessageList{
+		agentcore.CompactionMessage{
+			RoleField:    agentcore.RoleCompaction,
+			Summary:      "## Goal\nship #119",
+			TokensBefore: 12345,
+			Details:      []byte(`{"readFiles":["a.go"],"modifiedFiles":["b.go"]}`),
+			Timestamp:    now.UnixMilli(),
+		},
+		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("continue")}},
+	}
+	if err := s.Save(header, msgs); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	loaded, back, err := s.Load(header.ID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.Version != SchemaVersion {
+		t.Fatalf("version: got %d, want %d", loaded.Version, SchemaVersion)
+	}
+	if len(back) != 2 || back[0].Role() != agentcore.RoleCompaction {
+		t.Fatalf("messages: got %+v", back)
+	}
+	cm, ok := back[0].(agentcore.CompactionMessage)
+	if !ok {
+		t.Fatalf("first message is not a CompactionMessage: %T", back[0])
+	}
+	if cm.Summary != "## Goal\nship #119" || cm.TokensBefore != 12345 {
+		t.Fatalf("compaction fields: %+v", cm)
+	}
+}

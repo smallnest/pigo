@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0119</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/119">#119</a> &mdash; 摘要生成与 CompactionEntry 落盘 &mdash; 2026-07-17</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> CompactionMessage as a first-class message role, not a separate session-entry type</h3>
+      <p><strong>Ambiguity:</strong> The spec says "结果作为一条 CompactionEntry 写入 session JSONL" but pigo has no entry-type abstraction — it uses a flat <code>[]agentcore.Message</code>, whereas pi uses a tree of <code>SessionTreeEntry</code>.</p>
+      <p><strong>Choice:</strong> Added <code>RoleCompaction = "compaction"</code> and a <code>CompactionMessage</code> struct that implements the sealed <code>agentcore.Message</code> interface, wired into <code>decodeMessage</code>.</p>
+      <p><strong>Rationale:</strong> A compaction checkpoint then flows unchanged through the existing <code>MessageList</code> decode, session JSONL append/load, and provider encoders. No parallel persistence path or entry-type switch is needed.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Store CompactionDetails as <code>json.RawMessage</code> in agentcore</h3>
+      <p><strong>Ambiguity:</strong> The details (readFiles/modifiedFiles) shape is owned by the compaction package, but the message lives in agentcore.</p>
+      <p><strong>Choice:</strong> <code>CompactionMessage.Details</code> is a <code>json.RawMessage</code>; the <code>compaction</code> package marshals/unmarshals its own <code>CompactionDetails</code> struct.</p>
+      <p><strong>Rationale:</strong> Keeps <code>agentcore</code> free of any dependency on <code>compaction</code>, avoiding an import cycle while still round-tripping the metadata through JSONL.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Index-based <code>FirstKeptIndex</code> instead of pi's <code>firstKeptEntryId</code></h3>
+      <p><strong>Ambiguity:</strong> pi identifies the cut boundary by tree entry id; pigo has no ids.</p>
+      <p><strong>Choice:</strong> <code>CompactionResult.FirstKeptIndex</code> is a slice index into the flat message list; <code>RebuildContext</code> returns <code>[checkpoint] + msgs[FirstKeptIndex:]</code>.</p>
+      <p><strong>Rationale:</strong> Matches pigo's existing flat-list model; the cut point is naturally an index from <code>FindCutPoint</code>.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Usage tokens summed as input+output only</h3>
+      <p><strong>Spec/pi:</strong> pi folds cache-read and cache-write tokens into the context-token total.</p>
+      <p><strong>Implemented:</strong> <code>calculateContextTokens</code> sums only <code>InputTokens + OutputTokens</code>.</p>
+      <p><strong>Why:</strong> pigo's <code>Usage</code> struct does not track cache tokens, so there is nothing to fold in. Behavior is faithful to the data pigo actually has; if cache accounting is added later, this is the one place to extend.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> maxTokens cap via <code>cfg.Extra["max_tokens"]</code> rather than a typed field</h3>
+      <p><strong>Alternatives:</strong> (a) add a dedicated <code>MaxTokens int</code> to <code>StreamConfig</code>; (b) pass through the existing <code>Extra map[string]any</code>.</p>
+      <p><strong>Chosen (b):</strong> providers already read <code>Extra["max_tokens"]</code> via <code>maxOutputTokensFor</code>, so summarization reuses that path with no signature change across every provider.</p>
+      <p><strong>Cost:</strong> loses compile-time typing on the key, but keeps the provider interface stable and avoids touching Bedrock/OpenAI/Ollama constructors.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Deterministic tool-call serialization (sorted keys)</h3>
+      <p><strong>Alternatives:</strong> serialize tool-call args in map iteration order, or sort keys.</p>
+      <p><strong>Chosen:</strong> <code>formatToolCall</code> sorts keys before emitting <code>name(key=value, ...)</code>.</p>
+      <p><strong>Why:</strong> stable output makes <code>serializeConversation</code> testable and reproducible; the small sort cost is irrelevant at compaction scale.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Wiring compaction into the live agent loop</h3>
+      <p><strong>Assumption:</strong> #119 delivers the summarization + persistence machinery; the actual trigger (<code>/compact</code> command and auto-compaction when <code>ShouldCompact</code> fires) is scoped to #120.</p>
+      <p><strong>Verify:</strong> confirm the loop integration in #120 calls <code>Compact</code> + <code>RebuildContext</code> and appends the <code>CompactionMessage</code> to the session store.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Image-block handling in serialized conversations</h3>
+      <p><strong>Assumption:</strong> <code>serializeConversation</code> renders text/thinking/tool-call/tool-result content; image blocks contribute only their token estimate (4800 chars) and are not textually summarized.</p>
+      <p><strong>Verify:</strong> confirm this matches expectations — pi similarly does not inline image bytes into the summary prompt.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
