@@ -344,6 +344,121 @@ func TestAppendPreservesChain(t *testing.T) {
 	}
 }
 
+// TestForkClonesFullConversation verifies Fork(sourceID, lastLeaf) — the /clone
+// case — copies the entire conversation verbatim into a new, independent session:
+// the new header records ParentSession, the copied entries keep their ids, and
+// appending to the fork does NOT touch the source (branch isolation).
+func TestForkClonesFullConversation(t *testing.T) {
+	s := newStore(t)
+	now := time.Date(2026, 7, 17, 0, 0, 0, 0, time.UTC)
+	src := SessionHeader{ID: NewID(now), CreatedAt: now, UpdatedAt: now, Model: "m", Provider: "p", SystemPrompt: "sp"}
+	if err := s.Save(src, sampleMessages()); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	_, srcEntries, err := s.LoadEntries(src.ID)
+	if err != nil {
+		t.Fatalf("LoadEntries: %v", err)
+	}
+	leaf := srcEntries[len(srcEntries)-1].ID
+
+	forkHeader, forkEntries, err := s.Fork(src.ID, leaf, now.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("Fork: %v", err)
+	}
+	if forkHeader.ID == src.ID {
+		t.Fatal("fork must get a new id, got the source id")
+	}
+	if forkHeader.ParentSession != src.ID {
+		t.Errorf("ParentSession = %q, want %q", forkHeader.ParentSession, src.ID)
+	}
+	// Header metadata is inherited from the source.
+	if forkHeader.Model != "m" || forkHeader.Provider != "p" || forkHeader.SystemPrompt != "sp" {
+		t.Errorf("fork header did not inherit source metadata: %+v", forkHeader)
+	}
+	if len(forkEntries) != len(srcEntries) {
+		t.Fatalf("fork entry count = %d, want %d (full clone)", len(forkEntries), len(srcEntries))
+	}
+	// Copied entries keep their ids/parentIds verbatim.
+	for i := range srcEntries {
+		if forkEntries[i].ID != srcEntries[i].ID || forkEntries[i].ParentID != srcEntries[i].ParentID {
+			t.Errorf("entry[%d] id/parent = (%q,%q), want (%q,%q)", i,
+				forkEntries[i].ID, forkEntries[i].ParentID, srcEntries[i].ID, srcEntries[i].ParentID)
+		}
+	}
+
+	// Branch isolation: appending to the fork must not change the source.
+	extra := agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("on the fork only")}}}
+	if err := s.Append(forkHeader.ID, now.Add(2*time.Hour), extra); err != nil {
+		t.Fatalf("Append to fork: %v", err)
+	}
+	_, srcAfter, err := s.Load(src.ID)
+	if err != nil {
+		t.Fatalf("Load source: %v", err)
+	}
+	if len(srcAfter) != len(sampleMessages()) {
+		t.Errorf("source message count changed to %d after fork append, want %d (branches must be isolated)", len(srcAfter), len(sampleMessages()))
+	}
+	_, forkAfter, err := s.Load(forkHeader.ID)
+	if err != nil {
+		t.Fatalf("Load fork: %v", err)
+	}
+	if len(forkAfter) != len(sampleMessages())+1 {
+		t.Errorf("fork message count = %d, want %d", len(forkAfter), len(sampleMessages())+1)
+	}
+}
+
+// TestForkBeforeUserMessage verifies Fork(sourceID, parentOfUserMsg) — the
+// /fork case — copies only the prefix up to (excluding) a chosen user message,
+// so the branch can re-prompt from that point. Forking before the very first
+// user message (empty leafID) yields an empty session rooted at the source.
+func TestForkBeforeUserMessage(t *testing.T) {
+	s := newStore(t)
+	now := time.Date(2026, 7, 17, 0, 0, 0, 0, time.UTC)
+	src := SessionHeader{ID: NewID(now), CreatedAt: now, UpdatedAt: now}
+	if err := s.Save(src, sampleMessages()); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	_, entries, err := s.LoadEntries(src.ID)
+	if err != nil {
+		t.Fatalf("LoadEntries: %v", err)
+	}
+	// sampleMessages()[0] is the first user message (a root). Forking before it
+	// uses its ParentID (empty) → an empty branch.
+	if entries[0].ParentID != "" {
+		t.Fatalf("precondition: first entry should be a root")
+	}
+	emptyHeader, emptyPath, err := s.Fork(src.ID, entries[0].ParentID, now.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("Fork before first message: %v", err)
+	}
+	if len(emptyPath) != 0 {
+		t.Errorf("fork before first message = %d entries, want 0", len(emptyPath))
+	}
+	if emptyHeader.ParentSession != src.ID {
+		t.Errorf("ParentSession = %q, want %q", emptyHeader.ParentSession, src.ID)
+	}
+	// Reloading the empty fork yields a valid, empty session.
+	_, reload, err := s.LoadEntries(emptyHeader.ID)
+	if err != nil {
+		t.Fatalf("LoadEntries(empty fork): %v", err)
+	}
+	if len(reload) != 0 {
+		t.Errorf("reloaded empty fork = %d entries, want 0", len(reload))
+	}
+
+	// Forking before the SECOND-turn user message (there is only one user message
+	// in sampleMessages, so simulate a two-user transcript) — copy just the prefix.
+	// Here we fork at the parent of the last entry to get all but the last message.
+	lastParent := entries[len(entries)-1].ParentID
+	_, prefix, err := s.Fork(src.ID, lastParent, now.Add(2*time.Hour))
+	if err != nil {
+		t.Fatalf("Fork at last parent: %v", err)
+	}
+	if len(prefix) != len(entries)-1 {
+		t.Errorf("prefix fork = %d entries, want %d", len(prefix), len(entries)-1)
+	}
+}
+
 // through the JSONL store as a first-class message line under schema v2.
 func TestSaveLoadCompactionEntry(t *testing.T) {
 	s := newStore(t)

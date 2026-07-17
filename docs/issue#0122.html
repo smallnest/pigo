@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0122</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block; font-size: 0.6875rem; font-weight: 500;
+      padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    code { background: #F0EEEA; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.8125rem; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/122">#122</a> &mdash; /fork 与 /clone 命令 (US-006) &mdash; 2026-07-17</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> fork = 复制 root→leaf 路径到全新会话文件，而非在同一文件内分叉</h3>
+      <p><strong>Ambiguity:</strong> Spec 说“以选定消息为父创建新 leaf”“复制新分支不影响原分支”，但没规定分支是同文件多叶子还是独立文件。</p>
+      <p><strong>Choice:</strong> <code>Store.Fork(sourceID, leafID, now)</code> 用 <code>PathToLeaf</code> 取出 root→leaf 的线性路径，<code>SaveEntries</code> 原样(保留 id/parentId)写入一个新 id 的会话文件，header 记 <code>ParentSession=sourceID</code>。</p>
+      <p><strong>Rationale:</strong> 独立文件天然满足“互不污染”——向任一会话 Append 都不碰另一个。对齐 pi 的 <code>createBranchedSession</code>(也是复制路径到新文件 + <code>parentSession</code> 血缘)。多叶子单文件会让 resume/List 复杂化且违背既有“一个会话一个文件”的模型。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> /clone 与 /fork 共用一个 Fork 原语，只是 leafID 取法不同</h3>
+      <p><strong>Ambiguity:</strong> pi 里 clone 是 <code>fork(leafId, {position:"at"})</code>，fork 是 <code>fork(entryId, {position:"before"})</code>——两者是否该是两个函数。</p>
+      <p><strong>Choice:</strong> 后端只有一个 <code>Fork</code>。<code>/clone</code> 传当前 leaf(最后一条 entry)的 id → 复制整段；<code>/fork n</code> 传第 n 条 user 消息的 <code>ParentID</code> → 复制到该消息之前。</p>
+      <p><strong>Rationale:</strong> “position before/at”本质就是“选哪个 entry 当新 leaf”，无需两条代码路径。REPL 层负责把用户意图翻译成 leafID。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> /fork 交互拆成两步：无参列消息、<code>/fork n</code> 选择</h3>
+      <p><strong>Ambiguity:</strong> Spec 要求“列出历史 user 消息供选择”，但行式 REPL 无弹窗/方向键选择器(pi 有 <code>showUserMessageSelector</code>)。</p>
+      <p><strong>Choice:</strong> <code>/fork</code> 无参时编号打印所有历史 user 消息(<code>oneLine</code> 截断)；<code>/fork n</code> 按编号选定。越界/非数字给出清晰错误。</p>
+      <p><strong>Rationale:</strong> 与本仓库既有的纯行式 REPL 风格一致(#106 去掉了 bubbletea TUI)，无需引入交互式选择器依赖。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> /fork 与 /clone 在 REPL 循环里直接拦截，不走 SlashRegistry Action</h3>
+      <p><strong>Spec:</strong> 只要求命令存在并生效，未规定注册方式。</p>
+      <p><strong>Implemented:</strong> 与 <code>/compact</code>/<code>/exit</code> 一样在 <code>runREPL</code> 循环里拦截，因为它们要替换共享的 <code>deps.header</code> 和 <code>deps.agentCtx</code>——而 Action 闭包签名是纯 <code>func(string) string</code>，够不到这些 per-run 状态。仍在 <code>registerLiveCommands</code> 注册占位以便 <code>/help</code> 能列出。</p>
+      <p><strong>Why:</strong> 沿用仓库已确立的“需要改运行时状态的命令在循环里拦截”约定，避免给 Action 闭包硬塞可变状态。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> fork 前先整文件 Save，再 LoadEntries 复制</h3>
+      <p><strong>Alternatives:</strong> (A) fork 前把当前内存 context 落盘、再从磁盘读 entry 树复制；(B) 直接用内存里的 message 列表重建 entry 复制。</p>
+      <p><strong>Chosen:</strong> A。</p>
+      <p><strong>Why:</strong> 磁盘上的 entry 树是 id/parentId 的权威来源(内存里只有扁平 MessageList，没有 entry id)。多一次读盘换来 fork 的 id 保真与逻辑简单，对交互式命令的延迟无感。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 抽出 atomicWrite 复用给 Save/SaveEntries</h3>
+      <p><strong>Alternatives:</strong> (A) SaveEntries 复制粘贴 Save 的临时文件+rename 逻辑；(B) 提取 <code>atomicWrite(id, write func(io.Writer) error)</code> 共用。</p>
+      <p><strong>Chosen:</strong> B。</p>
+      <p><strong>Why:</strong> 消除重复的原子写样板，两个写入者共享同一份“临时文件→flush→close→rename”正确性保证。代价是多一层闭包间接，可接受。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> fork/clone 后是否需要自动切换 resume 目标或提示 session id？</h3>
+      <p>当前实现打印新 session id，用户下次 <code>--resume &lt;id&gt;</code> 可走到该 leaf。是否需要一个 <code>/session</code> 展示当前活动 id(将在 #125 落地)或 fork 后写入 “last session” 指针，待确认。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 空 fork(在首条消息之前)产出空会话是否符合预期？</h3>
+      <p><code>/fork 1</code> 会 fork 到第一条 user 消息之前 → 新会话为空(仅 header)。实现按“合法的空分支”处理，resume 后从零开始但保留 systemPrompt/model。若期望禁止此操作请确认。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

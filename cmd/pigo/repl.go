@@ -18,6 +18,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -110,6 +111,15 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 			if err := deps.store.Save(deps.header, deps.agentCtx.Messages); err != nil {
 				fmt.Fprintf(out, "pigo: session save failed: %v\n", err)
 			}
+			continue
+		}
+		if line == "/clone" || line == "/fork" || strings.HasPrefix(line, "/fork ") {
+			// /fork and /clone are intercepted here (like /compact) because they
+			// switch the active session — replacing the header and the shared
+			// context in place — which a slash Action closure (pure string→string)
+			// cannot do. runForkClone saves the current session, forks it, and
+			// swaps deps.header / deps.agentCtx to the new branch on success.
+			runForkClone(out, &deps, line)
 			continue
 		}
 
@@ -205,6 +215,103 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 			fmt.Fprintf(out, "error: %v\n", err)
 		}
 	}
+}
+
+// runForkClone handles the /fork and /clone commands (US-006, #122), which
+// branch the conversation tree into a new, independent session.
+//
+//   - "/clone" duplicates the entire current conversation at its current leaf
+//     into a fresh session and switches to it. Appending to the clone never
+//     affects the original (they are separate files).
+//   - "/fork" with no argument lists the historical user messages, numbered, so
+//     the user can pick one.
+//   - "/fork N" branches from BEFORE the N-th listed user message: the new
+//     session holds everything up to (but excluding) that message, so the user
+//     re-prompts from that point on an independent branch.
+//
+// Both first persist the current session (so the fork copies a saved tree),
+// then call store.Fork to write the new branch, and finally swap deps.header and
+// deps.agentCtx to the new session in place so subsequent prompts continue on
+// the branch. resume of either session id later walks to its own leaf.
+func runForkClone(out io.Writer, deps *replDeps, line string) {
+	// Persist the current session so Fork copies an up-to-date, saved tree.
+	deps.header.UpdatedAt = time.Now().UTC()
+	if err := deps.store.Save(deps.header, deps.agentCtx.Messages); err != nil {
+		fmt.Fprintf(out, "pigo: session save failed: %v\n", err)
+		return
+	}
+	_, entries, err := deps.store.LoadEntries(deps.header.ID)
+	if err != nil {
+		fmt.Fprintf(out, "pigo: cannot read session tree: %v\n", err)
+		return
+	}
+	if len(entries) == 0 {
+		fmt.Fprintln(out, "nothing to fork yet — send a message first")
+		return
+	}
+
+	fields := strings.Fields(line)
+	cmd := fields[0]
+
+	var leafID string
+	if cmd == "/clone" {
+		// Clone the whole conversation at the current leaf (last entry).
+		leafID = entries[len(entries)-1].ID
+	} else { // /fork
+		// Collect the historical user messages, in order, with their entry index.
+		type userMsg struct {
+			idx  int // index into entries
+			text string
+		}
+		var users []userMsg
+		for i, e := range entries {
+			if u, ok := e.Message.(agentcore.UserMessage); ok {
+				users = append(users, userMsg{idx: i, text: agentcore.ContentToText(u.Content)})
+			}
+		}
+		if len(users) == 0 {
+			fmt.Fprintln(out, "no user messages to fork from")
+			return
+		}
+		if len(fields) < 2 {
+			// List the user messages for selection.
+			fmt.Fprintln(out, "fork from which message? run /fork <n>:")
+			for n, u := range users {
+				fmt.Fprintf(out, "  %d. %s\n", n+1, oneLine(u.text))
+			}
+			return
+		}
+		n, convErr := strconv.Atoi(fields[1])
+		if convErr != nil || n < 1 || n > len(users) {
+			fmt.Fprintf(out, "invalid selection %q — run /fork to list messages (1..%d)\n", fields[1], len(users))
+			return
+		}
+		// Fork BEFORE the chosen user message: its parent becomes the new leaf, so
+		// the copied branch excludes that message and everything after it.
+		leafID = entries[users[n-1].idx].ParentID
+	}
+
+	newHeader, path, err := deps.store.Fork(deps.header.ID, leafID, time.Now().UTC())
+	if err != nil {
+		fmt.Fprintf(out, "pigo: fork failed: %v\n", err)
+		return
+	}
+
+	// Swap the live session to the new branch: rebuild the flat message list from
+	// the copied path and point the REPL at the new header. Subsequent prompts
+	// grow the branch, never the original.
+	msgs := make(agentcore.MessageList, len(path))
+	for i, e := range path {
+		msgs[i] = e.Message
+	}
+	deps.header = newHeader
+	deps.agentCtx.Messages = msgs
+
+	action := "cloned"
+	if cmd == "/fork" {
+		action = "forked"
+	}
+	fmt.Fprintf(out, "%s session %s → %s (%d messages)\n", action, newHeader.ParentSession, newHeader.ID, len(msgs))
 }
 
 // runManualCompact compacts the shared context on an explicit /compact request:
