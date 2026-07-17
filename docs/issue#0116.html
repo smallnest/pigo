@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0116</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    code { background: #F0EDE8; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/116">#116</a> &mdash; 抽取 internal/jsonrpc stdio JSON-RPC 2.0 层 &mdash; 2026-07-17</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 面向 client 而非通用双向 peer</h3>
+      <p><strong>Ambiguity:</strong> Issue 只要求"JSON-RPC 2.0 request/response/notification 编解码"与"子进程 stdio transport client"，未规定是否要处理 server→client 的反向请求。</p>
+      <p><strong>Choice:</strong> 只实现 client 侧：发 request/notification、收 response。readLoop 遇到无法解析为 response 的行（可能是 server 发起的 request/notification）直接跳过。</p>
+      <p><strong>Rationale:</strong> 三个下游消费者（MCP #130/#131、插件 #132/#133、进程隔离 #135）当前都只需 client 语义。等 MCP 需要 sampling 等反向调用时再扩展，避免过早引入双向派发的复杂度。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> id 用 <code>n:</code>/<code>s:</code> 前缀区分作 map key</h3>
+      <p><strong>Ambiguity:</strong> 规范允许 id 为 number 或 string，但 pending map 需要一个可比较的键，且数字 id 与字符串 id 不能碰撞。</p>
+      <p><strong>Choice:</strong> <code>ID.String()</code> 对数字返回 <code>n:123</code>、对字符串返回 <code>s:abc</code>。本 client 只生成数字 id，但对端回显字符串 id 时仍能正确关联。</p>
+      <p><strong>Rationale:</strong> 前缀消除跨类型碰撞（数字 <code>1</code> 与字符串 <code>"1"</code> 不会撞键），实现简单且零依赖。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 读循环上限 16MB</h3>
+      <p><strong>Ambiguity:</strong> Issue 未规定单条消息大小上限，而 <code>bufio.Scanner</code> 默认行上限仅 64KB。</p>
+      <p><strong>Choice:</strong> <code>scanner.Buffer(64KB, 16MB)</code>。</p>
+      <p><strong>Rationale:</strong> MCP <code>tools/list</code> 返回的工具 schema 可能很大，64KB 会导致 <code>bufio.ErrTooLong</code> 静默截断。16MB 给足余量又能防御失控输入。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None — 实现满足 Issue 全部验收条件（编解码、子进程 stdio client、超时、优雅关闭、并发 id 关联、测试通过）。</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 换行分隔 JSON vs LSP 式 Content-Length 帧</h3>
+      <p><strong>Alternatives:</strong> (A) 每条消息一行、以 <code>\n</code> 分隔；(B) LSP/DAP 的 <code>Content-Length</code> 头 + body 帧协议。</p>
+      <p><strong>Chosen:</strong> A（换行分隔）。</p>
+      <p><strong>Why:</strong> MCP 的 stdio transport 官方即用换行分隔，插件与进程隔离子 agent 也由本项目自定义、可约定单行输出。方案 A 用 <code>bufio.Scanner</code> 一行搞定，比手写 Content-Length 帧解析简单得多。代价是消息体内不能含裸换行——JSON 编码器默认不产生，已满足。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 测试用 TestMain 自举 mock server vs 独立 helper 二进制</h3>
+      <p><strong>Alternatives:</strong> (A) 用 <code>TestMain</code> + 环境变量让测试二进制自身充当 echo/silent server；(B) 单独编译一个 mock server 可执行文件。</p>
+      <p><strong>Chosen:</strong> A。</p>
+      <p><strong>Why:</strong> 无需额外构建步骤或 <code>go build</code> 临时二进制，<code>os.Executable()</code> 直接复用测试进程，是 Go 测试子进程 transport 的标准手法。缺点是 <code>TestMain</code> 里多了模式分支，可读性略降，但集中在测试文件内可接受。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Close 的 5s grace 定时器（review 追加）</h3>
+      <p><strong>Alternatives:</strong> (A) 仅等 <code>cmd.Wait()</code> 或 reader <code>done</code>；(B) 额外加 grace 定时器兜底。</p>
+      <p><strong>Chosen:</strong> B（review 阶段补强）。</p>
+      <p><strong>Why:</strong> 原实现若子进程既忽略 stdin EOF 又保持 stdout 打开（挂死的插件/server），<code>Close</code> 会永久阻塞。加 <code>closeGrace = 5s</code> 定时器后超时即 <code>Process.Kill()</code>，保证 Close 有界返回。代价是引入一个常量与 <code>time</code> 依赖，值得。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> closeGrace 5s 是否合适？</h3>
+      <p><strong>Assumption:</strong> 5 秒足够正常子进程在 stdin 关闭后自行退出。</p>
+      <p><strong>Verify:</strong> 接入真实 MCP server（#130）后观察其关闭耗时，必要时改为可配置。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 是否需要 per-Call 级别的默认超时？</h3>
+      <p><strong>Assumption:</strong> 目前超时完全交给调用方传入的 <code>context</code> 控制，Client 不设默认超时。</p>
+      <p><strong>Verify:</strong> 下游若大量忘记设 ctx deadline，可考虑在 Config 增加默认 call timeout。当前保持最小化。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
