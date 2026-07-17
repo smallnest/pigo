@@ -26,6 +26,7 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/clipboard"
 	"github.com/smallnest/pigo/internal/compaction"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
@@ -164,6 +165,20 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 			// swapping deps.header / deps.agentCtx in place — which a slash Action
 			// closure cannot do. The guard keeps "/important" from matching.
 			runImport(out, &deps, line)
+			continue
+		}
+		if line == "/copy" {
+			// /copy writes the most recent assistant text to the clipboard. It is
+			// intercepted here (not a slash Action) because it must read the live
+			// message list, which an Action closure cannot reach.
+			runCopy(out, &deps)
+			continue
+		}
+		if line == "/session" {
+			// /session prints live session stats (message count, tokens, compactions)
+			// derived from deps.header + the in-memory context — state a pure
+			// string→string Action closure cannot see.
+			runSession(out, &deps)
 			continue
 		}
 
@@ -513,6 +528,70 @@ func runImport(out io.Writer, deps *replDeps, line string) {
 		deps.curLeaf = entries[len(entries)-1].ID
 	}
 	fmt.Fprintf(out, "imported %d entries from %s → session %s\n", len(entries), path, newHeader.ID)
+}
+
+// runCopy handles the /copy command (US-009, #125): it copies the most recent
+// assistant text message to the system clipboard. When no clipboard utility is
+// available it degrades to printing the text with a notice, so the content is
+// never lost. An empty conversation (no assistant reply yet) is reported.
+func runCopy(out io.Writer, deps *replDeps) {
+	text := ""
+	for i := len(deps.agentCtx.Messages) - 1; i >= 0; i-- {
+		if a, ok := deps.agentCtx.Messages[i].(agentcore.AssistantMessage); ok {
+			if t := strings.TrimSpace(agentcore.ContentToText(a.Content)); t != "" {
+				text = t
+				break
+			}
+		}
+	}
+	if text == "" {
+		fmt.Fprintln(out, "nothing to copy — no assistant reply yet")
+		return
+	}
+	if err := clipboard.Copy(text); err != nil {
+		if errors.Is(err, clipboard.ErrUnavailable) {
+			// Degrade gracefully: print the text and tell the user why it was not
+			// copied, so the content is still recoverable.
+			fmt.Fprintln(out, "no clipboard utility found (install pbcopy/wl-copy/xclip/xsel); printing instead:")
+			fmt.Fprintln(out, text)
+			return
+		}
+		fmt.Fprintf(out, "pigo: copy failed: %v\n", err)
+		return
+	}
+	fmt.Fprintf(out, "copied last reply to clipboard (%d chars)\n", len(text))
+}
+
+// runSession handles the /session command (US-009, #125): it prints a summary of
+// the live session — id, message count, estimated token usage, model/provider,
+// creation time, and how many compaction checkpoints it contains. Counts are
+// derived from the in-memory context (the source of truth for the live turn) so
+// the numbers reflect unsaved messages too.
+func runSession(out io.Writer, deps *replDeps) {
+	msgs := deps.agentCtx.Messages
+	tokens := compaction.EstimateContextTokens(msgs).Tokens
+	compactions := 0
+	for _, m := range msgs {
+		if _, ok := m.(agentcore.CompactionMessage); ok {
+			compactions++
+		}
+	}
+	fmt.Fprintf(out, "session:      %s\n", deps.header.ID)
+	fmt.Fprintf(out, "messages:     %d\n", len(msgs))
+	fmt.Fprintf(out, "tokens (est): %d\n", tokens)
+	model := deps.live.model
+	providerName := deps.live.providerName
+	if model == "" {
+		model = deps.header.Model
+	}
+	if providerName == "" {
+		providerName = deps.header.Provider
+	}
+	fmt.Fprintf(out, "model:        %s (provider: %s)\n", model, providerName)
+	if !deps.header.CreatedAt.IsZero() {
+		fmt.Fprintf(out, "created:      %s\n", deps.header.CreatedAt.Format(time.RFC3339))
+	}
+	fmt.Fprintf(out, "compactions:  %d\n", compactions)
 }
 
 // runManualCompact compacts the shared context on an explicit /compact request:

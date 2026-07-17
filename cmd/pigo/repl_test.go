@@ -456,3 +456,65 @@ func TestREPLImportTokenBoundary(t *testing.T) {
 		t.Errorf("/important should not launch a run, got %d calls", p.calls)
 	}
 }
+
+// TestREPLSessionStats drives the /session command: after a turn it prints the
+// session id, message count, token estimate, model, and compaction count without
+// launching another run (US-009, #125).
+func TestREPLSessionStats(t *testing.T) {
+	p := &replProvider{reply: "the answer"}
+	deps, _ := newTestDeps(t, p)
+	var out bytes.Buffer
+	if err := runREPL(strings.NewReader("hello\n/session\n/exit\n"), &out, deps); err != nil {
+		t.Fatalf("runREPL: %v", err)
+	}
+	if p.calls != 1 {
+		t.Errorf("/session must not launch a run (only the prompt), got %d calls", p.calls)
+	}
+	s := out.String()
+	for _, want := range []string{"session:", "messages:", "tokens (est):", "model:", "compactions:"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("/session output missing %q, out=%q", want, s)
+		}
+	}
+	// After one turn the context holds user + assistant = 2 messages.
+	if !strings.Contains(s, "messages:     2") {
+		t.Errorf("/session should report 2 messages, out=%q", s)
+	}
+}
+
+// TestREPLCopyEmpty verifies /copy on a session with no assistant reply prints a
+// friendly notice rather than copying or crashing.
+func TestREPLCopyEmpty(t *testing.T) {
+	p := &replProvider{reply: "hi"}
+	deps, _ := newTestDeps(t, p)
+	var out bytes.Buffer
+	if err := runREPL(strings.NewReader("/copy\n/exit\n"), &out, deps); err != nil {
+		t.Fatalf("runREPL: %v", err)
+	}
+	if p.calls != 0 {
+		t.Errorf("/copy must not launch a run, got %d calls", p.calls)
+	}
+	if !strings.Contains(out.String(), "nothing to copy") {
+		t.Errorf("/copy on empty session should say so, out=%q", out.String())
+	}
+}
+
+// TestREPLCopyDegradesToPrint verifies /copy degrades to printing the last reply
+// when no clipboard utility is available (PATH pointed at an empty dir), so the
+// content is never lost.
+func TestREPLCopyDegradesToPrint(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	p := &replProvider{reply: "the important answer"}
+	deps, _ := newTestDeps(t, p)
+	var out bytes.Buffer
+	if err := runREPL(strings.NewReader("ask\n/copy\n/exit\n"), &out, deps); err != nil {
+		t.Fatalf("runREPL: %v", err)
+	}
+	s := out.String()
+	if !strings.Contains(s, "no clipboard utility") {
+		t.Errorf("/copy should report missing clipboard utility, out=%q", s)
+	}
+	if !strings.Contains(s, "the important answer") {
+		t.Errorf("/copy should print the reply when degrading, out=%q", s)
+	}
+}

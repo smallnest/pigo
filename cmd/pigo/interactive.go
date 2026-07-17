@@ -342,11 +342,11 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
 			return b.String()
 		},
 	})
-	// /exit, /quit, /compact, /fork, /clone, /tree, /export and /import are
-	// intercepted by the REPL loop before slash resolution (they must return from
-	// the loop, run an agent stream, or swap the active session/leaf — none of
-	// which an Action closure can do). They are registered here only so /help
-	// lists them; their Action is never actually reached.
+	// /exit, /quit, /compact, /fork, /clone, /tree, /export, /import, /copy and
+	// /session are intercepted by the REPL loop before slash resolution (they must
+	// return from the loop, run an agent stream, or read/swap the active
+	// session/leaf — none of which an Action closure can do). They are registered
+	// here only so /help lists them; their Action is never actually reached.
 	for _, c := range []struct{ name, desc string }{
 		{"exit", "exit the REPL"},
 		{"quit", "exit the REPL"},
@@ -356,6 +356,8 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
 		{"tree", "show the session branch tree; switch active branch: /tree [n]"},
 		{"export", "export the session to a file: /export [path.jsonl|path.html]"},
 		{"import", "import a JSONL export as a new session: /import <path.jsonl>"},
+		{"copy", "copy the most recent assistant reply to the clipboard"},
+		{"session", "show session stats: messages, tokens, model, compactions"},
 	} {
 		reg.AddBuiltin(runtime.SlashCommand{
 			Name:        c.name,
