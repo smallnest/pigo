@@ -106,7 +106,9 @@ func resolveProvider(model, baseURL, protocol string) (provider.Provider, string
 }
 
 // builtinTools returns the default file/shell tool set rooted at cwd, or nil
-// when tools are disabled.
+// when tools are disabled. The todo tool is stateful: a single TodoStore is
+// created here and held by the one TodoTool instance, so the task list persists
+// across calls within a run (a later write replaces the plan).
 func builtinTools(cwd string, disabled bool) []agentcore.AgentTool {
 	if disabled {
 		return nil
@@ -118,6 +120,7 @@ func builtinTools(cwd string, disabled bool) []agentcore.AgentTool {
 		&agenttool.GrepTool{Root: cwd},
 		&agenttool.FindTool{Root: cwd},
 		&agenttool.BashTool{Dir: cwd},
+		&agenttool.TodoTool{Store: agenttool.NewTodoStore()},
 	}
 }
 

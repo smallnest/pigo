@@ -293,7 +293,7 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 				fmt.Fprintf(out, "  → tool: %s\n", toolCallLabel(c))
 			}
 			for _, tr := range results {
-				fmt.Fprintf(out, "  ← result: %s\n", oneLine(agentcore.ContentToText(tr.Content)))
+				renderToolResult(out, tr)
 			}
 		},
 	})
@@ -657,6 +657,23 @@ func replayTranscript(out io.Writer, messages []agentcore.AgentMessage) {
 			fmt.Fprintf(out, "  ← result: %s\n", oneLine(agentcore.ContentToText(msg.Content)))
 		}
 	}
+}
+
+// renderToolResult prints a single tool result under the compact status. Most
+// results collapse to a one-line "← result:" summary, but the todo tool's
+// progress block is rendered in full (indented, multi-line) so the user sees the
+// live task checklist after each update — that visible progress is the point of
+// the tool (US-011).
+func renderToolResult(out io.Writer, tr agentcore.ToolResultMessage) {
+	text := agentcore.ContentToText(tr.Content)
+	if tr.ToolName == "todo" && !tr.IsError {
+		fmt.Fprintln(out, "  ← todo:")
+		for _, line := range strings.Split(text, "\n") {
+			fmt.Fprintf(out, "    %s\n", line)
+		}
+		return
+	}
+	fmt.Fprintf(out, "  ← result: %s\n", oneLine(text))
 }
 
 // toolCallLabel renders a tool call as "name args" for the compact "→ tool:"
