@@ -332,14 +332,17 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
 			return b.String()
 		},
 	})
-	// /exit, /quit and /compact are intercepted by the REPL loop before slash
-	// resolution (they must return from the loop or run an agent stream + mutate
-	// the shared context, which an Action closure cannot do). They are registered
-	// here only so /help lists them; their Action is never actually reached.
+	// /exit, /quit, /compact, /fork and /clone are intercepted by the REPL loop
+	// before slash resolution (they must return from the loop, run an agent
+	// stream, or swap the active session — none of which an Action closure can
+	// do). They are registered here only so /help lists them; their Action is
+	// never actually reached.
 	for _, c := range []struct{ name, desc string }{
 		{"exit", "exit the REPL"},
 		{"quit", "exit the REPL"},
 		{"compact", "summarize and compact the conversation context now"},
+		{"fork", "branch from a historical message into a new session: /fork [n]"},
+		{"clone", "duplicate the current session into an independent branch"},
 	} {
 		reg.AddBuiltin(runtime.SlashCommand{
 			Name:        c.name,

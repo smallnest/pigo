@@ -70,6 +70,10 @@ type SessionHeader struct {
 	// SystemPrompt is the system prompt the session ran under. Persisted so the
 	// resumed context is faithful. Optional.
 	SystemPrompt string `json:"systemPrompt,omitempty"`
+	// ParentSession is the id of the session this one was forked/cloned from
+	// (US-006, #122). Empty for a session created from scratch. It records
+	// lineage only; a fork is otherwise a fully independent session file.
+	ParentSession string `json:"parentSession,omitempty"`
 }
 
 // Entry wraps one persisted message with the tree metadata introduced in schema
@@ -222,13 +226,39 @@ func (s *Store) Save(header SessionHeader, messages agentcore.MessageList) error
 	if header.ID == "" {
 		return fmt.Errorf("session: header ID must not be empty")
 	}
-	tmp := s.path(header.ID) + ".tmp"
+	return s.atomicWrite(header.ID, func(w io.Writer) error {
+		return writeSession(w, header, messages)
+	})
+}
+
+// SaveEntries writes header plus the given entries verbatim — preserving each
+// entry's id/parentId — to a fresh session file, overwriting any existing file
+// for header.ID. Unlike Save (which generates fresh ids and a linear chain from
+// a MessageList), SaveEntries persists an already-known tree, which is what Fork
+// needs: it copies a path of existing entries into a new session file without
+// disturbing their identifiers. The header's Version is forced to SchemaVersion.
+func (s *Store) SaveEntries(header SessionHeader, entries []Entry) error {
+	header.Version = SchemaVersion
+	if header.ID == "" {
+		return fmt.Errorf("session: header ID must not be empty")
+	}
+	return s.atomicWrite(header.ID, func(w io.Writer) error {
+		return writeSessionEntries(w, header, entries)
+	})
+}
+
+// atomicWrite writes a session file for id by streaming through write into a
+// temp file and atomically renaming it into place, so a concurrent reader never
+// sees a half-written file. It is the shared write plumbing behind Save and
+// SaveEntries.
+func (s *Store) atomicWrite(id string, write func(w io.Writer) error) error {
+	tmp := s.path(id) + ".tmp"
 	f, err := os.Create(tmp)
 	if err != nil {
 		return fmt.Errorf("session: create %s: %w", tmp, err)
 	}
 	w := bufio.NewWriter(f)
-	if err := writeSession(w, header, messages); err != nil {
+	if err := write(w); err != nil {
 		f.Close()
 		os.Remove(tmp)
 		return err
@@ -243,9 +273,9 @@ func (s *Store) Save(header SessionHeader, messages agentcore.MessageList) error
 		return fmt.Errorf("session: close %s: %w", tmp, err)
 	}
 	// Atomic replace so a reader never sees a half-written file.
-	if err := os.Rename(tmp, s.path(header.ID)); err != nil {
+	if err := os.Rename(tmp, s.path(id)); err != nil {
 		os.Remove(tmp)
-		return fmt.Errorf("session: commit %s: %w", header.ID, err)
+		return fmt.Errorf("session: commit %s: %w", id, err)
 	}
 	return nil
 }
@@ -267,6 +297,22 @@ func writeSession(w io.Writer, header SessionHeader, messages agentcore.MessageL
 			return fmt.Errorf("session: encode message[%d]: %w", i, err)
 		}
 		parentID = e.ID
+	}
+	return nil
+}
+
+// writeSessionEntries emits the header line followed by the given entries
+// verbatim, preserving their ids and parentIds. It is the whole-tree counterpart
+// to writeSession (which synthesizes a fresh linear chain from a MessageList).
+func writeSessionEntries(w io.Writer, header SessionHeader, entries []Entry) error {
+	enc := json.NewEncoder(w)
+	if err := enc.Encode(header); err != nil {
+		return fmt.Errorf("session: encode header: %w", err)
+	}
+	for i, e := range entries {
+		if err := enc.Encode(e); err != nil {
+			return fmt.Errorf("session: encode entry[%d]: %w", i, err)
+		}
 	}
 	return nil
 }
@@ -431,4 +477,44 @@ func (s *Store) Append(id string, updatedAt time.Time, messages agentcore.Messag
 	header.UpdatedAt = updatedAt
 	existing = append(existing, messages...)
 	return s.Save(header, existing)
+}
+
+// Fork creates a new session whose contents are the linear path from the root
+// down to leafID in the source session, copied verbatim (each entry keeps its
+// id/parentId). The new session gets a fresh id (derived from now) and its
+// header carries ParentSession = sourceID so the lineage is recorded. It returns
+// the new session's header and its entries.
+//
+// This is the primitive behind /fork and /clone (US-006, #122):
+//
+//   - /clone passes the current leaf id → the entire current conversation is
+//     duplicated into an independent session (position "at").
+//   - /fork passes a historical user message's PARENT id → the new session holds
+//     everything up to but excluding that message, so the user re-prompts from
+//     that point on a fresh branch (position "before").
+//
+// Because the copy lands in a brand-new file, appending to either the source or
+// the fork never touches the other — the two branches are fully isolated. An
+// empty leafID copies nothing but the header (an empty new session rooted at the
+// source), which is the correct behavior for forking before the very first
+// message.
+func (s *Store) Fork(sourceID, leafID string, now time.Time) (SessionHeader, []Entry, error) {
+	srcHeader, entries, err := s.LoadEntries(sourceID)
+	if err != nil {
+		return SessionHeader{}, nil, err
+	}
+	path := PathToLeaf(entries, leafID)
+	newHeader := SessionHeader{
+		ID:            NewID(now),
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		Model:         srcHeader.Model,
+		Provider:      srcHeader.Provider,
+		SystemPrompt:  srcHeader.SystemPrompt,
+		ParentSession: sourceID,
+	}
+	if err := s.SaveEntries(newHeader, path); err != nil {
+		return SessionHeader{}, nil, err
+	}
+	return newHeader, path, nil
 }
