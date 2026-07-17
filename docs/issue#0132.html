@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #132</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/132">#132</a> &mdash; 插件系统：子进程 JSON-RPC 协议 (US-016) &mdash; 2026-07-17</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Reuse <code>internal/jsonrpc</code> as the plugin transport</h3>
+      <p><strong>Ambiguity:</strong> US-016 specifies "external plugins as subprocesses" but not the wire protocol.</p>
+      <p><strong>Choice:</strong> Plugins speak line-delimited JSON-RPC 2.0 over stdio via the existing <code>internal/jsonrpc.Client</code>, which was already built for MCP/sub-agent reuse.</p>
+      <p><strong>Rationale:</strong> One transport, one crash-handling path, one place to test. No new framing/parsing code, and the plugin protocol stays language-agnostic (any executable that can read/write JSON lines).</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Three-method protocol: <code>initialize</code> / <code>tools/call</code> / <code>shutdown</code></h3>
+      <p><strong>Ambiguity:</strong> The spec lists tools and (future) commands but not the handshake shape.</p>
+      <p><strong>Choice:</strong> A single <code>initialize</code> returns the full <code>Manifest</code> (name, version, tools, commands) up front; <code>tools/call</code> forwards one invocation; <code>shutdown</code> is a best-effort notification on Close.</p>
+      <p><strong>Rationale:</strong> Declaring everything at handshake time means pigo registers all plugin tools before the agent loop starts — no lazy discovery races. <code>Commands</code> is carried in the manifest now so command support (#133-area) needs no protocol change.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Plugin tools run <code>ToolExecutionSequential</code></h3>
+      <p><strong>Ambiguity:</strong> The <code>AgentTool</code> interface allows parallel execution; the spec is silent on plugin concurrency.</p>
+      <p><strong>Choice:</strong> Every plugin-backed tool reports Sequential.</p>
+      <p><strong>Rationale:</strong> A plugin call crosses a process boundary with unknown side effects and a single stdio channel per process. Sequential is the safe default; a plugin author cannot accidentally get concurrent calls multiplexed onto one pipe.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> A crashed/misbehaving plugin degrades to an error result, never a Go error</h3>
+      <p><strong>Spec:</strong> "plugins must be isolated" (general requirement).</p>
+      <p><strong>Implemented:</strong> <code>pluginTool.Execute</code> always returns <code>(AgentToolResult, nil)</code> — a transport failure becomes a text result "<code>&lt;name&gt;: plugin call failed: &lt;err&gt;</code>". Discovery failures are logged to a warn writer and the plugin is skipped, so one bad plugin never aborts loading the rest.</p>
+      <p><strong>Why:</strong> The agent loop treats a non-nil tool error as fatal; isolating at the tool boundary keeps a dead plugin from taking down the whole session.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Executable-bit discovery vs. a manifest/registry file</h3>
+      <p><strong>Alternatives:</strong> (a) scan <code>$PIGO_HOME/plugins</code> for executable regular files; (b) require a <code>plugins.json</code> registry listing each plugin.</p>
+      <p><strong>Chosen (a):</strong> Any executable dropped into the dir is a plugin; non-executables and subdirs are ignored; load order is name-sorted for determinism.</p>
+      <p><strong>Why:</strong> Zero-config "drop it in and it works" matches the config-dir convention already used for sessions/commands. A registry file adds a second source of truth to keep in sync. Cost: no per-plugin enable/disable short of chmod — acceptable for now.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Real-subprocess tests vs. mocked transport</h3>
+      <p><strong>Alternatives:</strong> mock <code>jsonrpc.Client</code>, or compile tiny real plugins with <code>go build</code> at test time.</p>
+      <p><strong>Chosen:</strong> tests compile <code>echoPluginSrc</code> / <code>crashPluginSrc</code> into real executables and exercise the full launch→handshake→call path (including a genuine mid-call <code>os.Exit(1)</code> crash).</p>
+      <p><strong>Why:</strong> The whole point of the feature is the process boundary; a mock would test the adapter but not the transport, framing, or crash isolation that actually carry the risk. Cost: ~4s test time for the builds — worth it for real coverage.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Command registration is declared but not yet wired</h3>
+      <p><code>Manifest.Commands</code> is parsed and carried, but pigo does not yet register plugin slash commands with the REPL command table. Confirm this lands in a follow-up (the manifest already supports it, so no protocol change is needed).</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Tool name collisions across plugins / builtins</h3>
+      <p>Plugin tools are appended to the builtin set in load order with no namespacing. If two plugins (or a plugin and a builtin) declare the same tool name, the registry behavior on duplicate is the arbiter. Should plugin tools be namespaced by <code>Manifest.Name</code>? Deferred pending a real collision.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

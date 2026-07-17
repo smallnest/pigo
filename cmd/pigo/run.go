@@ -12,9 +12,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
 )
@@ -28,6 +30,10 @@ type agentEnv struct {
 	provider     provider.Provider
 	providerName string
 	sysPrompt    string
+
+	// plugins holds any loaded external plugins so the caller can Close them
+	// when the run ends. It is nil when no plugins were discovered.
+	plugins *plugin.Manager
 }
 
 // setupAgentEnv resolves the provider for model/baseURL, builds the tool set
@@ -44,13 +50,43 @@ func setupAgentEnv(model, baseURL, protocol string, noTools bool) (agentEnv, err
 	if err != nil {
 		return agentEnv{}, err
 	}
+	tools := builtinTools(cwd, noTools)
+	// Discover external plugins (US-016) and append their tools. Plugin loading
+	// is fault-tolerant: a plugin that fails to start is logged and skipped, and
+	// disabling tools (--no-tools) skips plugin discovery entirely.
+	var mgr *plugin.Manager
+	if !noTools {
+		if m, err := plugin.Discover(pluginsDir(), os.Stderr, os.Stderr); err == nil {
+			tools = append(tools, m.Tools()...)
+			mgr = m
+		} else {
+			fmt.Fprintf(os.Stderr, "pigo: plugin discovery failed: %v\n", err)
+		}
+	}
 	return agentEnv{
 		cwd:          cwd,
-		tools:        builtinTools(cwd, noTools),
+		tools:        tools,
 		provider:     prov,
 		providerName: providerName,
 		sysPrompt:    sysPrompt,
+		plugins:      mgr,
 	}, nil
+}
+
+// pluginsDir returns the directory external plugins are discovered from:
+// $PIGO_HOME/plugins, or ~/.pigo/plugins by default. An empty string is returned
+// when the home directory cannot be resolved and no override is set (Discover
+// then treats it as "no plugins").
+func pluginsDir() string {
+	dir := os.Getenv("PIGO_HOME")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		dir = filepath.Join(home, ".pigo")
+	}
+	return filepath.Join(dir, "plugins")
 }
 
 // newRunConfig builds the loop configuration shared by every driver: the
@@ -130,6 +166,9 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
 			return 1
 		}
+		if env.plugins != nil {
+			defer env.plugins.Close()
+		}
 		if err := runInteractive(interactiveOptions{
 			model:        opts.model,
 			providerName: env.providerName,
@@ -157,6 +196,9 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(errOut, "pigo: %v\n", err)
 		return 1
+	}
+	if env.plugins != nil {
+		defer env.plugins.Close()
 	}
 	promptContent, err := buildUserContent(opts.prompt)
 	if err != nil {
