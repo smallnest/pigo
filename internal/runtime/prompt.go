@@ -52,7 +52,17 @@ type PromptConfig struct {
 // DefaultBaseInstruction is the leading system-prompt text used when
 // PromptConfig.BaseInstruction is empty.
 const DefaultBaseInstruction = "You are pigo, a helpful coding agent. " +
-	"Use the available tools to inspect files and accomplish the user's request precisely and concisely."
+	"Use the available tools to inspect files and accomplish the user's request precisely and concisely.\n\n" +
+	todoGuide
+
+// todoGuide instructs the model on how to drive the todo tool. It is appended to
+// the default base instruction so multi-step work is planned and its progress is
+// made visible to the user (US-011).
+const todoGuide = "When a task has multiple steps or is non-trivial, use the todo tool to plan " +
+	"and track your work. Submit the entire task list each call (it replaces the previous " +
+	"list); each item has a content string and a status of pending, in_progress, or completed. " +
+	"Keep exactly one item in_progress at a time, and mark an item completed as soon as it is " +
+	"done before starting the next. Skip the todo tool for trivial single-step requests."
 
 // BuildSystemPrompt assembles the full system prompt from cfg: base instruction,
 // environment block, then AGENTS.md files ordered general-to-specific from Root

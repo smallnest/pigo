@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0127</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/127">#127</a> &mdash; TODO 任务追踪工具 &mdash; 2026-07-17</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Whole-list replacement instead of incremental item edits</h3>
+      <p><strong>Ambiguity:</strong> The spec says the schema must contain a task list (content / status) but does not say whether a call submits the full list or a delta.</p>
+      <p><strong>Choice:</strong> Each <code>todo</code> call submits the ENTIRE list; <code>TodoStore.Set</code> replaces the previous list wholesale.</p>
+      <p><strong>Rationale:</strong> Matches Claude Code's TodoWrite (the stated reference — "对标 Claude Code"). Whole-list writes are idempotent, avoid item-id bookkeeping, and make the rendered progress trivially correct — the store always mirrors the model's latest intent.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Store held by the tool instance, created in builtinTools</h3>
+      <p><strong>Ambiguity:</strong> "存于当前会话状态" — the spec names session state but the codebase has no single session-state struct threaded into tools.</p>
+      <p><strong>Choice:</strong> A <code>*TodoStore</code> is created once in <code>builtinTools</code> and held by the single <code>TodoTool</code> instance for the run's lifetime, so successive calls accumulate into the same store.</p>
+      <p><strong>Rationale:</strong> Tools are already constructed per-run rooted at cwd; hanging the store off the one instance is the least invasive way to get run-scoped persistence without inventing a new session-state plumbing seam. The store is mutex-guarded so a parallel batch cannot race.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Todo guide appended to DefaultBaseInstruction</h3>
+      <p><strong>Ambiguity:</strong> "系统提示加入 todo 工具使用引导" — where in the prompt the guide lives is unspecified.</p>
+      <p><strong>Choice:</strong> Added a <code>todoGuide</code> constant concatenated onto <code>DefaultBaseInstruction</code>, so every run using the default prompt gets it; a caller supplying a custom BaseInstruction opts out.</p>
+      <p><strong>Rationale:</strong> Keeps the guidance with the agent's identity text, one edit point, and honors the existing override contract (custom BaseInstruction fully replaces the default).</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None — implementation followed the spec as written.</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> REPL renders the todo block in full vs. one-line summary</h3>
+      <p><strong>Alternatives:</strong> (a) collapse todo results to a single line like every other tool; (b) render the full multi-line checklist under a dedicated <code>← todo:</code> header.</p>
+      <p><strong>Chosen:</strong> (b) — <code>renderToolResult</code> special-cases <code>ToolName == "todo"</code> and prints each line indented.</p>
+      <p><strong>Why:</strong> Visible progress is the entire point of the tool (US-011: "REPL 在更新时渲染进度"). A one-line summary would hide the checklist, defeating the feature. Non-todo results keep the compact one-liner.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Validate status in Execute vs. rely on JSON Schema enum</h3>
+      <p><strong>Alternatives:</strong> (a) trust the registry's schema <code>enum</code> to reject bad statuses; (b) also re-validate content/status inside Execute.</p>
+      <p><strong>Chosen:</strong> (b) belt-and-suspenders — Execute checks empty content and invalid status, returning an error result without mutating the store.</p>
+      <p><strong>Why:</strong> Not every call path guarantees schema pre-validation (e.g. direct tests, future callers), and the acceptance criteria demand a status-transition test. In-tool validation keeps the invariant local and testable, at the cost of minor duplication with the schema enum.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should the todo list persist into the saved session file?</h3>
+      <p>The store is run-scoped (in-memory, held by the tool). It is not serialized into the session transcript, so a resumed session starts with an empty todo list even though the tool-call/result messages are replayed. Verify whether persisting the live checklist across resume is desired, or whether replaying the last todo result is sufficient.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Single in_progress invariant is advisory, not enforced</h3>
+      <p>The prompt guide asks the model to keep exactly one item <code>in_progress</code>, but the tool does not reject a list with several in_progress items. Confirm this should stay advisory (matching Claude Code's lenient behavior) rather than a hard validation error.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

@@ -249,6 +249,32 @@ func TestREPLPersistsModelIntoHeader(t *testing.T) {
 	}
 }
 
+// TestRenderToolResultTodoFull verifies the todo tool's multi-line progress
+// block is rendered in full under a "← todo:" header (US-011: REPL shows
+// progress on update), while a non-todo result stays a one-line summary.
+func TestRenderToolResultTodoFull(t *testing.T) {
+	var out bytes.Buffer
+	renderToolResult(&out, agentcore.ToolResultMessage{
+		RoleField: agentcore.RoleToolResult, ToolName: "todo",
+		Content: agentcore.ContentList{agentcore.NewTextContent("Todos:\n  [x] a\n  [ ] b\n(1/2 completed)")},
+	})
+	s := out.String()
+	for _, want := range []string{"← todo:", "[x] a", "[ ] b", "(1/2 completed)"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("todo render missing %q, out=%q", want, s)
+		}
+	}
+
+	out.Reset()
+	renderToolResult(&out, agentcore.ToolResultMessage{
+		RoleField: agentcore.RoleToolResult, ToolName: "bash",
+		Content: agentcore.ContentList{agentcore.NewTextContent("line1\nline2")},
+	})
+	if got := out.String(); !strings.Contains(got, "← result: line1") {
+		t.Errorf("non-todo render = %q, want a one-line summary", got)
+	}
+}
+
 // TestReplayTranscriptRendersRoles verifies a resumed session's prior messages
 // are echoed by role (user / assistant / tool result) before the first new
 // prompt (US-006 acceptance: resumed conversation is replayed).
