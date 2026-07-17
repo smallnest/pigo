@@ -30,7 +30,11 @@ import (
 // SchemaVersion is the current session file schema version. It is written into
 // every SessionHeader and checked on read; an unknown (higher) version is a
 // hard error so a newer file is never silently misread by an older binary.
-const SchemaVersion = 1
+//
+// v2 adds the inline "compaction" message role (US-003): a compaction
+// checkpoint persisted as one message line. v1 files have no such lines and
+// remain fully readable, so the bump is backward-compatible on read.
+const SchemaVersion = 2
 
 // sessionScanBufInit / sessionScanBufMax bound the line scanner used to read a
 // session file. A single line holds one message, which can be large (a long

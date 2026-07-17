@@ -89,6 +89,9 @@ func EstimateTokens(msg agentcore.Message) int {
 		return ceilDiv(contentListChars(m.Content), charsPerToken)
 	case agentcore.ToolResultMessage:
 		return ceilDiv(contentListChars(m.Content), charsPerToken)
+	case agentcore.CompactionMessage:
+		// A compaction checkpoint replays as its summary text; estimate from it.
+		return ceilDiv(len(m.Summary), charsPerToken)
 	default:
 		return 0
 	}
