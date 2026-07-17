@@ -18,6 +18,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -186,6 +187,131 @@ func PathToLeaf(entries []Entry, leafID string) []Entry {
 
 // FileName returns the on-disk file name for a session id (id + ".jsonl").
 func FileName(id string) string { return id + ".jsonl" }
+
+// TreeLine pairs one entry with its rendered display line, so a caller can print
+// the tree AND map a 1-based selection index back to the entry it refers to (the
+// slice order is the render order — a stable pre-order DFS). See RenderTreeLines.
+type TreeLine struct {
+	Entry Entry
+	Text  string
+}
+
+// RenderTreeLines renders the entry forest as human-readable lines for a pure
+// line REPL — no TUI, no cursor control (US-007, #123). Each entry becomes one
+// line with ├─/└─ connectors showing structure; the entry whose id == leafID is
+// tagged "← current" so the active branch is obvious. Roots (entries with an
+// empty or dangling ParentID) anchor the forest; children are ordered by
+// timestamp then id for stable output. The returned slice is in render order, so
+// element i corresponds to the i-th printed line (and 1-based selector n → [n-1]).
+func RenderTreeLines(entries []Entry, leafID string) []TreeLine {
+	present := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		present[e.ID] = true
+	}
+	childrenOf := make(map[string][]Entry, len(entries))
+	var roots []Entry
+	for _, e := range entries {
+		if e.ParentID == "" || !present[e.ParentID] {
+			roots = append(roots, e)
+		} else {
+			childrenOf[e.ParentID] = append(childrenOf[e.ParentID], e)
+		}
+	}
+	sortEntries(roots)
+	for k := range childrenOf {
+		sortEntries(childrenOf[k])
+	}
+
+	var lines []TreeLine
+	var walk func(e Entry, prefix string, isRoot, isLast bool)
+	walk = func(e Entry, prefix string, isRoot, isLast bool) {
+		connector := ""
+		if !isRoot {
+			if isLast {
+				connector = "└─ "
+			} else {
+				connector = "├─ "
+			}
+		}
+		marker := ""
+		if e.ID == leafID {
+			marker = "  ← current"
+		}
+		lines = append(lines, TreeLine{Entry: e, Text: prefix + connector + entrySummary(e) + marker})
+
+		childPrefix := prefix
+		if !isRoot {
+			if isLast {
+				childPrefix += "   "
+			} else {
+				childPrefix += "│  "
+			}
+		}
+		kids := childrenOf[e.ID]
+		for i, k := range kids {
+			walk(k, childPrefix, false, i == len(kids)-1)
+		}
+	}
+	for i, r := range roots {
+		walk(r, "", true, i == len(roots)-1)
+	}
+	return lines
+}
+
+// sortEntries orders entries by timestamp, breaking ties by id so the render is
+// deterministic even when entries share a timestamp (common within one turn).
+func sortEntries(es []Entry) {
+	sort.SliceStable(es, func(i, j int) bool {
+		if !es[i].Timestamp.Equal(es[j].Timestamp) {
+			return es[i].Timestamp.Before(es[j].Timestamp)
+		}
+		return es[i].ID < es[j].ID
+	})
+}
+
+// entrySummary renders a one-line, role-tagged preview of an entry's message for
+// the tree display (a full message would wrap and ruin the ASCII structure).
+func entrySummary(e Entry) string {
+	switch m := e.Message.(type) {
+	case agentcore.UserMessage:
+		return "user: " + treeOneLine(agentcore.ContentToText(m.Content))
+	case agentcore.AssistantMessage:
+		text := treeOneLine(agentcore.ContentToText(m.Content))
+		calls := m.ToolCalls()
+		if len(calls) > 0 {
+			names := make([]string, len(calls))
+			for i, c := range calls {
+				names[i] = c.Name
+			}
+			tools := "[→ " + strings.Join(names, ", ") + "]"
+			if text != "" {
+				return "assistant: " + text + " " + tools
+			}
+			return "assistant " + tools
+		}
+		return "assistant: " + text
+	case agentcore.ToolResultMessage:
+		return "tool result: " + treeOneLine(agentcore.ContentToText(m.Content))
+	case agentcore.CompactionMessage:
+		return "compaction: " + treeOneLine(m.Summary)
+	default:
+		return e.Message.Role()
+	}
+}
+
+// treeOneLine collapses a possibly multi-line message into a single trimmed,
+// truncated line so tree rows stay on one physical line.
+func treeOneLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i] + " …"
+	}
+	const max = 72
+	if len(s) > max {
+		s = s[:max] + " …"
+	}
+	return s
+}
 
 // NewID returns a time-ordered session id: a UTC timestamp stem that sorts
 // lexicographically by creation time (e.g. "20260710-142530-uniq"). The suffix
@@ -477,6 +603,44 @@ func (s *Store) Append(id string, updatedAt time.Time, messages agentcore.Messag
 	header.UpdatedAt = updatedAt
 	existing = append(existing, messages...)
 	return s.Save(header, existing)
+}
+
+// AppendBranch appends messages as a chain descending from parentLeafID,
+// preserving every existing entry — and therefore any other branches — in the
+// session file (US-007, #123). It is the tree-aware counterpart to Append (which
+// rewrites the file as a single linear chain): where Append flattens, AppendBranch
+// grows the on-disk tree, so switching the active leaf to a historical entry and
+// continuing produces a real sibling branch rather than truncating history.
+//
+// Each message becomes a fresh entry (new id, ParentID chained to the previous
+// one, first chained to parentLeafID). An empty parentLeafID roots the new chain.
+// header (Version forced to SchemaVersion, UpdatedAt as the caller set it) is
+// rewritten as line 1. It returns the id of the new leaf — the last appended
+// entry — so the caller can track the active branch. If the session file does not
+// yet exist it is created (the fresh-session first-turn case).
+func (s *Store) AppendBranch(header SessionHeader, parentLeafID string, messages agentcore.MessageList) (string, error) {
+	if header.ID == "" {
+		return "", fmt.Errorf("session: header ID must not be empty")
+	}
+	var entries []Entry
+	if _, existing, err := s.LoadEntries(header.ID); err == nil {
+		entries = existing
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	now := time.Now().UTC()
+	parent := parentLeafID
+	leaf := parentLeafID
+	for _, m := range messages {
+		e := Entry{ID: newEntryID(), ParentID: parent, Timestamp: now, Message: m}
+		entries = append(entries, e)
+		parent = e.ID
+		leaf = e.ID
+	}
+	if err := s.SaveEntries(header, entries); err != nil {
+		return "", err
+	}
+	return leaf, nil
 }
 
 // Fork creates a new session whose contents are the linear path from the root

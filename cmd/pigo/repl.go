@@ -14,6 +14,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -41,6 +42,18 @@ type replDeps struct {
 	reg      *agenttool.ToolRegistry
 	slash    *runtime.SlashRegistry
 	creds    *provider.CredentialStore
+
+	// curLeaf is the id of the entry the conversation currently descends from —
+	// the active leaf of the on-disk session tree (US-007, #123). A fresh session
+	// starts empty (""); each persisted turn advances it to the newly written
+	// leaf. /tree can move it to a historical entry so the next turn branches from
+	// there rather than the tip.
+	curLeaf string
+	// persisted is the number of agentCtx.Messages already written to disk. The
+	// per-turn persist appends only Messages[persisted:] as a branch descending
+	// from curLeaf, so switching leaves and continuing grows a real tree instead
+	// of rewriting the file as a single linear chain.
+	persisted int
 }
 
 // replScanBufInit / replScanBufMax bound the line scanner. bufio.Scanner caps
@@ -105,11 +118,19 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 		if line == "/compact" {
 			// /compact is intercepted here (like /exit) because compaction must run
 			// an agent stream and mutate the shared context — neither of which a
-			// slash Action closure (string in, string out) can do.
+			// slash Action closure (string in, string out) can do. Compaction
+			// replaces the whole message list with a summary + tail, so the session
+			// is rewritten linearly (Save) and the branch-tracking state is reset to
+			// the new flattened leaf.
 			runManualCompact(out, deps)
 			deps.header.UpdatedAt = time.Now().UTC()
 			if err := deps.store.Save(deps.header, deps.agentCtx.Messages); err != nil {
 				fmt.Fprintf(out, "pigo: session save failed: %v\n", err)
+			}
+			deps.persisted = len(deps.agentCtx.Messages)
+			deps.curLeaf = ""
+			if _, entries, err := deps.store.LoadEntries(deps.header.ID); err == nil && len(entries) > 0 {
+				deps.curLeaf = entries[len(entries)-1].ID
 			}
 			continue
 		}
@@ -120,6 +141,14 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 			// cannot do. runForkClone saves the current session, forks it, and
 			// swaps deps.header / deps.agentCtx to the new branch on success.
 			runForkClone(out, &deps, line)
+			continue
+		}
+		if line == "/tree" || strings.HasPrefix(line, "/tree ") {
+			// /tree is intercepted here (like /fork) because "/tree <n>" moves the
+			// active leaf and rebuilds the shared context in place — mutating
+			// per-run state a slash Action closure cannot reach. With no argument
+			// it just prints the tree.
+			runTree(out, &deps, line)
 			continue
 		}
 
@@ -150,14 +179,39 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 		cancel()
 		setCancel(nil)
 
-		// Persist the session after each settled run.
-		deps.header.UpdatedAt = time.Now().UTC()
+		// Persist the turn as a branch descending from the active leaf, so a
+		// prior /tree leaf-switch produces a real sibling branch on disk rather
+		// than a truncated linear rewrite.
 		deps.header.Model = deps.live.model
 		deps.header.Provider = deps.live.providerName
-		if err := deps.store.Save(deps.header, deps.agentCtx.Messages); err != nil {
-			fmt.Fprintf(out, "pigo: session save failed: %v\n", err)
-		}
+		persistTurn(out, &deps)
 	}
+}
+
+// persistTurn writes the messages produced since the last persist as a new
+// branch descending from deps.curLeaf, advancing curLeaf to the new leaf and
+// persisted to the current message count (US-007, #123). Growing the tree with
+// AppendBranch (rather than rewriting the whole file linearly with Save) is what
+// lets a /tree leaf-switch fork the on-disk history instead of clobbering it. If
+// nothing new was produced it is a no-op: the on-disk tree is already current, so
+// the file is left untouched (rewriting it would regenerate ids and flatten the
+// tree).
+func persistTurn(out io.Writer, deps *replDeps) {
+	tail := deps.agentCtx.Messages[deps.persisted:]
+	if len(tail) == 0 {
+		// Nothing new to persist. Do NOT rewrite the file: Save regenerates entry
+		// ids and flattens the tree, which would invalidate curLeaf and drop any
+		// sibling branches. The on-disk tree is already current.
+		return
+	}
+	deps.header.UpdatedAt = time.Now().UTC()
+	leaf, err := deps.store.AppendBranch(deps.header, deps.curLeaf, tail)
+	if err != nil {
+		fmt.Fprintf(out, "pigo: session save failed: %v\n", err)
+		return
+	}
+	deps.curLeaf = leaf
+	deps.persisted = len(deps.agentCtx.Messages)
 }
 
 // streamRun appends the prompt to the shared context, starts an agent run, and
@@ -234,14 +288,12 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 // deps.agentCtx to the new session in place so subsequent prompts continue on
 // the branch. resume of either session id later walks to its own leaf.
 func runForkClone(out io.Writer, deps *replDeps, line string) {
-	// Persist the current session so Fork copies an up-to-date, saved tree.
-	deps.header.UpdatedAt = time.Now().UTC()
-	if err := deps.store.Save(deps.header, deps.agentCtx.Messages); err != nil {
-		fmt.Fprintf(out, "pigo: session save failed: %v\n", err)
-		return
-	}
+	// Persist the current turn as a branch so Fork copies an up-to-date tree
+	// without flattening any existing branches (a plain Save would rewrite the
+	// file linearly and drop siblings).
+	persistTurn(out, deps)
 	_, entries, err := deps.store.LoadEntries(deps.header.ID)
-	if err != nil {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		fmt.Fprintf(out, "pigo: cannot read session tree: %v\n", err)
 		return
 	}
@@ -255,8 +307,11 @@ func runForkClone(out io.Writer, deps *replDeps, line string) {
 
 	var leafID string
 	if cmd == "/clone" {
-		// Clone the whole conversation at the current leaf (last entry).
-		leafID = entries[len(entries)-1].ID
+		// Clone the whole conversation at the current active leaf.
+		leafID = deps.curLeaf
+		if leafID == "" {
+			leafID = entries[len(entries)-1].ID
+		}
 	} else { // /fork
 		// Collect the historical user messages, in order, with their entry index.
 		type userMsg struct {
@@ -306,12 +361,75 @@ func runForkClone(out io.Writer, deps *replDeps, line string) {
 	}
 	deps.header = newHeader
 	deps.agentCtx.Messages = msgs
+	// The new file already holds the copied path verbatim, so mark it all
+	// persisted and set the active leaf to the copied tip.
+	deps.persisted = len(path)
+	deps.curLeaf = ""
+	if len(path) > 0 {
+		deps.curLeaf = path[len(path)-1].ID
+	}
 
 	action := "cloned"
 	if cmd == "/fork" {
 		action = "forked"
 	}
 	fmt.Fprintf(out, "%s session %s → %s (%d messages)\n", action, newHeader.ParentSession, newHeader.ID, len(msgs))
+}
+
+// runTree handles the /tree command (US-007, #123): the branch-navigation view
+// for a pure line REPL.
+//
+//   - "/tree" with no argument persists the current turn, then prints the
+//     session's entry tree with ├─/└─ connectors, tagging the active leaf with
+//     "← current". Each printed row is numbered so it can be selected.
+//   - "/tree N" switches the active leaf to the N-th printed entry: it rebuilds
+//     the shared context to the root→leaf path feeding that entry, so the next
+//     prompt continues from there. Because persistTurn appends new turns as a
+//     branch descending from the (moved) leaf, continuing after a switch grows a
+//     real sibling branch on disk rather than truncating history.
+func runTree(out io.Writer, deps *replDeps, line string) {
+	// Persist any un-saved turn first so the tree reflects the live conversation.
+	persistTurn(out, deps)
+	_, entries, err := deps.store.LoadEntries(deps.header.ID)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		fmt.Fprintf(out, "pigo: cannot read session tree: %v\n", err)
+		return
+	}
+	if len(entries) == 0 {
+		fmt.Fprintln(out, "session tree is empty — send a message first")
+		return
+	}
+
+	lines := session.RenderTreeLines(entries, deps.curLeaf)
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		// Print the numbered tree for selection.
+		fmt.Fprintln(out, "session tree (run /tree <n> to switch the active branch):")
+		for i, l := range lines {
+			fmt.Fprintf(out, "  %d. %s\n", i+1, l.Text)
+		}
+		return
+	}
+
+	n, convErr := strconv.Atoi(fields[1])
+	if convErr != nil || n < 1 || n > len(lines) {
+		fmt.Fprintf(out, "invalid selection %q — run /tree to list nodes (1..%d)\n", fields[1], len(lines))
+		return
+	}
+
+	// Switch the active leaf to the chosen node and rebuild the context from its
+	// root→leaf path. The chosen entry is already persisted, so persisted stays at
+	// the rebuilt length; the next turn branches from curLeaf.
+	target := lines[n-1].Entry
+	path := session.PathToLeaf(entries, target.ID)
+	msgs := make(agentcore.MessageList, len(path))
+	for i, e := range path {
+		msgs[i] = e.Message
+	}
+	deps.agentCtx.Messages = msgs
+	deps.curLeaf = target.ID
+	deps.persisted = len(msgs)
+	fmt.Fprintf(out, "switched to branch at node %d (%d messages) — next prompt continues from here\n", n, len(msgs))
 }
 
 // runManualCompact compacts the shared context on an explicit /compact request:

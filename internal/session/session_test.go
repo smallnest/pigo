@@ -8,6 +8,7 @@ package session
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -457,6 +458,158 @@ func TestForkBeforeUserMessage(t *testing.T) {
 	if len(prefix) != len(entries)-1 {
 		t.Errorf("prefix fork = %d entries, want %d", len(prefix), len(entries)-1)
 	}
+}
+
+// TestAppendBranchGrowsTree verifies AppendBranch (US-007, #123) preserves all
+// existing entries and chains new messages from a chosen parent leaf — so
+// switching the active leaf to a historical entry and continuing produces a real
+// sibling branch on disk rather than truncating history.
+func TestAppendBranchGrowsTree(t *testing.T) {
+	s := newStore(t)
+	now := time.Date(2026, 7, 17, 0, 0, 0, 0, time.UTC)
+	h := SessionHeader{ID: NewID(now), CreatedAt: now, UpdatedAt: now}
+	if err := s.Save(h, sampleMessages()); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	_, entries, err := s.LoadEntries(h.ID)
+	if err != nil {
+		t.Fatalf("LoadEntries: %v", err)
+	}
+	// Branch from the FIRST entry (the root user message): append a new user turn
+	// as its child. The result must keep every original entry plus the new one.
+	branchParent := entries[0].ID
+	extra := agentcore.MessageList{
+		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("a different question")}},
+	}
+	leaf, err := s.AppendBranch(h, branchParent, extra)
+	if err != nil {
+		t.Fatalf("AppendBranch: %v", err)
+	}
+	_, after, err := s.LoadEntries(h.ID)
+	if err != nil {
+		t.Fatalf("LoadEntries after branch: %v", err)
+	}
+	if len(after) != len(entries)+1 {
+		t.Fatalf("entry count = %d, want %d (nothing dropped, one added)", len(after), len(entries)+1)
+	}
+	// The new leaf descends from the chosen parent.
+	var newLeaf *Entry
+	for i := range after {
+		if after[i].ID == leaf {
+			newLeaf = &after[i]
+		}
+	}
+	if newLeaf == nil {
+		t.Fatalf("new leaf %q not found in reloaded entries", leaf)
+	}
+	if newLeaf.ParentID != branchParent {
+		t.Errorf("new leaf parent = %q, want %q", newLeaf.ParentID, branchParent)
+	}
+	// The root now has two children: the original second entry and the new leaf —
+	// a genuine branch point.
+	kids := 0
+	for _, e := range after {
+		if e.ParentID == branchParent {
+			kids++
+		}
+	}
+	if kids != 2 {
+		t.Errorf("branch point should have 2 children, got %d", kids)
+	}
+	// PathToLeaf to the new leaf yields exactly [root, newLeaf].
+	path := PathToLeaf(after, leaf)
+	if len(path) != 2 || path[0].ID != branchParent || path[1].ID != leaf {
+		t.Errorf("PathToLeaf(newLeaf) = %v, want [root, newLeaf]", pathIDs(path))
+	}
+}
+
+// TestAppendBranchCreatesFileWhenMissing verifies AppendBranch creates the
+// session file on first use (the fresh-session first-turn case) rather than
+// erroring like Append does.
+func TestAppendBranchCreatesFileWhenMissing(t *testing.T) {
+	s := newStore(t)
+	now := time.Date(2026, 7, 17, 0, 0, 0, 0, time.UTC)
+	h := SessionHeader{ID: NewID(now), CreatedAt: now, UpdatedAt: now}
+	msgs := agentcore.MessageList{
+		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("hi")}},
+	}
+	leaf, err := s.AppendBranch(h, "", msgs)
+	if err != nil {
+		t.Fatalf("AppendBranch on missing file: %v", err)
+	}
+	_, entries, err := s.LoadEntries(h.ID)
+	if err != nil {
+		t.Fatalf("LoadEntries: %v", err)
+	}
+	if len(entries) != 1 || entries[0].ID != leaf || entries[0].ParentID != "" {
+		t.Errorf("expected one root entry with id=%q, got %v", leaf, entries)
+	}
+}
+
+// TestRenderTreeLinesMarksCurrentAndBranches verifies the pure-text tree render
+// (US-007, #123): every entry gets one numbered-able line in render order, the
+// active leaf is tagged "← current", and a branch point produces two child rows.
+func TestRenderTreeLinesMarksCurrentAndBranches(t *testing.T) {
+	s := newStore(t)
+	now := time.Date(2026, 7, 17, 0, 0, 0, 0, time.UTC)
+	h := SessionHeader{ID: NewID(now), CreatedAt: now, UpdatedAt: now}
+	if err := s.Save(h, sampleMessages()); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	_, entries, err := s.LoadEntries(h.ID)
+	if err != nil {
+		t.Fatalf("LoadEntries: %v", err)
+	}
+	// Branch off the root to create a fork point.
+	if _, err := s.AppendBranch(h, entries[0].ID, agentcore.MessageList{
+		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("sibling turn")}},
+	}); err != nil {
+		t.Fatalf("AppendBranch: %v", err)
+	}
+	_, after, err := s.LoadEntries(h.ID)
+	if err != nil {
+		t.Fatalf("LoadEntries after branch: %v", err)
+	}
+
+	leaf := after[len(after)-1].ID
+	lines := RenderTreeLines(after, leaf)
+	if len(lines) != len(after) {
+		t.Fatalf("render produced %d lines, want %d (one per entry)", len(lines), len(after))
+	}
+	// Exactly one line is tagged as current, and it is the leaf.
+	current := 0
+	for _, l := range lines {
+		if strings.Contains(l.Text, "← current") {
+			current++
+			if l.Entry.ID != leaf {
+				t.Errorf("current marker on %q, want leaf %q", l.Entry.ID, leaf)
+			}
+		}
+	}
+	if current != 1 {
+		t.Errorf("expected exactly one ← current line, got %d", current)
+	}
+	// Connector characters must appear (readable branch structure).
+	joined := ""
+	for _, l := range lines {
+		joined += l.Text + "\n"
+	}
+	if !strings.Contains(joined, "├─") && !strings.Contains(joined, "└─") {
+		t.Errorf("tree render lacks connectors:\n%s", joined)
+	}
+	// The first line is a root (no connector prefix) rendering the root user msg.
+	if !strings.HasPrefix(lines[0].Text, "user:") {
+		t.Errorf("first render line should be the root user message, got %q", lines[0].Text)
+	}
+}
+
+// pathIDs is a small test helper: the ids of a path, for readable failures.
+func pathIDs(path []Entry) []string {
+	ids := make([]string, len(path))
+	for i, e := range path {
+		ids[i] = e.ID
+	}
+	return ids
 }
 
 // through the JSONL store as a first-class message line under schema v2.

@@ -269,7 +269,75 @@ func TestReplayTranscriptRendersRoles(t *testing.T) {
 	}
 }
 
-// TestREPLStreamsAndAccumulatesHistory verifies a plain prompt runs, its reply
+// TestREPLTreePrintsAndSwitchesBranch drives the /tree command end to end over
+// the REPL: after two turns, "/tree" prints a numbered tree with the current-leaf
+// marker; "/tree 1" switches the active leaf to the first node, so the next
+// prompt branches from there — leaving the original branch intact on disk (US-007,
+// #123).
+func TestREPLTreePrintsAndSwitchesBranch(t *testing.T) {
+	p := &replProvider{reply: "reply"}
+	deps, store := newTestDeps(t, p)
+	var out bytes.Buffer
+	// Two turns build a linear history (4 messages), then /tree lists it, /tree 1
+	// switches to the first node, a new prompt branches, then /exit.
+	in := strings.NewReader("first\nsecond\n/tree\n/tree 1\nbranched\n/exit\n")
+	if err := runREPL(in, &out, deps); err != nil {
+		t.Fatalf("runREPL: %v", err)
+	}
+	s := out.String()
+	if !strings.Contains(s, "← current") {
+		t.Errorf("/tree should mark the current leaf, out=%q", s)
+	}
+	if !strings.Contains(s, "1. user:") {
+		t.Errorf("/tree should number entries starting at the root user message, out=%q", s)
+	}
+	if !strings.Contains(s, "switched to branch at node 1") {
+		t.Errorf("/tree 1 should confirm the switch, out=%q", s)
+	}
+	// The on-disk tree must retain both branches: the original 4-message line plus
+	// the new branch off node 1. Reload and confirm the root has 2 children.
+	_, entries, err := store.LoadEntries(deps.header.ID)
+	if err != nil {
+		t.Fatalf("LoadEntries: %v", err)
+	}
+	rootID := ""
+	for _, e := range entries {
+		if e.ParentID == "" {
+			rootID = e.ID
+			break
+		}
+	}
+	if rootID == "" {
+		t.Fatal("no root entry found")
+	}
+	kids := 0
+	for _, e := range entries {
+		if e.ParentID == rootID {
+			kids++
+		}
+	}
+	if kids != 2 {
+		t.Errorf("root should have 2 children after branching, got %d (entries=%d)", kids, len(entries))
+	}
+}
+
+// TestREPLTreeEmptyNoop verifies /tree on a fresh session (no messages) prints a
+// friendly notice and does not crash or run.
+func TestREPLTreeEmptyNoop(t *testing.T) {
+	p := &replProvider{reply: "hi"}
+	deps, _ := newTestDeps(t, p)
+	var out bytes.Buffer
+	if err := runREPL(strings.NewReader("/tree\n/exit\n"), &out, deps); err != nil {
+		t.Fatalf("runREPL: %v", err)
+	}
+	if p.calls != 0 {
+		t.Errorf("/tree must not launch a run, got %d calls", p.calls)
+	}
+	if !strings.Contains(out.String(), "empty") {
+		t.Errorf("/tree on empty session should say so, out=%q", out.String())
+	}
+}
+
 // is printed, and history accumulates across two turns in the shared context.
 func TestREPLStreamsAndAccumulatesHistory(t *testing.T) {
 	p := &replProvider{reply: "the answer"}

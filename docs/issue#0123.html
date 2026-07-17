@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0123</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue #0123 &mdash; /tree 分支导航 (US-007) &mdash; 2026-07-17</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 在文件内引入分支存储（<code>AppendBranch</code>），而非重写为线性链</h3>
+      <p><strong>Ambiguity:</strong> Spec 要求 “/tree 选择某节点作为新活动 leaf 并从该节点延续”，但 pigo 会话文件此前始终是线性的（每次 <code>Save</code> 重写整个文件）。线性写入无法保留切换后产生的兄弟分支。</p>
+      <p><strong>Choice:</strong> 新增 <code>Store.AppendBranch(header, parentLeafID, messages)</code>，保留所有既有 entry，只把新消息链接到指定父 leaf 之后，返回新 leaf id。REPL 用 <code>curLeaf</code>/<code>persisted</code> 跟踪活动 leaf 与已落盘条数，每轮以分支形式追加。</p>
+      <p><strong>Rationale:</strong> 这是唯一能让 “切换 leaf 后继续” 在磁盘上真正生成兄弟分支、而不截断历史的方式。与 schema v3 的 entry 树（#121）自然衔接。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 纯文本 ├─/└─ 树渲染，放弃移植 pi 的 TUI</h3>
+      <p><strong>Ambiguity:</strong> pi 的 <code>tree-selector.ts</code> 是全屏光标交互 TUI；spec 只要求 “纯行式 REPL 下可读（无需 TUI）”。</p>
+      <p><strong>Choice:</strong> 在 <code>session</code> 包实现 <code>RenderTreeLines(entries, leafID) []TreeLine</code>：pre-order DFS，├─/└─ 连线，活动 leaf 标 “← current”，每行返回对应 Entry 以便按序号选择。</p>
+      <p><strong>Rationale:</strong> pigo 已用行式 REPL 替代 bubbletea TUI（#106），文本渲染与该架构一致，且可被单测直接断言输出。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> /tree 在 REPL 循环中拦截，而非走 SlashRegistry Action</h3>
+      <p><strong>Ambiguity:</strong> 多数 slash 命令是纯 <code>string→string</code> 的 Action；/tree 需要改写共享 <code>agentCtx.Messages</code> 与 <code>curLeaf</code>。</p>
+      <p><strong>Choice:</strong> 与 /compact /fork /clone 一致，在 <code>runREPL</code> 内直接拦截；同时在 <code>registerLiveCommands</code> 注册为 no-op builtin，仅为让 /help 列出。</p>
+      <p><strong>Rationale:</strong> Action 闭包无法触及每轮可变状态；沿用既有拦截模式保持一致性。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> resume 路径改用 <code>LoadEntries</code> 重建 curLeaf</h3>
+      <p><strong>Spec:</strong> 未规定 resume 时如何设定活动 leaf。</p>
+      <p><strong>Implemented:</strong> <code>runInteractive</code> 恢复会话时用 <code>LoadEntries</code>（而非 <code>Load</code>）读取 entry 树，并把 <code>curLeaf</code> 设为最后一个 entry，使 resume 后 /tree 能立即正确定位。</p>
+      <p><strong>Why:</strong> 若不设 curLeaf，resume 后首个 /tree 会误判活动分支，破坏 “从当前 leaf 延续” 的语义。属于为满足验收条件而做的必要补齐，非偏离本意。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 空 tail 时 persistTurn 直接 return，不重写文件</h3>
+      <p><strong>Alternatives:</strong> (A) 每次都 <code>Save</code> 刷新 header 的 UpdatedAt；(B) 无新消息时直接 return。</p>
+      <p><strong>Pros/Cons:</strong> A 会让 <code>Save</code> 重新生成 entry id 并把树拍平，直接使 <code>curLeaf</code> 失效、丢弃兄弟分支（正是首次测试失败的根因）；B 保留磁盘树完好，仅牺牲空轮时 UpdatedAt 的即时刷新。</p>
+      <p><strong>Winner:</strong> B。分支完整性远重于空轮刷新时间戳；实际有新消息的轮次仍会 bump UpdatedAt。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 分支渲染在超大树下的可读性</h3>
+      <p><strong>Assumption:</strong> 会话 entry 数在人类可浏览范围内（数十条）。</p>
+      <p><strong>Verify:</strong> 若单会话累积成百上千 entry，纯文本树会很长；是否需要分页或折叠子树？当前实现全量打印。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
