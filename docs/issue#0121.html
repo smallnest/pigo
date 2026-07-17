@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0121</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block; font-size: 0.6875rem; font-weight: 500;
+      padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    code { background: #F0EEEA; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.8125rem; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/121">#121</a> &mdash; 会话树 id/parentId 结构与迁移 (US-005) &mdash; 2026-07-17</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Entry 包裹器 + 独立 JSON 编解码，而非给每个 Message 加 id 字段</h3>
+      <p><strong>Ambiguity:</strong> Spec 只说“每条持久化 entry 增加 ID/ParentID”，没规定 id 存在消息内还是消息外。</p>
+      <p><strong>Choice:</strong> 新增 <code>Entry{ID, ParentID, Timestamp, Message}</code> 包裹器，落盘形状为 <code>{"id","parentId","timestamp","message":{…}}</code>；内层 message 用 <code>json.RawMessage</code> 承载并复用 <code>MessageList</code> 的角色判别解码。</p>
+      <p><strong>Rationale:</strong> 树元数据是持久化层的关注点，不该污染 <code>agentcore.Message</code> 这个跨层共享的密封接口。包裹器让 message 编解码逻辑保持零改动，与 pi 的 <code>SessionEntryBase</code> 分层一致。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> entry id 用 4 字节 crypto/rand（8 位十六进制），不复刻 uuidv7</h3>
+      <p><strong>Ambiguity:</strong> Spec 只要求“补 id”，未规定 id 生成算法。pi 用 <code>uuidv7().slice(-8)</code>。</p>
+      <p><strong>Choice:</strong> <code>newEntryID()</code> 返回 4 随机字节的 8 位 hex；<code>crypto/rand</code> 极罕见失败时退化为时间戳派生 id，保证写入永不中断。</p>
+      <p><strong>Rationale:</strong> entry 顺序由 ParentID 链给出，无需 uuidv7 的时间排序性；8 位宽度与 pi 对齐，单文件内碰撞概率可忽略。避免引入 uuid 依赖。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Load 保持扁平返回值，新增 LoadEntries 暴露树</h3>
+      <p><strong>Ambiguity:</strong> 引入树后，既有 <code>Load</code> 调用方（resume 走 <code>Load(opts.resumeID)</code>）该不该变签名。</p>
+      <p><strong>Choice:</strong> <code>Load</code> 内部改调 <code>LoadEntries</code> 再摊平成 <code>MessageList</code>，签名与行为完全不变；新增 <code>LoadEntries(id) (SessionHeader, []Entry, error)</code> 给需要 id/parentId 的场景。</p>
+      <p><strong>Rationale:</strong> 不破坏现有 resume/REPL 调用方，同时满足验收条件 (c) 的树访问需求。是最小改动的正确边界。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> PathToLeaf 对断链/环“容错止步”，不像 pi 那样抛错</h3>
+      <p><strong>Spec:</strong> 验收条件 (c) 只要求“沿 parentId 回溯得线性路径”。pi 的 <code>getPathToRoot</code> 在父节点缺失时直接 throw。</p>
+      <p><strong>Implemented:</strong> <code>PathToLeaf</code> 遇到缺失父节点或环时停在最后一个可解析祖先，返回已恢复的前缀（空/未知 leafID 返回 nil）。</p>
+      <p><strong>Why:</strong> 部分损坏的会话文件仍应尽力恢复，符合 <code>List</code>“跳过损坏而非整体失败”的既有容错风格。抛错会让一条坏链毁掉整个 resume。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 加载时迁移 vs. 就地重写旧文件</h3>
+      <p><strong>Alternatives:</strong> (A) 读到 v1/v2 文件时合成 id/parentId 只存内存；(B) 加载后立即把文件重写为 v3。</p>
+      <p><strong>Chosen:</strong> A（<code>readSession</code> 按 <code>header.Version >= 3</code> 判断是包裹 entry 还是裸 message，裸行现补 id 并链 parentId 到前一条）。</p>
+      <p><strong>Why:</strong> 只读加载不产生意外写盘，旧文件保持原样直到下次显式 <code>Save</code> 才升到 v3，行为可预测、无副作用。代价是每次加载旧文件都要重新合成 id（旧文件 id 不稳定），但旧文件本就没有树语义，可接受。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 迁移时 Timestamp 用 header.UpdatedAt vs. 零值</h3>
+      <p><strong>Alternatives:</strong> (A) 旧行合成 entry 的 Timestamp 填 <code>header.UpdatedAt</code>；(B) 填零值。</p>
+      <p><strong>Chosen:</strong> A。</p>
+      <p><strong>Why:</strong> 旧格式无逐条时间戳，<code>UpdatedAt</code> 是文件级唯一可用的时间近似，比零值更有意义；且不影响 ParentID 链（顺序仍由行序决定）。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 是否需要暴露 fork/clone/getChildren 等完整树导航 API？</h3>
+      <p>本 issue 只落地 id/parentId 结构、迁移与 <code>PathToLeaf</code>。pi 还有 <code>getBranch</code>/<code>getChildren</code>/fork。若后续 issue 要真正的分叉会话，需要在此基础上补这些 API 与写入分叉 entry 的路径。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Append 每次 load-modify-save 会给已有消息重新生成 id</h3>
+      <p>当前 <code>Append</code> 复用 <code>Save</code>（整文件重写），因此每次 append 后全体 entry 的 id 都会变。线性会话下无碍（链仍自洽），但若将来有外部引用某条 entry 的稳定 id（如书签、分叉点），需改为真正的增量追加以保持 id 稳定。请确认当前无稳定 id 引用需求。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
