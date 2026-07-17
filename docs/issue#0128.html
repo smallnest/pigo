@@ -69,10 +69,10 @@
     <h2><span class="dot design"></span> Design Decisions</h2>
 
     <div class="item">
-      <h3><span class="label label-design">Decision</span> Hand-rolled HTML→Markdown reducer instead of a library</h3>
+      <h3><span class="label label-design">Decision</span> Use JohannesKaufmann/html-to-markdown/v2 for HTML→Markdown</h3>
       <p><strong>Ambiguity:</strong> The spec says "HTML→markdown 简化" but does not mandate fidelity or a specific library.</p>
-      <p><strong>Choice:</strong> A small <code>htmlToMarkdown</code> walks the <code>golang.org/x/net/html</code> parse tree, dropping chrome/script elements and emitting light Markdown (headings, links, lists, code, emphasis).</p>
-      <p><strong>Rationale:</strong> The goal is readable text for a model, not a round-trip converter. A full library (e.g. JohannesKaufmann/html-to-markdown) adds a heavy dependency for output the model reads loosely. x/net/html was already pulled transitively and is the standard, lenient parser.</p>
+      <p><strong>Choice:</strong> Wrap the <code>html-to-markdown/v2</code> library (base + commonmark plugins). The base plugin strips head/script/style/iframe/input by default; we additionally register nav/footer/header/aside/svg/form/template for removal via <code>Register.TagType(tag, TagTypeRemove, ...)</code>. The shared converter is built once with <code>sync.OnceValue</code>.</p>
+      <p><strong>Rationale:</strong> Initially this was a hand-rolled ~190-line reducer over <code>x/net/html</code> to avoid a dependency. On review that judgment was reversed: the library adds only 3 small transitive deps (the library, its <code>dom</code> helper, and <code>cascadia</code>; <code>x/net</code> and <code>x/text</code> were already present) and gives proper tables, nested lists, commonmark-conformant escaping, and community-maintained edge cases — versus re-implementing a tested wheel. The library's <code>Converter</code> is documented and race-tested for concurrent <code>ConvertString</code>, so one shared instance is safe.</p>
     </div>
 
     <div class="item">
@@ -93,6 +93,13 @@
     <p class="none">None — implementation followed the spec as written.</p>
 
     <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Library vs. hand-rolled HTML→Markdown reducer</h3>
+      <p><strong>Alternatives:</strong> (a) hand-rolled reducer over <code>x/net/html</code> (no new dep); (b) the <code>html-to-markdown/v2</code> library.</p>
+      <p><strong>Chosen:</strong> (b). The first cut shipped (a) to avoid a dependency, but a follow-up reversed it after measuring the actual cost: only 3 small transitive packages, none heavy.</p>
+      <p><strong>Why:</strong> The hand-rolled version needed custom edge-case patches (e.g. <code>collapseInlineSpace</code> to keep spacing around inline links — a bug caught in review) and still lacked tables, nested lists, and proper escaping. Delegating to a maintained, race-tested library removes that whole bug class for a negligible dependency footprint.</p>
+    </div>
 
     <div class="item">
       <h3><span class="label label-tradeoff">Tradeoff</span> HTTP→HTTPS upgrade vs. reject plain HTTP</h3>
