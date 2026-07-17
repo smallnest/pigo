@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0117</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/117">#117</a> &mdash; 上下文 token 会计与压缩触发判定 &mdash; 2026-07-17</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 用 type switch 而非 pi 的 role 字符串分派</h3>
+      <p><strong>Ambiguity:</strong> pi 的 <code>estimateTokens</code> 用 <code>message.role</code> 字符串 switch；pigo 的消息是密封接口（<code>UserMessage</code>/<code>AssistantMessage</code>/<code>ToolResultMessage</code>）。</p>
+      <p><strong>Choice:</strong> 用 Go type switch 分派到具体类型，未知类型返回 0。</p>
+      <p><strong>Rationale:</strong> 与 agentcore 既有的 discriminated-union 惯例一致（content.go / message.go 都用 type switch），编译期类型安全，无需运行时字符串比较。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>calculateContextTokens</code> 只求和 input+output</h3>
+      <p><strong>Ambiguity:</strong> pi 的 <code>calculateContextTokens</code> 折叠了 <code>cacheRead</code>/<code>cacheWrite</code>/<code>totalTokens</code>，而 pigo 的 <code>agentcore.Usage</code> 只有 <code>InputTokens</code>/<code>OutputTokens</code>。</p>
+      <p><strong>Choice:</strong> 返回 <code>InputTokens + OutputTokens</code>。</p>
+      <p><strong>Rationale:</strong> pigo 目前不追踪缓存 token；两家 provider（anthropic/openai）解码时也只填 input/output。如果将来 Usage 扩展缓存字段，此函数是唯一的改点。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>ShouldCompact</code> 额外守卫 contextWindow &lt;= 0</h3>
+      <p><strong>Ambiguity:</strong> pi 只检查 <code>enabled</code>，未处理 contextWindow 未知（0）的情况。</p>
+      <p><strong>Choice:</strong> contextWindow &lt;= 0 时直接返回 false。</p>
+      <p><strong>Rationale:</strong> <code>provider.ModelInfo.ContextWindow</code> 显式定义 0 表示未知；若不守卫，未知窗口会退化成 <code>contextTokens &gt; -reserveTokens</code> 恒为真，导致每轮都误触发压缩。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> <code>LastUsageIndex</code> 用 -1 而非 null 表示"无"</h3>
+      <p><strong>Spec said:</strong> pi 的 <code>ContextUsageEstimate.lastUsageIndex</code> 是 <code>number | null</code>。</p>
+      <p><strong>Implemented:</strong> Go 用 <code>int</code> 字段，无 usage 时取 <code>-1</code>。</p>
+      <p><strong>Why:</strong> Go 无 nullable int；-1 哨兵是惯用做法，且切片索引本就非负，语义无歧义。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> toolCall 参数按 RawMessage 字节长度计</h3>
+      <p><strong>Alternatives:</strong> (A) 直接用 <code>len(c.Arguments)</code>（已是紧凑 JSON 字节）；(B) 反序列化后再 <code>json.Marshal</code> 规范化再计长度。</p>
+      <p><strong>Chosen:</strong> A —— 非空时直接取字节长度，仅在空 RawMessage 时 marshal 出 <code>"null"</code> 补 4 字符。</p>
+      <p><strong>Why:</strong> 这是保守估算而非精确计费，规范化不值得额外分配；pi 用 <code>safeJsonStringify(arguments)</code>，字符数量级一致。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 缓存 token 是否要纳入 Usage</h3>
+      <p><strong>Assumption:</strong> 当前只算 input+output 已足够触发判定。</p>
+      <p><strong>Verify:</strong> 如果 Anthropic prompt caching 上线后缓存读取占比很大，<code>calculateContextTokens</code> 会低估上下文规模，可能延迟压缩触发。届时需扩展 <code>agentcore.Usage</code> 并更新此函数。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> ToolResultMessage 的 image 块估算</h3>
+      <p><strong>Assumption:</strong> tool result 中的 image 块按 4800 字符（同 user/assistant）估算。</p>
+      <p><strong>Verify:</strong> pi 对 toolResult 走同一 <code>estimateTextAndImageContentChars</code>，pigo 复用 <code>contentListChars</code> 行为一致——待多模态（US-010）落地后回归确认。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
