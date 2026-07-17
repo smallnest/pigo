@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0120</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block; font-size: 0.6875rem; font-weight: 500;
+      padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    code { background: #F0EEEA; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.8125rem; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/120">#120</a> &mdash; /compact 命令 + loop 自动压缩接入 &mdash; 2026-07-17</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 自动压缩放在 runLoop 内部的 afterTurn，而非 PrepareNextTurn 钩子</h3>
+      <p><strong>Ambiguity:</strong> Spec 只要求“每轮结束调用 ShouldCompact 并在超阈值时压缩”，未指定接入点。</p>
+      <p><strong>Choice:</strong> 在 <code>afterTurn</code> 中新增 <code>maybeAutoCompact</code>，并给 <code>afterTurn</code> 注入一个 <code>emit</code> 闭包。</p>
+      <p><strong>Rationale:</strong> 现有钩子(PrepareNextTurn/ShouldStopAfterTurn)签名只能读写 agentCtx，无法发出事件。CompactionEvent 必须进入事件流(供 headless/stream-json 观察)，因此压缩逻辑只能住在能拿到 stream.Emit 的 runLoop 内。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> /compact 在 REPL 循环中直接拦截，不走 SlashCommand.Action</h3>
+      <p><strong>Ambiguity:</strong> 其它斜杠命令都用 Action 闭包实现。</p>
+      <p><strong>Choice:</strong> 像 <code>/exit</code>/<code>/quit</code> 一样在 <code>runREPL</code> 循环里拦截 <code>/compact</code>，调用 <code>runManualCompact</code>；仅在注册表登记以便 <code>/help</code> 列出。</p>
+      <p><strong>Rationale:</strong> Action 的签名是 <code>func(string) string</code>，既不能跑 summarization stream 也不能改写共享的 agentCtx.Messages。手动压缩两者都要做。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> ContextWindow 经 LoopConfig / liveRunConfig 下沉，默认 128000</h3>
+      <p><strong>Ambiguity:</strong> runLoop 原本拿不到模型的 context window。</p>
+      <p><strong>Choice:</strong> 给 <code>LoopConfig</code> 加 <code>ContextWindow int</code>，REPL 的 <code>liveRunConfig</code> 用 <code>defaultContextWindow=128000</code> 兜底。<code>&lt;=0</code> 时禁用自动压缩。</p>
+      <p><strong>Rationale:</strong> 窗口未知时宁可不压缩也不误伤；128000 足够大，只有真正的长会话才触发。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 压缩流复用主轮的 API key 解析</h3>
+      <p><strong>Spec:</strong> 未提及 summarization 请求的鉴权。</p>
+      <p><strong>Implemented:</strong> <code>runCompaction</code> 与 <code>runManualCompact</code> 都按主轮方式解析 key(动态 GetAPIKey 优先、静态 APIKey 兜底)后再构造 StreamConfig。</p>
+      <p><strong>Why:</strong> 否则对需要鉴权的 provider，<code>Compact</code> 会以 “missing API key” 失败，自动/手动压缩形同虚设。此为 review-it 阶段发现并修复的真实缺陷。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 压缩失败非致命 vs. 中断会话</h3>
+      <p><strong>Alternatives:</strong> (A) 失败即中断 run；(B) 失败保留原上下文并发出带 ErrorMessage 的 CompactionEvent。</p>
+      <p><strong>Chosen:</strong> B。</p>
+      <p><strong>Why:</strong> US-004 明确要求压缩失败不打断会话；保留原始上下文让用户可继续对话，失败通过事件可观察而非静默。代价是超长上下文可能继续增长，但这比丢会话可接受。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> defaultContextWindow 是否应随模型真实窗口动态设置？</h3>
+      <p>当前 REPL 固定 128000 兜底。若 provider 的 preset 已知真实 ContextWindow，理想情况下应读取 preset 覆盖默认值，让阈值更精确。可作为后续 issue 跟进。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> CompactionEvent.Reason 目前自动路径固定 "threshold"</h3>
+      <p>结构预留了 "manual"/"overflow" 语义，但手动 <code>/compact</code> 当前直接打印而不发事件(REPL 未接入事件流)。若将来手动压缩也要走 stream-json，需要补 "manual" reason 的发射。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

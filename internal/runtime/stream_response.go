@@ -8,6 +8,7 @@ import (
 	"context"
 
 	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/compaction"
 	"github.com/smallnest/pigo/internal/provider"
 )
 
@@ -37,6 +38,21 @@ type LoopConfig struct {
 	GetAPIKey func(ctx context.Context, provider string) string
 	// Provider is the provider name passed to GetAPIKey.
 	Provider string
+
+	// ContextWindow is the model's total context-token budget, used to decide
+	// automatic compaction. When <= 0 the window is unknown and auto-compaction
+	// is disabled (ShouldCompact returns false), so the loop behaves exactly as
+	// before for callers that do not plumb it through.
+	ContextWindow int
+	// Compaction holds the thresholds/retention knobs for auto-compaction. Its
+	// Enabled flag gates the feature independently of ContextWindow.
+	Compaction compaction.CompactionSettings
+	// SummaryStream produces the provider stream used to generate compaction
+	// summaries. Defaults to Stream when nil.
+	SummaryStream provider.StreamFn
+	// SummaryModel is the model used for summarization. When zero, a model is
+	// synthesized from Model/ContextWindow.
+	SummaryModel provider.Model
 
 	// Extra is forwarded to StreamConfig.Extra.
 	Extra map[string]any
