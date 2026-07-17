@@ -179,6 +179,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			tools:        env.tools,
 			sysPrompt:    env.sysPrompt,
 			resumeID:     resumeID,
+			plugins:      env.plugins,
 		}); err != nil {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
 			return 1
@@ -221,6 +222,12 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		Mode: mode,
 		Out:  out,
 		Run:  newRunConfig(opts.model, env.providerName, env.provider, creds, toolRegistry(env.tools)),
+	}
+	// Deliver agent lifecycle events to any subscribed plugin (US-017, #133).
+	// NewEventNotifier returns nil when no plugin subscribes, so the OnEvent hook
+	// stays unset in the common no-plugin case.
+	if n := plugin.NewEventNotifier(env.plugins, errOut); n != nil {
+		cfg.OnEvent = n.Handle
 	}
 	if err := runtime.RunHeadless(ctx, agentCtx, cfg); err != nil {
 		fmt.Fprintf(errOut, "pigo: %v\n", err)

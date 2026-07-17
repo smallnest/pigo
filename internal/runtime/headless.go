@@ -44,6 +44,10 @@ type HeadlessConfig struct {
 	Mode HeadlessMode
 	// Out receives the run output (final text or JSON lines). Required.
 	Out io.Writer
+	// OnEvent, when non-nil, is invoked for every AgentEvent before output
+	// handling. It is the seam plugin lifecycle-event delivery (US-017, #133)
+	// hooks into, independent of the output mode. It must not block.
+	OnEvent func(ev agentcore.AgentEvent)
 }
 
 // ErrRunFailed is the sentinel returned by RunHeadless when the agent run ended
@@ -78,12 +82,20 @@ func RunHeadless(ctx context.Context, agentCtx *agentcore.AgentContext, cfg Head
 	// the final message, which DrainStream returns.
 	var writeErr error
 	h := StreamHandler{}
-	if cfg.Mode == StreamJSONMode {
+	// Compose the output-mode serialiser (stream-json only) with the optional
+	// external OnEvent (plugin lifecycle delivery, US-017). Both observe every
+	// event; the serialiser runs first so a write failure is recorded even when a
+	// plugin observer is also wired.
+	streamJSON := cfg.Mode == StreamJSONMode
+	if streamJSON || cfg.OnEvent != nil {
 		h.OnEvent = func(ev agentcore.AgentEvent) {
-			if writeErr == nil {
+			if streamJSON && writeErr == nil {
 				if err := writeEventJSON(cfg.Out, ev); err != nil {
 					writeErr = err
 				}
+			}
+			if cfg.OnEvent != nil {
+				cfg.OnEvent(ev)
 			}
 		}
 	}
