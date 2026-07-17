@@ -36,6 +36,10 @@ type Model struct {
 	SupportsThinking bool `json:"supportsThinking,omitempty"`
 	// SupportsTools reports whether the model can call tools.
 	SupportsTools bool `json:"supportsTools,omitempty"`
+	// SupportsImages reports whether the model accepts image (multimodal) input.
+	// When false, an image block in the request is reported as a hard error
+	// rather than silently dropped, so the user learns the model cannot see it.
+	SupportsImages bool `json:"supportsImages,omitempty"`
 	// ThinkingLevels maps unified thinking levels to this model's wire values.
 	// nil when the model does not support thinking (decision #10).
 	ThinkingLevels agentcore.ThinkingLevelMap `json:"-"`

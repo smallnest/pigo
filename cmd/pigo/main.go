@@ -69,9 +69,9 @@ func resolveProvider(model, baseURL, protocol string) (provider.Provider, string
 		if strings.TrimSpace(baseURL) == "" {
 			return nil, "", fmt.Errorf("--protocol openai requires --base-url")
 		}
-		return provider.NewOpenAICompatibleProvider(baseURL, []provider.Model{{Provider: "openai", ID: model}}), "openai", nil
+		return provider.NewOpenAICompatibleProvider(baseURL, []provider.Model{{Provider: "openai", ID: model, SupportsImages: true}}), "openai", nil
 	case "anthropic":
-		return provider.NewAnthropicProvider(baseURL, []provider.Model{{Provider: "anthropic", ID: model}}), "anthropic", nil
+		return provider.NewAnthropicProvider(baseURL, []provider.Model{{Provider: "anthropic", ID: model, SupportsImages: true}}), "anthropic", nil
 	case "":
 		// fall through to heuristic resolution
 	default:
@@ -82,27 +82,27 @@ func resolveProvider(model, baseURL, protocol string) (provider.Provider, string
 	if p, ok := provider.LookupPreset(model); ok {
 		switch p.Provider {
 		case "nvidia":
-			return provider.NewNvidiaProvider(baseURL, []provider.Model{{Provider: "nvidia", ID: model}}), "nvidia", nil
+			return provider.NewNvidiaProvider(baseURL, []provider.Model{{Provider: "nvidia", ID: model, SupportsImages: true}}), "nvidia", nil
 		case "ollama":
 			id := strings.TrimPrefix(model, "ollama/")
-			return provider.NewOllamaProvider(baseURL, []provider.Model{{Provider: "ollama", ID: id}}), "ollama", nil
+			return provider.NewOllamaProvider(baseURL, []provider.Model{{Provider: "ollama", ID: id, SupportsImages: true}}), "ollama", nil
 		default: // openrouter and any OpenAI-compatible upstream
-			return provider.NewOpenRouterProvider(baseURL, []provider.Model{{Provider: "openrouter", ID: model}}), "openrouter", nil
+			return provider.NewOpenRouterProvider(baseURL, []provider.Model{{Provider: "openrouter", ID: model, SupportsImages: true}}), "openrouter", nil
 		}
 	}
 
 	// 2. Local Ollama by prefix or port.
 	if strings.HasPrefix(model, "ollama/") || strings.Contains(baseURL, "11434") {
 		id := strings.TrimPrefix(model, "ollama/")
-		return provider.NewOllamaProvider(baseURL, []provider.Model{{Provider: "ollama", ID: id}}), "ollama", nil
+		return provider.NewOllamaProvider(baseURL, []provider.Model{{Provider: "ollama", ID: id, SupportsImages: true}}), "ollama", nil
 	}
 	// 3. NVIDIA NIM by prefix.
 	if strings.HasPrefix(model, "nvidia/") {
 		id := strings.TrimPrefix(model, "nvidia/")
-		return provider.NewNvidiaProvider(baseURL, []provider.Model{{Provider: "nvidia", ID: id}}), "nvidia", nil
+		return provider.NewNvidiaProvider(baseURL, []provider.Model{{Provider: "nvidia", ID: id, SupportsImages: true}}), "nvidia", nil
 	}
 	// 4. Default: OpenRouter.
-	return provider.NewOpenRouterProvider(baseURL, []provider.Model{{Provider: "openrouter", ID: model}}), "openrouter", nil
+	return provider.NewOpenRouterProvider(baseURL, []provider.Model{{Provider: "openrouter", ID: model, SupportsImages: true}}), "openrouter", nil
 }
 
 // builtinTools returns the default file/shell tool set rooted at cwd, or nil
