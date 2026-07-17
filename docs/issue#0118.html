@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0118</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/118">#118</a> &mdash; 会话切点计算 FindCutPoint &mdash; 2026-07-17</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 适配到扁平 message 列表而非 pi 的 SessionTreeEntry</h3>
+      <p><strong>Ambiguity:</strong> pi 的 <code>findCutPoint</code> 操作 <code>SessionTreeEntry[]</code>（含 branch_summary/model_change/compaction 等非消息条目），并带 startIndex/endIndex 参数；pigo 当前是扁平 <code>[]agentcore.Message</code>。</p>
+      <p><strong>Choice:</strong> 签名简化为 <code>FindCutPoint(msgs, keepRecentTokens)</code>，去掉 start/end 与非消息条目分支。</p>
+      <p><strong>Rationale:</strong> pigo 尚无会话树（#121 才引入 id/parentId），当前只有线性消息。保留 pi 的核心算法（反向累加 + 最近合法切点 + split-turn 判定），省去暂不存在的条目类型；等 #121 落地后如需可再引入范围参数。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 合法切点 = user | assistant，其余（含 toolResult）不可切</h3>
+      <p><strong>Ambiguity:</strong> pi 的 <code>findValidCutPoints</code> 把 bashExecution/custom/branchSummary 等也算合法切点。</p>
+      <p><strong>Choice:</strong> pigo 只有 user/assistant/toolResult 三种消息角色，切点判定为 user||assistant，toolResult 明确排除。</p>
+      <p><strong>Rationale:</strong> 严格保证 toolCall 与其 toolResult 不被拆开——这是 AC 的硬要求。其他角色 pigo 目前不存在，default 分支自然排除。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 省略 pi 的 cutIndex 回退循环</h3>
+      <p><strong>Spec said:</strong> pi 在选定 cutIndex 后有一个 <code>while (cutIndex &gt; startIndex)</code> 循环，越过前面的非 message / 非 compaction 条目把 cutIndex 往前挪。</p>
+      <p><strong>Implemented:</strong> pigo 未实现该循环。</p>
+      <p><strong>Why:</strong> 该循环的作用是跳过 SessionTreeEntry 中夹杂的元数据条目（model_change 等）。pigo 扁平列表中每个元素都是消息，循环恒为 no-op，实现它反而引入无意义代码。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 无合法切点时保留全部而非报错</h3>
+      <p><strong>Alternatives:</strong> (A) 返回 <code>FirstKeptIndex=0</code> 表示"整段保留"；(B) 返回错误要求调用方处理。</p>
+      <p><strong>Chosen:</strong> A，与 pi 一致（<code>firstKeptEntryIndex: startIndex</code>）。</p>
+      <p><strong>Why:</strong> 只有 toolResult 的消息序列在正常会话中几乎不会出现；保守地"不切"比让上层处理错误更简单，且压缩本就是尽力而为。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> #121 引入会话树后是否需要范围参数</h3>
+      <p><strong>Assumption:</strong> 当前扁平列表签名够用。</p>
+      <p><strong>Verify:</strong> 增量压缩（从上次压缩点到本次 cut）需要 startIndex 语义。#119/#121 落地时可能要把 <code>FindCutPoint</code> 扩展为接受 start/end，或由调用方先切片再传入。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
