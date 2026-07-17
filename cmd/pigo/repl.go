@@ -28,6 +28,7 @@ import (
 	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/clipboard"
 	"github.com/smallnest/pigo/internal/compaction"
+	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
 	"github.com/smallnest/pigo/internal/session"
@@ -43,6 +44,11 @@ type replDeps struct {
 	reg      *agenttool.ToolRegistry
 	slash    *runtime.SlashRegistry
 	creds    *provider.CredentialStore
+
+	// notifier delivers agent lifecycle events to subscribed plugins (US-017,
+	// #133). It is nil when no plugin subscribes; DrainStream's OnEvent stays
+	// unset in that case.
+	notifier *plugin.EventNotifier
 
 	// curLeaf is the id of the entry the conversation currently descends from —
 	// the active leaf of the on-disk session tree (US-007, #123). A fresh session
@@ -65,6 +71,17 @@ const (
 	replScanBufInit = 64 * 1024
 	replScanBufMax  = 4 * 1024 * 1024
 )
+
+// notifierHandle returns the plugin event-delivery callback for this session's
+// runs, or nil when no plugin subscribed. Returning nil (rather than a func that
+// dispatches to a nil notifier) keeps DrainStream's OnEvent unset in the common
+// no-plugin case, so the drain loop skips the per-event call entirely.
+func (deps replDeps) notifierHandle() func(agentcore.AgentEvent) {
+	if deps.notifier == nil {
+		return nil
+	}
+	return deps.notifier.Handle
+}
 
 // runREPL runs the read → run → stream-print loop until EOF, /exit or /quit. It
 // reads from in (os.Stdin in production) and writes prompts, streamed replies
@@ -278,6 +295,7 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 	// is surfaced on its own lines below the reply).
 	atLineStart := true
 	_, err = runtime.DrainStream(ctx, stream, runtime.StreamHandler{
+		OnEvent: deps.notifierHandle(),
 		OnText: func(delta string) {
 			fmt.Fprint(out, delta)
 			if delta != "" {

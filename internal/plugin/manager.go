@@ -76,6 +76,34 @@ func (m *Manager) Tools() []agentcore.AgentTool {
 // Plugins returns the loaded plugins (for command aggregation and diagnostics).
 func (m *Manager) Plugins() []*Plugin { return m.plugins }
 
+// Subscribers reports whether any loaded plugin subscribes to the given event
+// type. It lets a caller skip building an event payload when nobody is listening
+// (US-017, #133).
+func (m *Manager) Subscribers(eventType string) bool {
+	for _, p := range m.plugins {
+		if p.Subscribes(eventType) {
+			return true
+		}
+	}
+	return false
+}
+
+// DispatchEvent delivers one lifecycle event to every plugin subscribed to its
+// type (US-017, #133). Delivery is best-effort and isolated: each plugin's send
+// is bounded by eventTimeout, and a delivery failure to one plugin (timeout,
+// dead process) is written to warnLog when non-nil and does not stop delivery to
+// the others. It never blocks the agent loop beyond the per-plugin timeout.
+func (m *Manager) DispatchEvent(params EventParams, warnLog io.Writer) {
+	for _, p := range m.plugins {
+		if !p.Subscribes(params.Type) {
+			continue
+		}
+		if err := p.SendEvent(params); err != nil && warnLog != nil {
+			fmt.Fprintf(warnLog, "pigo: plugin %q event %q: %v\n", p.Manifest.Name, params.Type, err)
+		}
+	}
+}
+
 // Close shuts down every loaded plugin, returning the first error encountered
 // (all plugins are attempted regardless).
 func (m *Manager) Close() error {

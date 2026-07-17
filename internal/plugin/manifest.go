@@ -10,6 +10,9 @@
 //     The handshake. The plugin declares everything it offers up front.
 //   - tools/call {name, arguments} → CallResult {content, isError}
 //     pigo forwards a tool invocation; the plugin runs it and returns the text.
+//   - event {type, data} (notification)
+//     pigo pushes a subscribed agent lifecycle event (US-017, #133). One-way,
+//     fire-and-forget: the plugin never replies and a slow plugin is isolated.
 //   - shutdown (notification)
 //     Sent on Close so a well-behaved plugin can exit before stdin EOF.
 //
@@ -32,6 +35,11 @@ type Manifest struct {
 	Tools []ToolSpec `json:"tools,omitempty"`
 	// Commands are the slash commands this plugin registers.
 	Commands []CommandSpec `json:"commands,omitempty"`
+	// Events lists the agent lifecycle event types this plugin subscribes to
+	// (US-017, #133). pigo delivers only these via one-way `event` notifications;
+	// an empty list means the plugin observes no events. Valid values are the
+	// agentcore.Event* discriminants (e.g. "agent_start", "tool_execution_end").
+	Events []string `json:"events,omitempty"`
 }
 
 // ToolSpec declares one tool a plugin exposes. Schema is the JSON Schema for the
@@ -63,4 +71,12 @@ type CallParams struct {
 type CallResult struct {
 	Content string `json:"content"`
 	IsError bool   `json:"isError,omitempty"`
+}
+
+// EventParams is the parameter object for an `event` notification. Type is the
+// event discriminant (an agentcore.Event* value); Data carries a small,
+// wire-safe payload for that event (never secrets — see plugin.EventData).
+type EventParams struct {
+	Type string          `json:"type"`
+	Data json.RawMessage `json:"data,omitempty"`
 }

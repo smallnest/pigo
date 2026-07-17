@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
 	"github.com/smallnest/pigo/internal/session"
@@ -48,6 +49,10 @@ type interactiveOptions struct {
 	// resumeID, when non-empty, resumes an existing session: its messages seed
 	// the context and replayed transcript. Otherwise a fresh session is created.
 	resumeID string
+
+	// plugins holds the loaded plugin manager so the REPL can deliver lifecycle
+	// events to subscribed plugins (US-017, #133). It may be nil (no plugins).
+	plugins *plugin.Manager
 }
 
 // runInteractive starts the line-based REPL over a persisted session. It keeps
@@ -143,6 +148,7 @@ func runInteractive(opts interactiveOptions) error {
 		creds:     creds,
 		curLeaf:   curLeaf,
 		persisted: len(history),
+		notifier:  plugin.NewEventNotifier(opts.plugins, os.Stderr),
 	})
 }
 

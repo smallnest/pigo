@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"time"
 
 	"github.com/smallnest/pigo/internal/agentcore"
@@ -19,6 +20,12 @@ import (
 // initTimeout bounds the initialize handshake so a plugin that never replies
 // cannot hang plugin discovery.
 const initTimeout = 10 * time.Second
+
+// eventTimeout bounds one fire-and-forget lifecycle-event delivery (US-017,
+// #133). It is short so a slow or hung plugin adds only a small, bounded delay
+// per event rather than stalling the agent loop; the event is dropped on
+// timeout.
+const eventTimeout = 2 * time.Second
 
 // Plugin is a running plugin: its JSON-RPC client plus the manifest it declared
 // during initialize.
@@ -71,9 +78,17 @@ func (p *Plugin) Tools() []agentcore.AgentTool {
 }
 
 // Close shuts the plugin down: it sends a best-effort shutdown notification then
-// closes the transport (which closes stdin and, if needed, kills the child).
+// closes the transport (which closes stdin and, if needed, kills the child). The
+// shutdown notify is bounded by eventTimeout so a plugin that has stopped reading
+// its stdin (whose write pipe is full) cannot make Close block on the transport
+// write mutex — Close falls through to client.Close, which kills the child.
 func (p *Plugin) Close() error {
-	_ = p.client.Notify("shutdown", nil)
+	done := make(chan struct{})
+	go func() { _ = p.client.Notify("shutdown", nil); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(eventTimeout):
+	}
 	return p.client.Close()
 }
 
@@ -88,6 +103,30 @@ func (p *Plugin) call(ctx context.Context, name string, args json.RawMessage) (C
 		return CallResult{}, fmt.Errorf("plugin %q: decode result for %q: %w", p.Manifest.Name, name, err)
 	}
 	return res, nil
+}
+
+// Subscribes reports whether the plugin asked to receive the given event type in
+// its manifest (US-017, #133). pigo only delivers subscribed events.
+func (p *Plugin) Subscribes(eventType string) bool {
+	return slices.Contains(p.Manifest.Events, eventType)
+}
+
+// SendEvent delivers one lifecycle event to the plugin as a one-way `event`
+// notification (US-017, #133). Delivery is fire-and-forget and bounded by
+// eventTimeout: the underlying write runs on its own goroutine so a plugin that
+// has stopped reading its stdin (a hung or slow plugin) cannot block the agent
+// loop — the send is abandoned when the timeout elapses and its error returned.
+// The dropped write goroutine ends on its own when the plugin dies or Close
+// tears the pipe down.
+func (p *Plugin) SendEvent(params EventParams) error {
+	done := make(chan error, 1)
+	go func() { done <- p.client.Notify("event", params) }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(eventTimeout):
+		return fmt.Errorf("plugin %q: event %q delivery timed out after %s", p.Manifest.Name, params.Type, eventTimeout)
+	}
 }
 
 // pluginTool adapts one plugin-declared tool to the agentcore.AgentTool
