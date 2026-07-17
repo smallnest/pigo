@@ -249,9 +249,14 @@ func persistTurn(out io.Writer, deps *replDeps) {
 // the run ends. The context grows in place so the next prompt continues the
 // conversation.
 func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string) {
+	content, err := buildUserContent(prompt)
+	if err != nil {
+		fmt.Fprintf(out, "pigo: %v\n", err)
+		return
+	}
 	deps.agentCtx.Messages = append(deps.agentCtx.Messages, agentcore.UserMessage{
 		RoleField: agentcore.RoleUser,
-		Content:   agentcore.ContentList{agentcore.NewTextContent(prompt)},
+		Content:   content,
 	})
 	cfg := runtime.RunConfig{
 		LoopConfig: runtime.LoopConfig{
@@ -272,7 +277,7 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 	// turn-end flush adds a newline only after streamed text (and tool activity
 	// is surfaced on its own lines below the reply).
 	atLineStart := true
-	_, err := runtime.DrainStream(ctx, stream, runtime.StreamHandler{
+	_, err = runtime.DrainStream(ctx, stream, runtime.StreamHandler{
 		OnText: func(delta string) {
 			fmt.Fprint(out, delta)
 			if delta != "" {

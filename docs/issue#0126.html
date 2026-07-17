@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0126</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8em; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/126">#126</a> &mdash; 图像输入：Content 块 + 两家 provider 编码 (US-010) &mdash; 2026-07-17</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Reused existing <code>ImageContent</code> — no new content type added</h3>
+      <p><strong>Ambiguity:</strong> The first acceptance criterion asks to "add an image block type (base64 + media type)".</p>
+      <p><strong>Choice:</strong> <code>agentcore.ImageContent{Type, Data, MimeType}</code> and <code>NewImageContent</code> already existed (with the <code>ContentTypeImage</code> discriminant and a decode case), so the criterion was already satisfied. The work was provider encoding + input syntax + a capability guard.</p>
+      <p><strong>Rationale:</strong> Re-adding the type would duplicate a working discriminated-union member. Verified the existing type covers base64 data + mime type exactly as specified.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> User content collapses to a plain string when no image is present</h3>
+      <p><strong>Ambiguity:</strong> The spec mandates the array/block form for images but is silent on text-only messages.</p>
+      <p><strong>Choice:</strong> <code>openAIUserContent</code> / <code>anthropicUserContent</code> return a plain string for text-only messages and switch to the array/block form only when an <code>ImageContent</code> is present.</p>
+      <p><strong>Rationale:</strong> Preserves the existing text-only wire shape byte-for-byte (many OpenAI-compatible gateways are picky), so this change is a no-op for the overwhelmingly common non-image turn. Mirrors pi's <code>hasImages</code> branch in <code>anthropic-messages.ts</code> / <code>openai-completions.ts</code>.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Two input syntaxes: <code>@image:&lt;path&gt;</code> and Markdown <code>![alt](path)</code></h3>
+      <p><strong>Ambiguity:</strong> The spec offers both syntaxes as examples ("如 @image:./a.png 或 ![](path)") without mandating one.</p>
+      <p><strong>Choice:</strong> A single regexp matches both; <code>@image:</code> paths run to the next whitespace (bare token), Markdown paths are delimited by parentheses (may contain spaces). Non-reference text becomes interleaved <code>TextContent</code> blocks.</p>
+      <p><strong>Rationale:</strong> Supporting both costs one alternation in the pattern and matches the two conventions users would reach for. Delimiting rules follow each syntax's natural shape.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Capability guard via new <code>Model.SupportsImages</code> flag, checked at <code>StreamCompletion</code></h3>
+      <p><strong>Ambiguity:</strong> "非多模态模型收到图片输入时清晰报错" — where and how to detect capability.</p>
+      <p><strong>Choice:</strong> Added <code>SupportsImages bool</code> to <code>Model</code>. <code>checkImageSupport</code> runs at the top of both drivers' <code>StreamCompletion</code> (right after the API-key check) and returns a "cannot build the stream" error — the same failure class as a missing key.</p>
+      <p><strong>Rationale:</strong> The error surfaces before any network round-trip, consistent with the provider interface's dual failure model (build-time error vs. mid-stream terminal event).</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None — implementation followed the spec. All four functional criteria (image block type, two-provider encoding, input syntax, clear error on non-multimodal model) plus both test criteria are covered.</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Unknown models (absent from catalog) are treated permissively</h3>
+      <p><strong>Alternatives:</strong> (a) fail closed — reject image input for any model not in the catalog; (b) fail open — allow it and let the provider validate.</p>
+      <p><strong>Chosen:</strong> Fail open. <code>checkImageSupport</code> only errors when the model <em>is</em> in the catalog and declares <code>SupportsImages:false</code>. A model resolved via <code>--protocol</code>/prefix (built with <code>SupportsImages:true</code> in <code>resolveProvider</code>) or genuinely unknown defers to the upstream.</p>
+      <p><strong>Why it won:</strong> The catalog is not exhaustive (arbitrary base-url + model id). Failing closed would block legitimate multimodal models the catalog simply hasn't enumerated. The guard's job is catching the <em>known</em> text-only case, not policing every id.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Mime type from extension, with content-sniff fallback</h3>
+      <p><strong>Alternatives:</strong> (a) always content-sniff via <code>http.DetectContentType</code>; (b) extension-only; (c) extension first, sniff fallback.</p>
+      <p><strong>Chosen:</strong> (c) — <code>mimeFromPath</code> maps common extensions (png/jpg/jpeg/gif/webp); unknown extensions fall back to <code>http.DetectContentType</code>. Non-<code>image/</code> results are rejected.</p>
+      <p><strong>Why it won:</strong> Extensions are cheap and unambiguous for the common cases; the sniff fallback handles odd extensions without a hard dependency on file contents, and the <code>image/</code> prefix check prevents attaching a text file as an image.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should REPL-side image input be persisted/rendered specially in the session tree?</h3>
+      <p>Image blocks are stored in the message like any other content and round-trip through the session store, but the REPL echoes only text and the HTML export (from #124) has no image rendering. Confirm whether inline image thumbnails in <code>/tree</code> or the HTML export are wanted as a follow-up, or if raw base64 persistence is sufficient for now.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Are all catalog/preset models actually multimodal?</h3>
+      <p><code>resolveProvider</code> marks every resolved model <code>SupportsImages:true</code> because pigo can't know per-id vision capability without a richer catalog. This means a text-only model reached through pigo will not get the clear error until the upstream rejects it. If precise per-model capability matters, the preset catalog would need a vision flag per entry — flagged as potential follow-up.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

@@ -158,10 +158,15 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "pigo: %v\n", err)
 		return 1
 	}
+	promptContent, err := buildUserContent(opts.prompt)
+	if err != nil {
+		fmt.Fprintf(errOut, "pigo: %v\n", err)
+		return 1
+	}
 	agentCtx := &agentcore.AgentContext{
 		SystemPrompt: env.sysPrompt,
 		Messages: agentcore.MessageList{
-			agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent(opts.prompt)}},
+			agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: promptContent},
 		},
 		Tools: env.tools,
 	}

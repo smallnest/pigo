@@ -82,6 +82,9 @@ func (d *openAICompatDriver) StreamCompletion(ctx context.Context, req Completio
 		// Early "cannot build the stream": reference the provider, never a value.
 		return nil, fmt.Errorf("%s: missing API key", d.name)
 	}
+	if err := checkImageSupport(d.name, req.Model, d.models, req.Context.Messages); err != nil {
+		return nil, err
+	}
 	body, err := encodeOpenAIRequest(req)
 	if err != nil {
 		return nil, fmt.Errorf("%s: build request body: %w", d.name, err)
@@ -132,11 +135,11 @@ func encodeOpenAIRequest(req CompletionRequest) ([]byte, error) {
 func encodeOpenAIMessage(m agentcore.Message) []map[string]any {
 	switch msg := m.(type) {
 	case agentcore.UserMessage:
-		return []map[string]any{{"role": "user", "content": agentcore.ContentToText(msg.Content)}}
+		return []map[string]any{{"role": "user", "content": openAIUserContent(msg.Content)}}
 	case agentcore.CompactionMessage:
 		// A compaction checkpoint stands in for compacted history as user text.
 		u := msg.AsUserMessage()
-		return []map[string]any{{"role": "user", "content": agentcore.ContentToText(u.Content)}}
+		return []map[string]any{{"role": "user", "content": openAIUserContent(u.Content)}}
 	case agentcore.AssistantMessage:
 		entry := map[string]any{"role": "assistant"}
 		entry["content"] = agentcore.ContentToText(msg.Content)
@@ -166,6 +169,42 @@ func encodeOpenAIMessage(m agentcore.Message) []map[string]any {
 	default:
 		return nil
 	}
+}
+
+// openAIUserContent shapes a user content list for the OpenAI wire. When there
+// are no images it collapses to a plain string (the common case, and what most
+// OpenAI-compatible gateways expect). When images are present it emits the
+// multimodal array form: text parts plus image_url parts carrying a base64 data
+// URI (data:<mime>;base64,<data>).
+func openAIUserContent(content agentcore.ContentList) any {
+	hasImage := false
+	for _, c := range content {
+		if _, ok := c.(agentcore.ImageContent); ok {
+			hasImage = true
+			break
+		}
+	}
+	if !hasImage {
+		return agentcore.ContentToText(content)
+	}
+	parts := make([]map[string]any, 0, len(content))
+	for _, c := range content {
+		switch b := c.(type) {
+		case agentcore.TextContent:
+			if b.Text == "" {
+				continue
+			}
+			parts = append(parts, map[string]any{"type": "text", "text": b.Text})
+		case agentcore.ImageContent:
+			parts = append(parts, map[string]any{
+				"type": "image_url",
+				"image_url": map[string]any{
+					"url": fmt.Sprintf("data:%s;base64,%s", b.MimeType, b.Data),
+				},
+			})
+		}
+	}
+	return parts
 }
 
 // encodeOpenAITools maps AgentTools onto the OpenAI function-tool schema.
@@ -217,6 +256,9 @@ func (d *anthropicCompatDriver) Models() []Model { return d.models }
 func (d *anthropicCompatDriver) StreamCompletion(ctx context.Context, req CompletionRequest) (*AssistantMessageEventStream, error) {
 	if strings.TrimSpace(req.Config.APIKey) == "" {
 		return nil, fmt.Errorf("%s: missing API key", d.name)
+	}
+	if err := checkImageSupport(d.name, req.Model, d.models, req.Context.Messages); err != nil {
+		return nil, err
 	}
 	body, err := encodeAnthropicRequest(req)
 	if err != nil {
@@ -276,10 +318,10 @@ func encodeAnthropicRequest(req CompletionRequest) ([]byte, error) {
 func encodeAnthropicMessage(m agentcore.Message) map[string]any {
 	switch msg := m.(type) {
 	case agentcore.UserMessage:
-		return map[string]any{"role": "user", "content": agentcore.ContentToText(msg.Content)}
+		return map[string]any{"role": "user", "content": anthropicUserContent(msg.Content)}
 	case agentcore.CompactionMessage:
 		u := msg.AsUserMessage()
-		return map[string]any{"role": "user", "content": agentcore.ContentToText(u.Content)}
+		return map[string]any{"role": "user", "content": anthropicUserContent(u.Content)}
 	case agentcore.AssistantMessage:
 		var blocks []map[string]any
 		for _, c := range msg.Content {
@@ -307,6 +349,86 @@ func encodeAnthropicMessage(m agentcore.Message) map[string]any {
 	default:
 		return nil
 	}
+}
+
+// anthropicUserContent shapes a user content list for the Anthropic Messages
+// wire. When there are no images it collapses to a plain string. When images
+// are present it emits the content-block array form: text blocks plus image
+// blocks with a base64 source ({"type":"image","source":{"type":"base64",
+// "media_type":<mime>,"data":<b64>}}).
+func anthropicUserContent(content agentcore.ContentList) any {
+	hasImage := false
+	for _, c := range content {
+		if _, ok := c.(agentcore.ImageContent); ok {
+			hasImage = true
+			break
+		}
+	}
+	if !hasImage {
+		return agentcore.ContentToText(content)
+	}
+	blocks := make([]map[string]any, 0, len(content))
+	for _, c := range content {
+		switch b := c.(type) {
+		case agentcore.TextContent:
+			if b.Text == "" {
+				continue
+			}
+			blocks = append(blocks, map[string]any{"type": "text", "text": b.Text})
+		case agentcore.ImageContent:
+			blocks = append(blocks, map[string]any{
+				"type": "image",
+				"source": map[string]any{
+					"type":       "base64",
+					"media_type": b.MimeType,
+					"data":       b.Data,
+				},
+			})
+		}
+	}
+	return blocks
+}
+
+// contextHasImage reports whether any message in the context carries an image
+// content block, so a driver can reject image input on a non-multimodal model.
+func contextHasImage(msgs []agentcore.Message) bool {
+	for _, m := range msgs {
+		var content agentcore.ContentList
+		switch msg := m.(type) {
+		case agentcore.UserMessage:
+			content = msg.Content
+		case agentcore.CompactionMessage:
+			content = msg.AsUserMessage().Content
+		default:
+			continue
+		}
+		for _, c := range content {
+			if _, ok := c.(agentcore.ImageContent); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// checkImageSupport returns a clear error when the request carries image input
+// but the named model (looked up in models) does not declare SupportsImages.
+// A model absent from the catalog is treated permissively (unknown capability),
+// deferring to the provider's own validation. This turns the silent drop of
+// image blocks on a text-only model into an actionable message.
+func checkImageSupport(providerName, model string, models []Model, msgs []agentcore.Message) error {
+	if !contextHasImage(msgs) {
+		return nil
+	}
+	for _, m := range models {
+		if m.ID == model {
+			if !m.SupportsImages {
+				return fmt.Errorf("%s: model %q does not support image input", providerName, model)
+			}
+			return nil
+		}
+	}
+	return nil
 }
 
 // encodeAnthropicTools maps AgentTools onto the Anthropic tool schema.
