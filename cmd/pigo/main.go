@@ -35,6 +35,7 @@ func main() {
 	flag.BoolVarP(&opts.listSessions, "list-sessions", "l", false, "list stored interactive sessions and exit")
 	flag.StringVarP(&opts.resumeID, "resume", "r", "", "resume the interactive session with this id")
 	flag.BoolVarP(&opts.continueLast, "continue", "c", false, "resume the most recent interactive session")
+	flag.BoolVar(&opts.subagentRPC, "subagent-rpc", false, "internal: run as a process-isolated sub-agent JSON-RPC server over stdio (US-019)")
 	flag.Parse()
 
 	// A prompt may also be supplied as positional args.
