@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes - Issue #0134</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .item p:last-child { margin-bottom: 0; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    code { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 0.8em; background: #F3F1ED; padding: 0.05em 0.3em; border-radius: 3px; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/134">#134</a> &mdash; 项目信任 Project Trust (US-018) &mdash; 2026-07-19</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Tri-state trust via nullable <code>*bool</code> (true / false / null)</h3>
+      <p><strong>Ambiguity:</strong> The spec said trust is stored as <code>path -&gt; bool|null</code> but did not define what <code>null</code> means versus an absent entry, nor how "just once" is represented.</p>
+      <p><strong>Choice:</strong> <code>internal/trust</code> uses a <code>Decision</code> enum (Trusted / Untrusted / Undecided) backed by <code>*bool</code>: <code>true</code>=trusted, <code>false</code>=untrusted, <code>nil</code>=undecided. "Just once" is NOT persisted &mdash; it is an in-memory session grant (<code>SetSessionTrust</code>).</p>
+      <p><strong>Rationale:</strong> A nullable boolean preserves the literal <code>bool|null</code> schema with full round-trip fidelity (tested by <code>TestNullEntryRoundTrip</code>), while a separate session map keeps "just once" genuinely per-process &mdash; persisting it would contradict "just this once". <code>NearestTrustDecision</code> returns a <code>Found</code> flag so the REPL can distinguish "no entry anywhere" (prompt) from "entry exists, even null" (don't re-prompt).</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Side-effect tool set = {bash, write, edit}; read-only tools never gated</h3>
+      <p><strong>Ambiguity:</strong> The spec said "具有副作用的工具（bash/write/edit）" but did not say how to classify the rest.</p>
+      <p><strong>Choice:</strong> Only <code>bash</code>, <code>write</code>, <code>edit</code> are gated. <code>read</code>, <code>grep</code>, <code>find</code>, <code>webfetch</code> (read-only) and <code>todo</code> (in-memory) always run.</p>
+      <p><strong>Rationale:</strong> Trust protects against unwanted filesystem/process mutation. Read-only inspection does not need a trust gate, and gating it would make the agent useless in untrusted dirs. Notably all three gated tools are <code>ToolExecutionSequential</code>, so the <code>BeforeToolCall</code> hook fires on the run-loop producer goroutine, never concurrently with itself.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Trust gating is REPL-only; headless mode unchanged</h3>
+      <p><strong>Ambiguity:</strong> AC 5 ("未信任目录下 bash/write/edit 默认需确认") did not specify whether it applies to the headless (<code>-p</code>) path.</p>
+      <p><strong>Choice:</strong> The <code>BeforeToolCall</code> hook is wired only into <code>streamRun</code> (the REPL). Headless (<code>runtime.RunHeadless</code>) keeps no hook and runs tools as before.</p>
+      <p><strong>Rationale:</strong> Headless is non-interactive (CI/scripts); it cannot prompt. AC 3 ("REPL 询问") and the confirmation flow are inherently interactive. Applying trust to headless would either block tools silently (breaking scripts) or require a non-interactive policy the spec does not define.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Confirmation prompt offers y / N / a (a = "always this session")</h3>
+      <p><strong>Ambiguity:</strong> The spec said "默认需确认" without specifying the prompt's choices.</p>
+      <p><strong>Choice:</strong> The per-tool prompt is <code>[y]es / [n]o / [a]lways (trust for this session) [y/N/a]</code>, default <code>N</code> (deny). <code>a</code> grants session trust via <code>SetSessionTrust</code> so subsequent side-effect calls skip the prompt.</p>
+      <p><strong>Rationale:</strong> Default-deny keeps the safety property; <code>a</code> avoids prompt fatigue when the user has already decided to trust for the session, without persisting a grant they did not explicitly confirm via <code>/trust</code> or the startup dialog.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> <code>/trust off</code> clears session trust before persisting Untrusted</h3>
+      <p><strong>Spec:</strong> AC 4 said "/trust 命令保存当前项目信任决策" with no mention of session trust.</p>
+      <p><strong>Implemented:</strong> <code>/trust off</code> calls <code>Manager.ClearSessionTrust(cwd)</code> before <code>SetDecision(cwd, Untrusted)</code>.</p>
+      <p><strong>Why:</strong> <code>IsTrusted</code> checks the in-memory session map before the persisted decision, so an "always" granted earlier in the session would keep the dir trusted until restart &mdash; making <code>/trust off</code> ineffective and its "side-effect tools will ask" message false. Clearing first makes <code>off</code> take effect immediately. Caught in code review (M2).</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> REPL main loop switched from <code>bufio.Scanner</code> to a shared <code>*bufio.Reader.ReadString</code></h3>
+      <p><strong>Spec:</strong> Not specified; the REPL previously used <code>bufio.Scanner</code>.</p>
+      <p><strong>Implemented:</strong> <code>runREPL</code> now reads lines via <code>deps.in.ReadString('\n')</code> on a single shared <code>*bufio.Reader</code> that both the main loop and the tool-call confirmation prompt read from.</p>
+      <p><strong>Why:</strong> A <code>Scanner</code> has its own private buffer and can read past the current line, trapping bytes the confirmation prompt would then never see (it reads from the same underlying reader). Sharing one <code>*bufio.Reader</code> guarantees typed-ahead input is never split between the loop and a confirmation. This was required for correct trust-prompt behavior.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Trust file honors <code>$PIGO_HOME</code> in addition to <code>~/.pigo</code></h3>
+      <p><strong>Spec:</strong> AC 1 said the store is at <code>~/.pigo/trust.json</code>.</p>
+      <p><strong>Implemented:</strong> <code>trust.DefaultPath()</code> returns <code>$PIGO_HOME/trust.json</code> when <code>PIGO_HOME</code> is set, else <code>~/.pigo/trust.json</code>.</p>
+      <p><strong>Why:</strong> Every other pigo home-dir path (sessions, plugins, commands) already honors <code>PIGO_HOME</code>. Matching that keeps the trust store in the same place as the rest of the user's pigo state when the override is used.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> SIGINT during a trust confirmation does not instantly interrupt</h3>
+      <p><strong>Alternatives:</strong> (a) ctx-aware prompt with a reader goroutine + <code>select</code> on <code>ctx.Done()</code>; (b) have the SIGINT handler inject a line into stdin.</p>
+      <p><strong>Pros/cons:</strong> (a) leaks a goroutine blocked on the shared reader, which would then race with the next prompt's read &mdash; unsafe. (b) is platform-specific and hacky.</p>
+      <p><strong>Chose:</strong> Document the limitation. It is safe: a post-Ctrl+C "yes" still aborts the tool because <code>executeToolCall</code>'s <code>emit(ToolExecutionStartEvent)</code> returns <code>ctx.Err()</code> and the tool never runs. The cost is purely that the user must answer the prompt before the interrupt takes effect &mdash; a UX wart in a narrow scenario, not a safety issue.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Unbounded <code>ReadString</code> replaces the old 4 MiB Scanner cap</h3>
+      <p><strong>Alternatives:</strong> Keep <code>Scanner</code> with its 4 MiB cap; or write a bounded line reader on top of <code>ReadSlice</code>.</p>
+      <p><strong>Pros/cons:</strong> <code>Scanner</code> reintroduces the buffer-trapping problem. A bounded reader adds ~15 lines of fiddly code for a pathological-paste OOM that does not occur on a terminal.</p>
+      <p><strong>Chose:</strong> <code>ReadString</code> (unbounded) for correct buffer sharing, documented as an acceptable tradeoff for a terminal REPL where OS line-buffering bounds normal input. The cap loss is acknowledged in the <code>replScanBufInit</code> comment.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Confirmation writes to stdout from the run-loop goroutine</h3>
+      <p><strong>Alternatives:</strong> Route the confirmation through a custom event that the main goroutine renders in <code>DrainStream</code>.</p>
+      <p><strong>Pros/cons:</strong> The event approach is cleaner (single writer) but a much larger change touching the event stream and <code>StreamHandler</code>.</p>
+      <p><strong>Chose:</strong> Direct write from the hook. It is safe because <code>streamRun</code> uses an unbuffered event stream (<code>EventBuffer=0</code>, the default): by the time the hook runs, the main goroutine has finished draining the assistant's streamed text and is idle in <code>DrainStream</code>. The invariant is documented in <code>trustBeforeToolCall</code>; raising <code>EventBuffer</code> would require the event-routing approach.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> <code>confirmMu</code> kept despite side-effect tools being Sequential today</h3>
+      <p><strong>Alternatives:</strong> Remove the mutex entirely, since bash/write/edit are <code>ToolExecutionSequential</code> and the hook never runs in parallel today.</p>
+      <p><strong>Chose:</strong> Keep the mutex (nil-safe) as cheap future-proofing: if a side-effect tool ever becomes <code>Parallel</code>, concurrent confirmations would interleave on the shared stdin/stdout without it. The cost is one lock per gated call; the benefit is correctness under a plausible future change.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should <code>/trust forget</code> be exposed?</h3>
+      <p><strong>Assumption:</strong> <code>Manager.Forget</code> exists and is tested, but the <code>/trust</code> command does not surface it. Once a decision is saved, the only way to clear it is editing <code>~/.pigo/trust.json</code>.</p>
+      <p><strong>Verify/Follow-up:</strong> Is a <code>/trust forget</code> (or <code>/trust reset</code>) wanted? It was left out as out-of-scope for #134's acceptance criteria, but it is a natural companion to <code>/trust status</code>.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Is "just once" the right default for empty/EOF input at the startup prompt?</h3>
+      <p><strong>Assumption:</strong> <code>readMenuChoice</code> defaults to option 2 ("just once" = session trust) on an empty line or EOF, so the dialog never deadlocks and the REPL stays usable.</p>
+      <p><strong>Verify:</strong> Does the user prefer defaulting to "Reject" (safer: every tool prompts) instead of "just once" (permissive for the session) when input is empty? This is a UX policy call.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Pre-existing environment-fragile test (unrelated to this change)</h3>
+      <p><strong>Observation:</strong> <code>internal/provider.TestCredentialStoreOAuthRefreshFallback</code> fails locally because the user's environment has <code>ANTHROPIC_API_KEY</code> set, and <code>GetAPIKey</code> reads env before the config fallback. It passes in a clean env (CI). It is NOT in this diff.</p>
+      <p><strong>Follow-up:</strong> Consider isolating it with <code>t.Setenv("ANTHROPIC_API_KEY", "")</code> in a separate change so local dev <code>go test ./...</code> is green regardless of the shell environment.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should trust gating extend to headless mode?</h3>
+      <p><strong>Assumption:</strong> Trust is REPL-only; headless (<code>pigo -p</code>) runs side-effect tools without any trust check.</p>
+      <p><strong>Verify:</strong> Is that intended, or should headless block side-effect tools in untrusted dirs (without prompting) as a defense-in-depth measure for CI? The current behavior keeps headless permissive per the interactive-only reading of the AC.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Is the persisted <code>null</code> ("deferred") state actually useful?</h3>
+      <p><strong>Assumption:</strong> The store supports <code>SetDecision(dir, Undecided)</code> writing an explicit JSON <code>null</code> for schema completeness, but the REPL never writes it.</p>
+      <p><strong>Verify:</strong> If there is no use case for an explicitly-recorded undecided entry, the <code>null</code> write path could be removed to simplify the model &mdash; or kept if a future "ask once, remember not to re-ask" flow is wanted.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
