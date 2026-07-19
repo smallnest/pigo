@@ -32,6 +32,7 @@ import (
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
 	"github.com/smallnest/pigo/internal/session"
+	"github.com/smallnest/pigo/internal/trust"
 )
 
 // replDeps bundles the collaborators a REPL run needs. They are assembled once
@@ -50,6 +51,25 @@ type replDeps struct {
 	// unset in that case.
 	notifier *plugin.EventNotifier
 
+	// trust persists project-trust decisions (US-018, #134). It is nil when
+	// trust is disabled (e.g. the store could not be loaded); when nil the
+	// BeforeToolCall hook is not installed and the first-run prompt is skipped.
+	trust *trust.Manager
+	// cwd is the directory pigo was launched in, used as the trust key and as
+	// the directory side-effect tools are gated against. It does not change
+	// during a session (pigo does not cd).
+	cwd string
+	// in is the shared buffered input reader. The main loop and the tool-call
+	// confirmation prompt both read from it so input typed ahead is never split
+	// between them. It is created by runInteractive (wrapping os.Stdin) or, for
+	// direct test callers, lazily from the in argument at the top of runREPL.
+	in *bufio.Reader
+	// confirmMu serializes tool-call confirmation prompts so concurrent
+	// parallel side-effect tool calls do not interleave on the shared
+	// stdin/stdout. It is a pointer so every value copy of replDeps (passed to
+	// streamRun per prompt) shares one mutex.
+	confirmMu *sync.Mutex
+
 	// curLeaf is the id of the entry the conversation currently descends from —
 	// the active leaf of the on-disk session tree (US-007, #123). A fresh session
 	// starts empty (""); each persisted turn advances it to the newly written
@@ -63,14 +83,15 @@ type replDeps struct {
 	persisted int
 }
 
-// replScanBufInit / replScanBufMax bound the line scanner. bufio.Scanner caps
-// lines at 64KiB by default; a REPL user may paste a long single line (a big
-// prompt or a pasted file), so the max is raised to 4MiB. The initial buffer
-// stays at 64KiB and grows on demand.
-const (
-	replScanBufInit = 64 * 1024
-	replScanBufMax  = 4 * 1024 * 1024
-)
+// replScanBufInit is the initial size of the shared input reader. A REPL user
+// may paste a long single line (a big prompt or a pasted file); bufio.Reader
+// grows its returned string beyond this buffer on demand, so a long line is
+// still read whole (just accumulated rather than capped). This drops the hard
+// 4MiB cap the previous bufio.Scanner had: ReadString is unbounded, so a
+// pathological paste can grow the line buffer. That is an acceptable tradeoff
+// for a terminal REPL (where OS line buffering bounds normal input) in exchange
+// for correct buffer sharing with the tool-call confirmation prompt.
+const replScanBufInit = 64 * 1024
 
 // notifierHandle returns the plugin event-delivery callback for this session's
 // runs, or nil when no plugin subscribed. Returning nil (rather than a func that
@@ -88,9 +109,17 @@ func (deps replDeps) notifierHandle() func(agentcore.AgentEvent) {
 // and status lines to out (os.Stdout). It is the interactive replacement for the
 // bubbletea program.
 func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
-	scanner := bufio.NewScanner(in)
-	// Allow long pasted lines (default bufio.Scanner caps at 64KiB).
-	scanner.Buffer(make([]byte, 0, replScanBufInit), replScanBufMax)
+	// Use the shared buffered reader so the main loop and the tool-call
+	// confirmation prompt read from the same buffer: input is never split
+	// between them the way it would be if the loop used a bufio.Scanner with
+	// its own private buffer (a Scanner can read past the current line into its
+	// internal buffer, trapping bytes the confirmation prompt would then never
+	// see). deps.in is set by runInteractive (wrapping os.Stdin); the in
+	// parameter is only a fallback for direct callers (tests) that do not set
+	// deps.in, and is ignored once deps.in is populated.
+	if deps.in == nil {
+		deps.in = bufio.NewReaderSize(in, replScanBufInit)
+	}
 
 	// A SIGINT during a run cancels only that run; the handler is installed for
 	// the whole REPL and targets whichever run is active via runCancel. runCancel
@@ -121,13 +150,22 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 
 	for {
 		fmt.Fprintf(out, "\npigo(%s)> ", deps.live.model)
-		if !scanner.Scan() {
-			// EOF (Ctrl+D) or read error: exit cleanly.
+		raw, err := deps.in.ReadString('\n')
+		if err != nil && raw == "" {
+			// EOF (Ctrl+D) or read error with no partial line: exit cleanly.
 			fmt.Fprintln(out)
-			return scanner.Err()
+			if err == io.EOF {
+				return nil
+			}
+			return err
 		}
-		line := strings.TrimSpace(scanner.Text())
+		line := strings.TrimSpace(raw)
 		if line == "" {
+			if err != nil {
+				// A trailing partial line at EOF that trims to empty: exit.
+				fmt.Fprintln(out)
+				return nil
+			}
 			continue
 		}
 		if line == "/exit" || line == "/quit" {
@@ -285,7 +323,10 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 			Compaction:    compaction.DefaultCompactionSettings,
 		},
 		Batch: agenttool.BatchConfig{
-			ToolExecutorConfig: agenttool.ToolExecutorConfig{Registry: deps.reg},
+			ToolExecutorConfig: agenttool.ToolExecutorConfig{
+				Registry:       deps.reg,
+				BeforeToolCall: trustBeforeToolCall(deps.trust, deps.cwd, deps.in, out, deps.confirmMu),
+			},
 		},
 	}
 	stream := runtime.StartRun(ctx, deps.agentCtx, cfg)

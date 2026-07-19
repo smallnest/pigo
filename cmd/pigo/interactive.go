@@ -6,11 +6,13 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/smallnest/pigo/internal/agentcore"
@@ -18,6 +20,7 @@ import (
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
 	"github.com/smallnest/pigo/internal/session"
+	"github.com/smallnest/pigo/internal/trust"
 )
 
 // sessionStore returns the session store rooted at ~/.pigo/sessions (or under
@@ -123,6 +126,27 @@ func runInteractive(opts interactiveOptions) error {
 		contextWindow: defaultContextWindow,
 	}
 
+	// Project trust (US-018, #134): load the persisted trust store for the
+	// launch directory. A load failure (e.g. a corrupted trust.json) is
+	// non-fatal: trust is disabled (mgr stays nil) and the REPL still runs -
+	// the store is surfaced rather than silently overwritten. cwd is captured
+	// once since pigo does not cd during a session; if it cannot be resolved
+	// trust is disabled too, since an empty cwd would silently never match.
+	cwd, cwdErr := os.Getwd()
+	mgr, mgrErr := trust.NewManager(trust.DefaultPath())
+	if mgrErr != nil {
+		fmt.Fprintf(os.Stderr, "pigo: trust store unavailable, trust disabled: %v\n", mgrErr)
+		mgr = nil
+	}
+	if cwdErr != nil && mgr != nil {
+		fmt.Fprintf(os.Stderr, "pigo: cannot resolve working directory, trust disabled: %v\n", cwdErr)
+		mgr = nil
+	}
+	// in is the shared input reader for the main loop and the tool-call
+	// confirmation prompt (see repl.go). Wrapping os.Stdin once here means both
+	// read from the same buffer.
+	reader := bufio.NewReaderSize(os.Stdin, replScanBufInit)
+
 	// Wire slash-commands: built-ins (compile-time) plus any user templates under
 	// ~/.pigo/commands (对标 the commands/*.md convention) plus skills under
 	// ~/.agents/skills. A load error is non-fatal — the REPL still runs with the
@@ -132,6 +156,12 @@ func runInteractive(opts interactiveOptions) error {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pigo: slash-commands: %v\n", err)
 	}
+	registerTrustCommand(slash, mgr, cwd)
+
+	// On the first launch in an undecided directory, ask the user how much to
+	// trust it before any tool runs. This happens before replay so the trust
+	// question is the first thing the user sees, not their prior history.
+	ensureTrustPrompt(os.Stdout, reader, mgr, cwd)
 
 	// Replay the resumed conversation so the user sees history before re-prompting.
 	if len(history) > 0 {
@@ -146,6 +176,10 @@ func runInteractive(opts interactiveOptions) error {
 		reg:       reg,
 		slash:     slash,
 		creds:     creds,
+		trust:     mgr,
+		cwd:       cwd,
+		in:        reader,
+		confirmMu: &sync.Mutex{},
 		curLeaf:   curLeaf,
 		persisted: len(history),
 		notifier:  plugin.NewEventNotifier(opts.plugins, os.Stderr),

@@ -126,6 +126,22 @@ func TestREPLEOFExits(t *testing.T) {
 	}
 }
 
+// TestREPLFinalLineNoNewline verifies the ReadString-based loop handles a final
+// input line without a trailing newline: the line is still run as a prompt and
+// the loop then exits cleanly on EOF. (The previous bufio.Scanner had the same
+// behavior; this pins it for the reader-based loop.)
+func TestREPLFinalLineNoNewline(t *testing.T) {
+	p := &replProvider{reply: "hi"}
+	deps, _ := newTestDeps(t, p)
+	var out bytes.Buffer
+	if err := runREPL(strings.NewReader("hello"), &out, deps); err != nil {
+		t.Fatalf("runREPL on no-trailing-newline input: %v", err)
+	}
+	if p.calls != 1 {
+		t.Errorf("runs fired = %d, want 1 (the final line should run once)", p.calls)
+	}
+}
+
 // TestREPLEmptyLineIgnored verifies blank lines are skipped without running.
 func TestREPLEmptyLineIgnored(t *testing.T) {
 	p := &replProvider{reply: "hi"}
