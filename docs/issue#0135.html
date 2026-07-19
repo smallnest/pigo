@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes - Issue #0135</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .item p:last-child { margin-bottom: 0; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    code { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 0.8em; background: #F3F1ED; padding: 0.05em 0.3em; border-radius: 3px; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/135">#135</a> &mdash; 子 agent process 隔离模式 (US-019) &mdash; 2026-07-19</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>Isolation</code> field on <code>SubAgentSpec</code>, zero-value = goroutine</h3>
+      <p><strong>Ambiguity:</strong> The spec said add <code>Isolation: goroutine | process</code> but did not say how the default preserves existing behavior.</p>
+      <p><strong>Choice:</strong> A new <code>SubAgentIsolation</code> enum (<code>SubAgentIsolationGoroutine = iota</code> default, <code>SubAgentIsolationProcess</code>). <code>Execute</code> dispatches on it; the goroutine branch is the original code verbatim.</p>
+      <p><strong>Rationale:</strong> The zero value is goroutine, so every existing <code>SubAgentSpec</code> (built by <code>Skill.SubAgentSpec</code> and tests) keeps running in-process with no behavior change - satisfying "默认 goroutine 模式无行为变化".</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Subprocess = the pigo binary itself over stdio JSON-RPC, reusing <code>internal/jsonrpc</code></h3>
+      <p><strong>Ambiguity:</strong> The spec said "pigo 以子进程启动自身 headless/rpc...复用 internal/jsonrpc" without specifying the wire shape.</p>
+      <p><strong>Choice:</strong> The parent (<code>defaultProcessCall</code>) launches <code>os.Executable()</code> with <code>--subagent-rpc</code> via <code>jsonrpc.NewClient</code>, sends one <code>subagent/run</code> request, and decodes the <code>{text}</code> response. The subprocess side is a new <code>pigo --subagent-rpc</code> mode that reads JSON-RPC requests, resolves the provider, runs <code>RunSubAgentOnce</code>, and writes responses.</p>
+      <p><strong>Rationale:</strong> Spawning pigo itself (not a separate helper) matches "启动自身"; <code>internal/jsonrpc.Client</code> already handles exec, line-delimited framing, id correlation, EOF/crash detection, and Close-with-grace-kill, so the parent transport is reuse, not reinvention.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Serializable provider config (<code>Model</code>/<code>BaseURL</code>/<code>Protocol</code>) + env-inherited credentials</h3>
+      <p><strong>Ambiguity:</strong> Goroutine mode passes a <code>RunConfig</code> with in-process <code>Stream</code>/<code>GetAPIKey</code> funcs; the spec did not say how a subprocess gets its provider.</p>
+      <p><strong>Choice:</strong> <code>SubAgentProcessConfig</code> carries <code>Model</code>/<code>BaseURL</code>/<code>Protocol</code> (strings). The subprocess calls <code>resolveProvider</code> (the same resolution the CLI uses) and inherits the parent environment, so API keys resolve via the same env vars.</p>
+      <p><strong>Rationale:</strong> Funcs cannot cross a process boundary. Forwarding the model id + endpoint overrides lets the subprocess reconstruct the identical provider; env inheritance is the natural credential channel and needs no key marshaling over the wire.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Crash and failed-run both surface as a tool error</h3>
+      <p><strong>Ambiguity:</strong> The spec required "子进程崩溃被父捕获为工具错误" but did not define failed-run handling.</p>
+      <p><strong>Choice:</strong> A subprocess crash (exit without responding) is caught by <code>jsonrpc.Client</code>'s readLoop EOF &rarr; <code>failAll</code> &rarr; <code>Call</code> returns an error &rarr; <code>executeProcess</code> wraps it as a tool error. A failed child run (<code>StopReasonError</code>/<code>Aborted</code>) is returned by <code>RunSubAgentOnce</code> as an error &rarr; the subprocess emits it as a JSON-RPC error &rarr; same parent path. The parent loop is never affected.</p>
+      <p><strong>Rationale:</strong> Treating both as tool errors matches goroutine mode's "failed run &rarr; IsError" contract and gives the parent model a clear signal the delegation failed, whether the child crashed or merely errored.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Injectable <code>processCall</code> seam for testing</h3>
+      <p><strong>Ambiguity:</strong> The spec's test gate is <code>go test ./internal/runtime/...</code>, but the real transport needs a subprocess + provider.</p>
+      <p><strong>Choice:</strong> <code>SubAgentTool</code> has an unexported <code>processCall</code> field; when nil, <code>Execute</code> uses <code>defaultProcessCall</code> (real transport). Tests in <code>package runtime</code> inject a fake to verify params shaping and crash-as-error without a binary. The real transport is covered separately by compiling a tiny JSON-RPC helper binary (mirroring the plugin tests).</p>
+      <p><strong>Rationale:</strong> Fast, hermetic unit tests for the process-mode logic plus a real exec+pipe+JSON-RPC round-trip (and crash) test - without needing a live provider. The seam is set only at construction (safe by convention).</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Process mode does not stream partial updates</h3>
+      <p><strong>Spec:</strong> Goroutine mode forwards streamed child text deltas via <code>onUpdate</code>.</p>
+      <p><strong>Implemented:</strong> Process mode returns only the child's final text; <code>onUpdate</code> is intentionally not forwarded (documented at the dispatch site).</p>
+      <p><strong>Why:</strong> The JSON-RPC protocol is a single request/response carrying the final result; streaming deltas would require server-&gt;client notifications, which is out of scope for #135. The parent still receives the complete result when the child settles.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Process-mode tools are builtins-only, rebuilt by name</h3>
+      <p><strong>Spec:</strong> <code>SubAgentSpec.Tools</code> is an arbitrary <code>[]agentcore.AgentTool</code>.</p>
+      <p><strong>Implemented:</strong> Process mode forwards only the tool <em>names</em>; the subprocess rebuilds its builtin set (<code>builtinTools</code>) filtered by those names. Custom/plugin/MCP tools in <code>spec.Tools</code> are silently dropped.</p>
+      <p><strong>Why:</strong> In-process tool objects (closures, registries) cannot be serialized across a process boundary. Builtins are reconstructable; non-builtins are not. This preserves the common "read-only researcher" pattern (filtering builtins by name) while documenting the limitation for custom tools.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Removed a <code>Provider</code> name field after review</h3>
+      <p><strong>Spec:</strong> The spec did not mandate a provider-name field.</p>
+      <p><strong>Implemented:</strong> An initial draft forwarded a <code>Provider</code> name hint, but <code>resolveProvider</code> derives the provider from model/baseURL/protocol and never read it - so a developer setting <code>Provider: "anthropic"</code> on a non-preset model would silently get OpenRouter. The field was removed from <code>SubAgentProcessConfig</code> and the wire payload.</p>
+      <p><strong>Why:</strong> A dead, misleading field is worse than none. Forcing a wire format is done via <code>Protocol</code> ("anthropic"/"openai"); preset ids encode their provider. (Caught in code review, M1.)</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Per-call subprocess spawn vs. a long-lived worker pool</h3>
+      <p><strong>Alternatives:</strong> (a) spawn a fresh pigo per sub-agent call (chosen); (b) keep a pool of long-lived subprocesses reused across calls.</p>
+      <p><strong>Pros/cons:</strong> (a) is simplest and gives strongest isolation (each child is fresh; a crash corrupts nothing shared), at the cost of an exec + JSON-RPC handshake per call. (b) amortizes spawn cost but adds pool lifecycle, worker health checks, and state-leak risk.</p>
+      <p><strong>Chose:</strong> Per-call spawn. The AC accepts subprocess execution and prioritizes isolation; spawn cost is acceptable for an "optional enhancement, low priority" feature. A pool is a possible follow-up if delegation becomes frequent.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Duplicate drain+classify logic in <code>executeGoroutine</code> and <code>RunSubAgentOnce</code></h3>
+      <p><strong>Alternatives:</strong> (a) extract a shared "drain + classify failed run" core used by both (chosen NOT to); (b) leave them duplicated.</p>
+      <p><strong>Pros/cons:</strong> (a) removes duplication but touches the goroutine path, risking the "no behavior change" regression guarantee. (b) keeps the goroutine path byte-identical to master (verified by <code>git show master</code> in review) at the cost of two ~similar blocks.</p>
+      <p><strong>Chose:</strong> Duplication (b). The two differ deliberately anyway (goroutine forwards <code>onUpdate</code>, uses a placeholder for empty text; <code>RunSubAgentOnce</code> falls back to <code>ErrorMessage</code> and returns the raw text). A future change to one must be mirrored in the other - noted as an open item.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Cancellation via stdin close rather than a context-aware reader</h3>
+      <p><strong>Alternatives:</strong> (a) make <code>runSubAgentRPC</code>'s stdin scanner select on <code>ctx.Done()</code>; (b) rely on the parent's <code>Client.Close()</code> closing the child's stdin to unblock the scanner.</p>
+      <p><strong>Pros/cons:</strong> (a) is more obviously correct but needs a custom reader/goroutine. (b) is simpler and already correct: the parent owns the child's lifetime, and closing stdin on cancel/Close makes <code>scanner.Scan</code> return false.</p>
+      <p><strong>Chose:</strong> (b). The <code>ctx</code> still flows into <code>RunSubAgentOnce</code> so an in-flight child run is cancelled; the scanner unblocks via stdin EOF. Documented as a known minor asymmetry.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Child stderr discarded by default</h3>
+      <p><strong>Alternatives:</strong> (a) <code>SubAgentProcessConfig.Stderr</code> defaults to nil (discarded) - chosen; (b) always capture and surface child stderr.</p>
+      <p><strong>Pros/cons:</strong> (a) avoids noisy output when a caller does not care; diagnostics are instead surfaced through the RPC error path (<code>RunSubAgentOnce</code> falls back to <code>ErrorMessage</code>). (b) gives full child logs but at the cost of wiring/buffering.</p>
+      <p><strong>Chose:</strong> (a) with opt-in <code>Stderr</code>. The key failure diagnostics (the cause of an error stop) reach the parent as the RPC error message, so stderr is not needed for correctness - only for deep debugging, which a caller can opt into.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should process mode stream partial child updates?</h3>
+      <p><strong>Assumption:</strong> Process mode returns only the final result; goroutine mode streams text deltas via <code>onUpdate</code>. This is an intentional parity gap.</p>
+      <p><strong>Verify/Follow-up:</strong> Is streaming parity wanted? It would require server-&gt;client JSON-RPC notifications (the current <code>jsonrpc.Client</code> drops notifications), so it is a non-trivial protocol extension deferred from #135.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Is per-call spawn acceptable, or do we need a subprocess pool?</h3>
+      <p><strong>Assumption:</strong> Each sub-agent call execs a fresh pigo. Fine for occasional delegation; costly for frequent delegation.</p>
+      <p><strong>Verify:</strong> If sub-agents become a hot path, revisit a worker pool with health checks. Not needed for #135's "optional enhancement" scope.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Are builtins-only tools acceptable, or should the subprocess support a tool protocol?</h3>
+      <p><strong>Assumption:</strong> A process-isolated child runs with builtins (filtered by name); custom/plugin/MCP tools are silently dropped.</p>
+      <p><strong>Verify:</strong> If a process-isolated sub-agent needs plugin/MCP tools, the subprocess would need a tool-registration RPC or to load the same plugins. Currently out of scope; confirm this limitation is acceptable.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should <code>--subagent-rpc</code> be documented or stay hidden?</h3>
+      <p><strong>Assumption:</strong> The flag is internal (an implementation detail of process-isolated sub-agents) and not advertised in <code>--help</code>-style usage beyond its flag description.</p>
+      <p><strong>Verify:</strong> Keep it hidden, or surface it for power users who want to drive the sub-agent protocol directly?</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Sub-agents are library-level only - how should isolation be chosen in the REPL?</h3>
+      <p><strong>Assumption:</strong> <code>SubAgentSpec</code> is built by <code>Skill.SubAgentSpec</code> but no CLI/REPL path currently spawns sub-agents, so process mode is exercised by tests only. The default is goroutine.</p>
+      <p><strong>Verify/Follow-up:</strong> When sub-agents are wired into the REPL (e.g. via skills), should there be a per-skill or global switch for process isolation, or should it be automatic for certain tool sets? This is a product decision deferred until sub-agents ship in the CLI.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Pre-existing environment-fragile test (unrelated, carried from #134)</h3>
+      <p><strong>Observation:</strong> <code>internal/provider.TestCredentialStoreOAuthRefreshFallback</code> fails locally because the user's shell has <code>ANTHROPIC_API_KEY</code> set; it passes in a clean env (CI). Not in this diff.</p>
+      <p><strong>Follow-up:</strong> Isolate it with <code>t.Setenv</code> in a separate change so local <code>go test ./...</code> is green regardless of the shell environment.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

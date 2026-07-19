@@ -121,13 +121,24 @@ type cliOptions struct {
 	listSessions bool
 	resumeID     string
 	continueLast bool
+	// subagentRPC selects the process-isolated sub-agent server mode (US-019,
+	// #135): pigo reads JSON-RPC sub-agent run requests from stdin and writes
+	// results to stdout. Internal, used by SubAgentTool's process mode.
+	subagentRPC bool
 }
 
 // dispatch runs the resolved command and returns a process exit code, writing
 // diagnostics to errOut. It is the run-assembly seam: every path (list, REPL,
-// headless) is reached from here, so the CLI's behavior can be exercised without
-// re-parsing flags. A returned code of 0 is success.
+// headless, subagent-rpc) is reached from here, so the CLI's behavior can be
+// exercised without re-parsing flags. A returned code of 0 is success.
 func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
+	// --subagent-rpc is a fully separate mode: speak the sub-agent JSON-RPC
+	// protocol over stdio and exit. It is the subprocess end of process-isolated
+	// sub-agents and shares nothing with the interactive/headless paths.
+	if opts.subagentRPC {
+		return runSubAgentRPC(ctx, os.Stdin, out, errOut)
+	}
+
 	// --list-sessions is a standalone action: print and exit.
 	if opts.listSessions {
 		if err := printSessions(out); err != nil {
