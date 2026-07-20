@@ -31,10 +31,55 @@ func runPackageCommand(cmd string, args []string, out, errOut io.Writer) int {
 	switch cmd {
 	case "install":
 		return runInstall(args, lockPath, out, errOut)
+	case "list":
+		return runList(lockPath, out, errOut)
+	case "uninstall":
+		return runUninstall(args, lockPath, out, errOut)
 	default:
 		fmt.Fprintf(errOut, "pigo: %q is not yet implemented\n", cmd)
 		return 2
 	}
+}
+
+// runList handles `pigo list`: it prints one line per installed package
+// (name, version, types, source), or a friendly notice when none are installed.
+func runList(lockPath string, out, errOut io.Writer) int {
+	pkgs, err := pkgmgr.ListInstalled(lockPath)
+	if err != nil {
+		fmt.Fprintf(errOut, "pigo: %v\n", err)
+		return 1
+	}
+	if len(pkgs) == 0 {
+		fmt.Fprintln(out, "no packages installed")
+		return 0
+	}
+	for _, p := range pkgs {
+		fmt.Fprintf(out, "%s\t%s\t%s\t%s\n", p.Name, p.Version, joinPkgTypes(p.Types), p.Source)
+	}
+	return 0
+}
+
+// runUninstall handles `pigo uninstall <name> [more...]`. It removes each named
+// package's files and lockfile entry, continuing past a failure so one bad name
+// does not abort the rest; the exit code is non-zero if any uninstall failed.
+func runUninstall(names []string, lockPath string, out, errOut io.Writer) int {
+	if len(names) == 0 {
+		fmt.Fprintln(errOut, "pigo: uninstall requires a package name, e.g. pigo uninstall pi-mcp-adapter")
+		return 2
+	}
+	failed := false
+	for _, name := range names {
+		if err := pkgmgr.Uninstall(name, lockPath, out); err != nil {
+			fmt.Fprintf(errOut, "pigo: uninstall %s failed: %v\n", name, err)
+			failed = true
+			continue
+		}
+		fmt.Fprintf(out, "Uninstalled %s\n", name)
+	}
+	if failed {
+		return 1
+	}
+	return 0
 }
 
 // runInstall handles `pigo install npm:<name>[@version] [more...]`. It requires
