@@ -35,6 +35,8 @@ func runPackageCommand(cmd string, args []string, out, errOut io.Writer) int {
 		return runList(lockPath, out, errOut)
 	case "uninstall":
 		return runUninstall(args, lockPath, out, errOut)
+	case "update":
+		return runUpdate(args, lockPath, out, errOut)
 	default:
 		fmt.Fprintf(errOut, "pigo: %q is not yet implemented\n", cmd)
 		return 2
@@ -106,6 +108,32 @@ func runInstall(refs []string, lockPath string, out, errOut io.Writer) int {
 		}
 		fmt.Fprintf(out, "Installed %s@%s (%s) — %d file(s)\n",
 			res.Name, res.Version, joinPkgTypes(res.Types), len(res.Files))
+	}
+	if failed {
+		return 1
+	}
+	return 0
+}
+
+// runUpdate handles `pigo update [name...]`. With no names it updates every
+// installed package; otherwise it updates each named package, continuing past a
+// failure so one bad package does not abort the rest. The exit code is non-zero
+// if any update failed.
+func runUpdate(names []string, lockPath string, out, errOut io.Writer) int {
+	if len(names) == 0 {
+		if _, err := pkgmgr.UpdateAll(lockPath, out); err != nil {
+			fmt.Fprintf(errOut, "pigo: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+	failed := false
+	for _, name := range names {
+		if _, err := pkgmgr.Update(name, lockPath, out); err != nil {
+			fmt.Fprintf(errOut, "pigo: update %s failed: %v\n", name, err)
+			failed = true
+			continue
+		}
 	}
 	if failed {
 		return 1

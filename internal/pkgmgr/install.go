@@ -53,7 +53,15 @@ func Install(rawRef, lockfilePath string, logw io.Writer) (InstallResult, error)
 	}
 	defer fetched.Cleanup()
 
-	name, version, types, err := Classify(fetched.Dir)
+	return installFetched(fetched.Dir, ref, lockfilePath, logf)
+}
+
+// installFetched runs the post-fetch half of an install: classify the already
+// extracted package at pkgDir, distribute each type, and record the result in
+// the lockfile. It is shared by Install (#162) and Update (#164) so both go
+// through the same classify→distribute→lockfile path.
+func installFetched(pkgDir string, ref PackageRef, lockfilePath string, logf func(string, ...any)) (InstallResult, error) {
+	name, version, types, err := Classify(pkgDir)
 	if err != nil {
 		return InstallResult{}, err
 	}
@@ -61,7 +69,7 @@ func Install(rawRef, lockfilePath string, logw io.Writer) (InstallResult, error)
 
 	var files []string
 	for _, t := range types {
-		created, derr := distribute(t, fetched.Dir, name)
+		created, derr := distribute(t, pkgDir, name)
 		if derr != nil {
 			return InstallResult{}, derr
 		}
