@@ -41,6 +41,11 @@ type PromptConfig struct {
 	// every directory from Root down to WorkingDir, inclusive. When empty, only
 	// WorkingDir's own AGENTS.md (if any) is considered — no ancestor walk.
 	Root string
+	// AppendInstructions are appended verbatim to the end of the assembled
+	// prompt, in order, each preceded by a blank line. This is the sink for
+	// --append-system-prompt (对标 pi): extra guidance layered after the base
+	// instruction, environment block, and AGENTS.md. Empty entries are skipped.
+	AppendInstructions []string
 	// Now supplies the timestamp for the environment block. When nil, time.Now
 	// is used. Injected for deterministic tests.
 	Now func() time.Time
@@ -112,6 +117,18 @@ func BuildSystemPrompt(cfg PromptConfig) (string, error) {
 			continue
 		}
 		fmt.Fprintf(&b, "\n\n# Project instructions (%s)\n%s", path, content)
+	}
+
+	// Appended instructions (--append-system-prompt) come last so they layer on
+	// top of the base instruction, environment, and AGENTS.md. Each is separated
+	// by a blank line; empty entries are skipped.
+	for _, extra := range cfg.AppendInstructions {
+		extra = strings.TrimSpace(extra)
+		if extra == "" {
+			continue
+		}
+		b.WriteString("\n\n")
+		b.WriteString(extra)
 	}
 
 	return b.String(), nil

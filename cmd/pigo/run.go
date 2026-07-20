@@ -38,15 +38,28 @@ type agentEnv struct {
 
 // setupAgentEnv resolves the provider for model/baseURL, builds the tool set
 // rooted at the working directory, and constructs the system prompt — the setup
-// the REPL and headless drivers both need. It returns an error rather than
+// the REPL and headless drivers both need. systemPrompt, when non-empty,
+// replaces the default base instruction (对标 pi 的 --system-prompt);
+// appendSystemPrompt entries are each resolved (a path to an existing file is
+// read, otherwise the value is literal text) and layered onto the end of the
+// prompt (对标 pi 的 --append-system-prompt). It returns an error rather than
 // exiting so the caller owns exit-code mapping.
-func setupAgentEnv(model, baseURL, protocol string, noTools bool) (agentEnv, error) {
+func setupAgentEnv(model, baseURL, protocol string, noTools bool, systemPrompt string, appendSystemPrompt []string) (agentEnv, error) {
 	cwd, _ := os.Getwd()
 	prov, providerName, err := resolveProvider(model, baseURL, protocol)
 	if err != nil {
 		return agentEnv{}, err
 	}
-	sysPrompt, err := runtime.BuildSystemPrompt(runtime.PromptConfig{WorkingDir: cwd, Root: cwd})
+	appends, err := resolveAppendInstructions(appendSystemPrompt)
+	if err != nil {
+		return agentEnv{}, err
+	}
+	sysPrompt, err := runtime.BuildSystemPrompt(runtime.PromptConfig{
+		BaseInstruction:    systemPrompt,
+		WorkingDir:         cwd,
+		Root:               cwd,
+		AppendInstructions: appends,
+	})
 	if err != nil {
 		return agentEnv{}, err
 	}
@@ -71,6 +84,32 @@ func setupAgentEnv(model, baseURL, protocol string, noTools bool) (agentEnv, err
 		sysPrompt:    sysPrompt,
 		plugins:      mgr,
 	}, nil
+}
+
+// resolveAppendInstructions maps each --append-system-prompt value to the text
+// to append. Following pi, a value that names an existing regular file is read
+// and its contents are appended; any other value (a non-existent path, or a
+// directory) is treated as literal text. Only a value that stats as a regular
+// file but then fails to read (e.g. a permission error) is reported, so a
+// genuinely broken file path is not silently appended verbatim.
+func resolveAppendInstructions(values []string) ([]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		info, statErr := os.Stat(v)
+		if statErr == nil && !info.IsDir() {
+			data, err := os.ReadFile(v)
+			if err != nil {
+				return nil, fmt.Errorf("read --append-system-prompt file %q: %w", v, err)
+			}
+			out = append(out, string(data))
+			continue
+		}
+		out = append(out, v)
+	}
+	return out, nil
 }
 
 // pluginsDir returns the directory external plugins are discovered from:
@@ -128,6 +167,14 @@ type cliOptions struct {
 	// noSkills disables skill discovery (对标 pi 的 --no-skills): skills under
 	// ~/.agents/skills are not loaded as /skill-name commands.
 	noSkills bool
+	// systemPrompt, when non-empty, replaces the default coding-assistant base
+	// instruction (对标 pi 的 --system-prompt). The environment block and
+	// AGENTS.md injection still apply on top of it.
+	systemPrompt string
+	// appendSystemPrompt holds --append-system-prompt values (对标 pi, repeatable):
+	// each is a path to a file whose contents are appended, or literal text when
+	// it is not an existing file. Appended after the base prompt and AGENTS.md.
+	appendSystemPrompt []string
 	// subagentRPC selects the process-isolated sub-agent server mode (US-019,
 	// #135): pigo reads JSON-RPC sub-agent run requests from stdin and writes
 	// results to stdout. Internal, used by SubAgentTool's process mode.
@@ -179,7 +226,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			fmt.Fprintln(errOut, "pigo: no prompt (use -p \"...\" or positional args)")
 			return 2
 		}
-		env, err := setupAgentEnv(opts.model, opts.baseURL, opts.protocol, opts.noTools)
+		env, err := setupAgentEnv(opts.model, opts.baseURL, opts.protocol, opts.noTools, opts.systemPrompt, opts.appendSystemPrompt)
 		if err != nil {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
 			return 1
@@ -213,7 +260,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		return 2
 	}
 
-	env, err := setupAgentEnv(opts.model, opts.baseURL, opts.protocol, opts.noTools)
+	env, err := setupAgentEnv(opts.model, opts.baseURL, opts.protocol, opts.noTools, opts.systemPrompt, opts.appendSystemPrompt)
 	if err != nil {
 		fmt.Fprintf(errOut, "pigo: %v\n", err)
 		return 1
