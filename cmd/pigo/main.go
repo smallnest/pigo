@@ -24,6 +24,13 @@ import (
 )
 
 func main() {
+	// Package-management subcommands (pigo install|list|uninstall|update ...) are
+	// positional and distinct from the flag-driven agent modes, so peel them off
+	// before pflag parsing — the agent flags don't apply to them.
+	if len(os.Args) > 1 && packageSubcommands[os.Args[1]] {
+		os.Exit(runPackageCommand(os.Args[1], os.Args[2:], os.Stdout, os.Stderr))
+	}
+
 	var opts cliOptions
 	flag.StringVarP(&opts.prompt, "print", "p", "", "prompt to run in headless print mode")
 	flag.StringVarP(&opts.model, "model", "m", "openrouter/free", "model id to run against")
