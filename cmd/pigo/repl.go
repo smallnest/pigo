@@ -349,7 +349,7 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 				atLineStart = true
 			}
 			for _, c := range msg.ToolCalls() {
-				fmt.Fprintf(out, "  → tool: %s\n", toolCallLabel(c))
+				fmt.Fprintf(out, "  %s %s\n", colorize(colorEnabled(), ansiGreen, "→ tool:"), toolCallLabel(c))
 			}
 			for _, tr := range results {
 				renderToolResult(out, tr)
@@ -699,6 +699,7 @@ func runManualCompact(out io.Writer, deps replDeps) {
 // replayTranscript prints a resumed session's prior messages to out so the user
 // sees the conversation so far before the first new prompt.
 func replayTranscript(out io.Writer, messages []agentcore.AgentMessage) {
+	color := colorEnabled()
 	for _, m := range messages {
 		switch msg := m.(type) {
 		case agentcore.UserMessage:
@@ -710,10 +711,14 @@ func replayTranscript(out io.Writer, messages []agentcore.AgentMessage) {
 				fmt.Fprintln(out, t)
 			}
 			for _, c := range msg.ToolCalls() {
-				fmt.Fprintf(out, "  → tool: %s\n", toolCallLabel(c))
+				fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiGreen, "→ tool:"), toolCallLabel(c))
 			}
 		case agentcore.ToolResultMessage:
-			fmt.Fprintf(out, "  ← result: %s\n", oneLine(agentcore.ContentToText(msg.Content)))
+			if msg.IsError {
+				fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiRed, "← error:"), oneLine(agentcore.ContentToText(msg.Content)))
+			} else {
+				fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiGreen, "← result:"), oneLine(agentcore.ContentToText(msg.Content)))
+			}
 		}
 	}
 }
@@ -725,14 +730,21 @@ func replayTranscript(out io.Writer, messages []agentcore.AgentMessage) {
 // the tool (US-011).
 func renderToolResult(out io.Writer, tr agentcore.ToolResultMessage) {
 	text := agentcore.ContentToText(tr.Content)
+	color := colorEnabled()
 	if tr.ToolName == "todo" && !tr.IsError {
-		fmt.Fprintln(out, "  ← todo:")
+		fmt.Fprintln(out, "  "+colorize(color, ansiGreen, "← todo:"))
 		for _, line := range strings.Split(text, "\n") {
 			fmt.Fprintf(out, "    %s\n", line)
 		}
 		return
 	}
-	fmt.Fprintf(out, "  ← result: %s\n", oneLine(text))
+	// Success results show a green "← result:" label; failures show a red
+	// "← error:" label so the outcome is scannable at a glance.
+	if tr.IsError {
+		fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiRed, "← error:"), oneLine(text))
+		return
+	}
+	fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiGreen, "← result:"), oneLine(text))
 }
 
 // toolCallLabel renders a tool call as "name args" for the compact "→ tool:"

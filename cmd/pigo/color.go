@@ -14,6 +14,8 @@ const (
 	ansiBold  = "\033[1m"
 	ansiDim   = "\033[2m"
 	ansiCyan  = "\033[36m"
+	ansiGreen = "\033[32m"
+	ansiRed   = "\033[31m"
 )
 
 // colorEnabled reports whether ANSI color should be emitted. Color is on only
