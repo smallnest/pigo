@@ -179,6 +179,9 @@ type cliOptions struct {
 	// #135): pigo reads JSON-RPC sub-agent run requests from stdin and writes
 	// results to stdout. Internal, used by SubAgentTool's process mode.
 	subagentRPC bool
+	// showVersion prints build metadata (version/commit/date, injected at release
+	// time by goreleaser) and exits, without running the agent.
+	showVersion bool
 }
 
 // dispatch runs the resolved command and returns a process exit code, writing

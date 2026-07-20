@@ -35,3 +35,6 @@ go.work.sum
 
 # Compiled binary (go build ./cmd/pigo produces ./pigo)
 /pigo
+
+# goreleaser output
+/dist/

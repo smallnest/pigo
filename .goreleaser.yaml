@@ -1,0 +1,86 @@
+# goreleaser 配置：构建跨平台二进制、打包、生成 checksums、发布到 GitHub Release。
+#
+# 本地校验： goreleaser check
+# 本地试跑（不发布）： goreleaser release --snapshot --clean
+# 正式发布： 打 tag 后 `git push --tags`，CI 触发 `goreleaser release --clean`
+version: 2
+
+project_name: pigo
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: pigo
+    main: ./cmd/pigo
+    binary: pigo
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    # version/commit/date 变量注入 main 包（见 cmd/pigo/main.go）。
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: pigo
+    ids:
+      - pigo
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_
+      {{- if eq .Os "darwin" }}Darwin
+      {{- else if eq .Os "linux" }}Linux
+      {{- else if eq .Os "windows" }}Windows
+      {{- else }}{{ .Os }}{{ end }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "Merge pull request"
+      - "Merge branch"
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Others
+      order: 999
+
+release:
+  github:
+    owner: smallnest
+    name: pigo
+  draft: false
+  prerelease: auto

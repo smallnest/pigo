@@ -23,6 +23,15 @@ import (
 	"github.com/smallnest/pigo/internal/provider"
 )
 
+// Build metadata, injected at release time via -ldflags by goreleaser
+// (see .goreleaser.yaml). They keep their default values for `go build`/
+// `go run` from source, so `pigo --version` still works without a release build.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	// Package-management subcommands (pigo install|list|uninstall|update ...) are
 	// positional and distinct from the flag-driven agent modes, so peel them off
@@ -47,7 +56,14 @@ func main() {
 	flag.StringVar(&opts.systemPrompt, "system-prompt", "", "system prompt to use instead of the default coding-assistant prompt (对标 pi --system-prompt)")
 	flag.StringArrayVar(&opts.appendSystemPrompt, "append-system-prompt", nil, "append text or file contents to the system prompt; repeatable (对标 pi --append-system-prompt)")
 	flag.BoolVar(&opts.subagentRPC, "subagent-rpc", false, "internal: run as a process-isolated sub-agent JSON-RPC server over stdio (US-019)")
+	flag.BoolVarP(&opts.showVersion, "version", "v", false, "print version information and exit")
 	flag.Parse()
+
+	// --version is a standalone action: print build metadata and exit.
+	if opts.showVersion {
+		fmt.Printf("pigo %s (commit %s, built %s)\n", version, commit, date)
+		os.Exit(0)
+	}
 
 	// A prompt may also be supplied as positional args.
 	if opts.prompt == "" {

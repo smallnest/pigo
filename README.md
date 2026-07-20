@@ -22,6 +22,7 @@ pigo 可以读写文件、执行命令、检索代码、抓取网页，并借助
 - [技能 Skills](#技能-skills)
 - [插件](#插件)
 - [包管理](#包管理)
+- [发布release](#发布release)
 - [目录与环境变量](#目录与环境变量)
 - [安全说明](#安全说明)
 
@@ -61,6 +62,17 @@ go install ./cmd/pigo
 go run ./cmd/pigo -p "1+1=?"
 ```
 
+构建后可查看版本信息（版本号在正式发布时由 goreleaser 注入，源码构建显示 `dev`）：
+
+```bash
+pigo --version
+# pigo dev (commit none, built unknown)
+```
+
+### 下载预编译二进制
+
+[Releases](https://github.com/smallnest/pigo/releases) 页面提供 Linux / macOS / Windows 的 amd64 与 arm64 预编译包（由 goreleaser 构建）。下载对应平台的压缩包解压即可使用。
+
 ---
 
 ## 快速开始
@@ -99,6 +111,7 @@ pigo -m ollama/qwen2.5-coder -u http://localhost:11434/v1 -p "解释 main.go 做
 | `--no-skills` | | `false` | 禁用技能发现（不加载 `~/.agents/skills` 为 `/skill-name` 命令） |
 | `--system-prompt` | | `""` | 用自定义系统提示词替换默认的 coding-assistant 提示词 |
 | `--append-system-prompt` | | `nil` | 向系统提示词末尾追加文本或文件内容；可重复 |
+| `--version` | `-v` | `false` | 打印版本信息并退出 |
 
 > `--subagent-rpc` 为内部参数（进程隔离子 Agent 的 JSON-RPC 服务端），不用于直接调用。
 
@@ -265,6 +278,26 @@ pigo uninstall pi-mcp-adapter
 ```
 
 包类型（`extension` / `skill` / `prompt` / `theme`）会分别分发到对应目录，安装记录写入 lockfile。
+
+---
+
+## 发布（Release）
+
+使用 [goreleaser](https://goreleaser.com) 构建跨平台二进制并发布到 GitHub Release。
+
+```bash
+# 校验配置
+goreleaser check
+
+# 本地试跑（快照，不发布）
+goreleaser release --snapshot --clean
+
+# 正式发布：打 tag 并推送，GitHub Actions 自动触发
+git tag -a v0.2.0 -m "v0.2.0"
+git push origin v0.2.0
+```
+
+推送 `v*` tag 会触发 `.github/workflows/release.yml`，由 goreleaser 构建 Linux/macOS/Windows × amd64/arm64 的归档包、生成 checksums 并创建 Release。版本号 / commit / 构建时间通过 `-ldflags` 注入 `main` 包，可用 `pigo --version` 查看。
 
 ---
 
