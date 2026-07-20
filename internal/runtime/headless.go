@@ -158,6 +158,14 @@ func writeEventJSON(w io.Writer, ev agentcore.AgentEvent) error {
 func eventEnvelope(ev agentcore.AgentEvent) map[string]any {
 	env := map[string]any{"type": ev.EventType()}
 	switch e := ev.(type) {
+	case agentcore.AgentStartEvent:
+		// The first event carries the backing session id (对标 pi/Claude Code),
+		// so a consumer can associate the run's output with a session and resume
+		// it later. Omitted only when the run has no backing session (SessionID
+		// unset), which the envelope treats as "not resumable".
+		if e.SessionID != "" {
+			env["sessionId"] = e.SessionID
+		}
 	case agentcore.AgentEndEvent:
 		env["messageCount"] = len(e.Messages)
 	case agentcore.TurnEndEvent:

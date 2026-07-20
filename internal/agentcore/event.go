@@ -25,8 +25,13 @@ const (
 	EventCompaction          = "compaction"
 )
 
-// AgentStartEvent is emitted once when a loop run begins.
-type AgentStartEvent struct{}
+// AgentStartEvent is emitted once when a loop run begins. SessionID, when set,
+// is the id of the session backing this run; it is carried in the first
+// stream-json event so a caller can associate output with a session and resume
+// it later (对标 pi/Claude Code, which put a session id in the first event).
+type AgentStartEvent struct {
+	SessionID string
+}
 
 // AgentEndEvent is emitted once when a loop run ends, carrying the messages
 // newly produced during this run (the EventStream result).
