@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0157</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEEA; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/157">#157</a> &mdash; 识别 pi 包类型 (classify pi package types) &mdash; 2026-07-20</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 显式 <code>pi</code> 元数据 + 结构化信号 双通道识别</h3>
+      <p><strong>Ambiguity:</strong> Issue/PRD 给了映射表（extension via <code>bin</code>/<code>pi.extension</code>；skill via <code>SKILL.md</code>/<code>pi.skill</code>；prompt via <code>pi.prompt</code>/<code>commands/*.md</code>；theme via <code>pi.theme</code>），但未规定当二者冲突或包"少声明"时如何取舍。</p>
+      <p><strong>Choice:</strong> 两路并集：先读 <code>package.json</code> 的 <code>pi</code> 块（支持单 <code>type</code>、<code>types</code> 列表、以及 per-capability 键），再叠加结构化回退（<code>bin</code>→extension、<code>SKILL.md</code>→skill、<code>commands/</code>→prompt）。结果是一个去重后的类型集合。</p>
+      <p><strong>Rationale:</strong> pi 生态里存在 combined "extensionskill" 包，一个包可同时是多类型；并集能覆盖"声明齐全"和"结构清晰但少声明"两种真实情况，稳健且不误判。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 无法识别时报错而非猜测</h3>
+      <p><strong>Ambiguity:</strong> 遇到普通 npm 包（如 lodash）应如何处置。</p>
+      <p><strong>Choice:</strong> 空集合直接返回 <code>unrecognized pi package: no known pi metadata</code>。</p>
+      <p><strong>Rationale:</strong> <code>pigo install</code> 需要对非 pi 包快速失败并给出明确信息，避免把任意 npm 包错误地分发到 pigo 目录。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Classify 同时返回 name/version</h3>
+      <p><strong>Spec:</strong> US-004 只要求"返回类型集合"。</p>
+      <p><strong>Implemented:</strong> 签名为 <code>Classify(pkgDir) (name, version string, types []PackageType, err error)</code>，顺带回传从同一份 <code>package.json</code> 读到的名字与版本。</p>
+      <p><strong>Why:</strong> 后续 issue（#158-#162 分发与写 lockfile）都需要 name/version，且它们和类型来自同一次解析，一并返回避免重复读取 <code>package.json</code>。生产行为不变。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 未知 <code>pi.type</code> 字符串：忽略 vs 报错</h3>
+      <p><strong>Alternatives:</strong> (A) 遇到无法识别的 type 字符串（如 <code>"widget"</code>）直接报错；(B) 忽略该字符串，仅当最终集合为空才报错。</p>
+      <p><strong>Pros/Cons:</strong> A 更严格但对 pi 生态未来新增类型不向前兼容；B 宽容、向前兼容，但可能"静默丢弃"一个真实类型。</p>
+      <p><strong>Winner:</strong> 选 B。若包同时有可识别信号则照常分类；若只有未知 type 则仍因空集合报错，安全兜底。未来 pigo 支持新类型时只需扩展 <code>normalizeType</code>。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> pi 元数据字段名的确切约定</h3>
+      <p><strong>Assumption:</strong> 顶层 <code>pi</code> 对象含 <code>type</code>(string)/<code>types</code>([]string) 以及 per-capability 键 <code>extension/skill/prompt/theme</code>。这是依据 pi 包惯例的推断。</p>
+      <p><strong>Verify:</strong> 若 pi.dev 官方约定的字段名不同，需调整 <code>piMeta</code> 结构；结构化回退（bin/SKILL.md/commands）不受影响，可作为兜底。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
