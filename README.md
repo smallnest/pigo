@@ -72,6 +72,30 @@ pigo --version
 # pigo dev (commit none, built unknown)
 ```
 
+### 一键安装脚本（Linux / macOS）
+
+`install.sh` 会自动检测操作系统 / 架构，从 GitHub Releases 下载最新的预编译二进制并安装到常用的 PATH 目录：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/smallnest/pigo/master/install.sh | sh
+```
+
+可用环境变量覆盖默认行为：
+
+| 变量 | 说明 |
+|------|------|
+| `PIGO_VERSION` | 指定安装版本（形如 `v0.2.0`），默认取最新 release |
+| `PIGO_INSTALL_DIR` | 安装目录，默认 `/usr/local/bin`（无写权限时回退到 `~/.local/bin`） |
+| `GITHUB_TOKEN` | 可选，用于提高 GitHub API 速率限制 |
+
+```bash
+# 指定版本与安装目录
+PIGO_VERSION=v0.2.0 PIGO_INSTALL_DIR="$HOME/bin" \
+  curl -fsSL https://raw.githubusercontent.com/smallnest/pigo/master/install.sh | sh
+```
+
+> Windows 请从 Releases 页面下载 `.zip` 手动解压。
+
 ### 下载预编译二进制
 
 [Releases](https://github.com/smallnest/pigo/releases) 页面提供 Linux / macOS / Windows 的 amd64 与 arm64 预编译包（由 goreleaser 构建）。下载对应平台的压缩包解压即可使用。
