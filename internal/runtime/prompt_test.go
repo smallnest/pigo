@@ -153,3 +153,51 @@ func TestBuildSystemPromptReadErrorSurfaces(t *testing.T) {
 		t.Fatal("an unreadable AGENTS.md must surface an error, got nil")
 	}
 }
+
+// TestBuildSystemPromptBaseInstructionOverride verifies a non-empty
+// BaseInstruction replaces the default coding-assistant prompt (对标 pi 的
+// --system-prompt) while the environment block still follows it.
+func TestBuildSystemPromptBaseInstructionOverride(t *testing.T) {
+	got, err := BuildSystemPrompt(PromptConfig{
+		BaseInstruction: "You are a haiku poet.",
+		WorkingDir:      "/work/proj",
+		Now:             fixedTime,
+		ReadFile:        func(string) ([]byte, error) { return nil, os.ErrNotExist },
+	})
+	if err != nil {
+		t.Fatalf("BuildSystemPrompt: %v", err)
+	}
+	if !strings.HasPrefix(got, "You are a haiku poet.") {
+		t.Errorf("custom base instruction should lead the prompt, got:\n%s", got)
+	}
+	if strings.Contains(got, DefaultBaseInstruction) {
+		t.Errorf("default base instruction must not appear when overridden:\n%s", got)
+	}
+	if !strings.Contains(got, "Working directory: /work/proj") {
+		t.Errorf("environment block must still follow the custom base:\n%s", got)
+	}
+}
+
+// TestBuildSystemPromptAppendInstructions verifies --append-system-prompt
+// entries are layered onto the end of the prompt in order, after the base
+// instruction and environment block, with empty entries skipped.
+func TestBuildSystemPromptAppendInstructions(t *testing.T) {
+	got, err := BuildSystemPrompt(PromptConfig{
+		WorkingDir:         "/work/proj",
+		Now:                fixedTime,
+		AppendInstructions: []string{"FIRST APPEND", "   ", "SECOND APPEND"},
+		ReadFile:           func(string) ([]byte, error) { return nil, os.ErrNotExist },
+	})
+	if err != nil {
+		t.Fatalf("BuildSystemPrompt: %v", err)
+	}
+	iEnv := strings.Index(got, "Working directory")
+	iFirst := strings.Index(got, "FIRST APPEND")
+	iSecond := strings.Index(got, "SECOND APPEND")
+	if iFirst < 0 || iSecond < 0 {
+		t.Fatalf("both appended instructions must be present, got:\n%s", got)
+	}
+	if !(iEnv < iFirst && iFirst < iSecond) {
+		t.Errorf("appends must follow the env block and keep order (env<first<second), got env=%d first=%d second=%d", iEnv, iFirst, iSecond)
+	}
+}

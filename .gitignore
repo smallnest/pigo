@@ -32,3 +32,6 @@ go.work.sum
 # .vscode/
 
 .loop-state.json
+
+# Compiled binary (go build ./cmd/pigo produces ./pigo)
+/pigo
