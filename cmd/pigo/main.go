@@ -42,6 +42,8 @@ func main() {
 	flag.BoolVarP(&opts.listSessions, "list-sessions", "l", false, "list stored interactive sessions and exit")
 	flag.StringVarP(&opts.resumeID, "resume", "r", "", "resume the interactive session with this id")
 	flag.BoolVarP(&opts.continueLast, "continue", "c", false, "resume the most recent interactive session")
+	flag.BoolVarP(&opts.approve, "approve", "a", false, "trust the working directory for this run: skip the first-launch trust prompt and run side-effect tools without per-call confirmation")
+	flag.BoolVar(&opts.noSkills, "no-skills", false, "disable skill discovery (do not load skills under ~/.agents/skills as /skill-name commands)")
 	flag.BoolVar(&opts.subagentRPC, "subagent-rpc", false, "internal: run as a process-isolated sub-agent JSON-RPC server over stdio (US-019)")
 	flag.Parse()
 

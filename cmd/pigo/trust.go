@@ -39,6 +39,22 @@ var sideEffectTools = map[string]bool{
 	"edit":  true,
 }
 
+// establishTrust decides how the launch directory's trust is established before
+// the REPL runs. When approve is true (对标 pi 的 --approve/-a), it grants
+// session trust up front so the first-launch prompt is skipped and side-effect
+// tools run without per-call confirmation. Otherwise it defers to
+// ensureTrustPrompt, which asks only on the first launch in an undecided
+// directory. mgr==nil disables trust entirely, so approve is a no-op.
+func establishTrust(out io.Writer, in *bufio.Reader, mgr *trust.Manager, cwd string, approve bool) {
+	if approve {
+		if mgr != nil {
+			mgr.SetSessionTrust(cwd)
+		}
+		return
+	}
+	ensureTrustPrompt(out, in, mgr, cwd)
+}
+
 // ensureTrustPrompt runs the first-run trust dialog when cwd has no saved
 // decision (NearestTrustDecision reports Found=false). When a decision already
 // exists (trusted/untrusted/null) it is a no-op: the user already answered, so

@@ -102,6 +102,46 @@ func TestEnsureTrustPromptSkipsWhenDecided(t *testing.T) {
 	}
 }
 
+// TestEstablishTrustApprove verifies --approve grants session trust up front
+// without prompting: IsTrusted is true immediately, nothing is written, and the
+// (empty) reader is never consumed. Session trust must not persist across a
+// reload — --approve is per-run, not a saved decision.
+func TestEstablishTrustApprove(t *testing.T) {
+	mgr, path := newTrustManager(t)
+	cwd := t.TempDir()
+	var out bytes.Buffer
+	establishTrust(&out, readerOf(""), mgr, cwd, true)
+
+	if !mgr.IsTrusted(cwd) {
+		t.Error("IsTrusted(cwd) = false after --approve, want true")
+	}
+	if out.Len() != 0 {
+		t.Errorf("establishTrust wrote %q with --approve, want no prompt", out.String())
+	}
+	m2 := newTrustManagerAt(t, path)
+	if m2.IsTrusted(cwd) {
+		t.Error("reload IsTrusted(cwd) = true, want false (--approve must not persist)")
+	}
+}
+
+// TestEstablishTrustWithoutApprove verifies that without --approve, establishTrust
+// defers to the first-launch prompt (which runs for an undecided directory).
+func TestEstablishTrustWithoutApprove(t *testing.T) {
+	mgr, _ := newTrustManager(t)
+	cwd := t.TempDir()
+	var out bytes.Buffer
+	// "2\n" answers the just-once prompt; if the prompt did not run, this input
+	// would be left unread and IsTrusted would stay false.
+	establishTrust(&out, readerOf("2\n"), mgr, cwd, false)
+
+	if !strings.Contains(out.String(), "First time in this directory") {
+		t.Errorf("without --approve, expected the trust prompt; got %q", out.String())
+	}
+	if !mgr.IsTrusted(cwd) {
+		t.Error("IsTrusted(cwd) = false after just-once via establishTrust, want true")
+	}
+}
+
 // TestConfirmToolCall verifies the y/n/a responses.
 func TestConfirmToolCall(t *testing.T) {
 	call := agentcore.AgentToolCall{Name: "bash", Arguments: []byte(`{"command":"ls"}`)}

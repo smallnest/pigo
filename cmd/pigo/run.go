@@ -121,6 +121,13 @@ type cliOptions struct {
 	listSessions bool
 	resumeID     string
 	continueLast bool
+	// approve grants the launch directory session-level trust up front (对标 pi
+	// 的 --approve/-a): the first-launch trust prompt is skipped and side-effect
+	// tools (bash/write/edit) run without per-call confirmation for this run.
+	approve bool
+	// noSkills disables skill discovery (对标 pi 的 --no-skills): skills under
+	// ~/.agents/skills are not loaded as /skill-name commands.
+	noSkills bool
 	// subagentRPC selects the process-isolated sub-agent server mode (US-019,
 	// #135): pigo reads JSON-RPC sub-agent run requests from stdin and writes
 	// results to stdout. Internal, used by SubAgentTool's process mode.
@@ -190,6 +197,8 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			tools:        env.tools,
 			sysPrompt:    env.sysPrompt,
 			resumeID:     resumeID,
+			approve:      opts.approve,
+			noSkills:     opts.noSkills,
 			plugins:      env.plugins,
 		}); err != nil {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)

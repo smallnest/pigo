@@ -71,7 +71,7 @@ func TestBuildSlashRegistryIncludesSkills(t *testing.T) {
 	t.Setenv("PIGO_HOME", t.TempDir())
 	writeSkill(t, dir, "summarize.md", "---\nname: summarize\ndescription: summarize input\n---\nSummarize the following: $ARGUMENTS")
 
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"})
+	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, false)
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}
@@ -87,5 +87,25 @@ func TestBuildSlashRegistryIncludesSkills(t *testing.T) {
 	}
 	if out.Prompt != "Summarize the following: hello world" {
 		t.Errorf("Prompt = %q, want $ARGUMENTS substituted", out.Prompt)
+	}
+}
+
+// TestBuildSlashRegistryNoSkills verifies that when noSkills is true, skill
+// discovery is skipped so a /skill-name command is not registered even though a
+// skill file exists on disk (对标 pi 的 --no-skills).
+func TestBuildSlashRegistryNoSkills(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PIGO_SKILLS_DIR", dir)
+	t.Setenv("PIGO_HOME", t.TempDir())
+	writeSkill(t, dir, "summarize.md", "---\nname: summarize\ndescription: summarize input\n---\nSummarize the following: $ARGUMENTS")
+
+	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, true)
+	if err != nil {
+		t.Fatalf("buildSlashRegistry: %v", err)
+	}
+	// With discovery disabled, /summarize was never registered, so the registry
+	// treats it as an unknown command (an error) rather than a handled one.
+	if _, err := reg.ResolveOutcome("/summarize hello world"); err == nil {
+		t.Error("/summarize must be unknown when --no-skills disables discovery")
 	}
 }

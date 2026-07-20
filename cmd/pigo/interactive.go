@@ -53,6 +53,14 @@ type interactiveOptions struct {
 	// the context and replayed transcript. Otherwise a fresh session is created.
 	resumeID string
 
+	// approve, when true, grants the launch directory session trust before the
+	// run so the first-launch trust prompt is skipped and side-effect tools run
+	// without per-call confirmation (对标 pi 的 --approve/-a).
+	approve bool
+	// noSkills, when true, skips skill discovery so no /skill-name commands are
+	// registered from ~/.agents/skills (对标 pi 的 --no-skills).
+	noSkills bool
+
 	// plugins holds the loaded plugin manager so the REPL can deliver lifecycle
 	// events to subscribed plugins (US-017, #133). It may be nil (no plugins).
 	plugins *plugin.Manager
@@ -152,16 +160,19 @@ func runInteractive(opts interactiveOptions) error {
 	// ~/.agents/skills. A load error is non-fatal — the REPL still runs with the
 	// built-ins. Instance built-ins that need live state (/model, /help) are
 	// registered against `live`.
-	slash, err := buildSlashRegistry(live)
+	slash, err := buildSlashRegistry(live, opts.noSkills)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pigo: slash-commands: %v\n", err)
 	}
 	registerTrustCommand(slash, mgr, cwd)
 
-	// On the first launch in an undecided directory, ask the user how much to
-	// trust it before any tool runs. This happens before replay so the trust
-	// question is the first thing the user sees, not their prior history.
-	ensureTrustPrompt(os.Stdout, reader, mgr, cwd)
+	// --approve grants the launch directory session trust up front (对标 pi 的
+	// --approve/-a), so the first-launch prompt is skipped and side-effect tools
+	// run without per-call confirmation. Otherwise, on the first launch in an
+	// undecided directory, ask the user how much to trust it before any tool
+	// runs. This happens before replay so the trust question is the first thing
+	// the user sees, not their prior history.
+	establishTrust(os.Stdout, reader, mgr, cwd, opts.approve)
 
 	// Replay the resumed conversation so the user sees history before re-prompting.
 	if len(history) > 0 {
@@ -240,8 +251,10 @@ func stdoutIsTerminal() bool {
 // ~/.agents/skills — each surfaced as a "/skill-name" command (对标 Claude
 // Code's /skill invocation). A missing directory is not an error. Names that
 // collide with a built-in are shadowed (the built-in wins) and reported on
-// stderr.
-func buildSlashRegistry(live *liveRunConfig) (*runtime.SlashRegistry, error) {
+// stderr. When noSkills is true, skill discovery is skipped entirely (对标 pi
+// 的 --no-skills): user command templates still load, but no /skill-name
+// commands are registered.
+func buildSlashRegistry(live *liveRunConfig, noSkills bool) (*runtime.SlashRegistry, error) {
 	reg := runtime.NewSlashRegistry()
 	registerLiveCommands(reg, live)
 	dir := os.Getenv("PIGO_HOME")
@@ -260,16 +273,19 @@ func buildSlashRegistry(live *liveRunConfig) (*runtime.SlashRegistry, error) {
 		reg.AddUser(c)
 	}
 	// Load skills from ~/.agents/skills and register each as a /skill-name
-	// command. A skill invocation expands to the skill's instructions as the next
-	// prompt. A partial parse error is non-fatal: the skills that DID load are
-	// still registered, and the error is only reported on stderr — so one
-	// malformed skill file cannot hide every other skill.
-	skillCmds, serr := loadSkillCommands()
-	for _, c := range skillCmds {
-		reg.AddUser(c)
-	}
-	if serr != nil {
-		fmt.Fprintf(os.Stderr, "pigo: skills: some skills failed to load: %v\n", serr)
+	// command, unless discovery is disabled. A skill invocation expands to the
+	// skill's instructions as the next prompt. A partial parse error is
+	// non-fatal: the skills that DID load are still registered, and the error is
+	// only reported on stderr — so one malformed skill file cannot hide every
+	// other skill.
+	if !noSkills {
+		skillCmds, serr := loadSkillCommands()
+		for _, c := range skillCmds {
+			reg.AddUser(c)
+		}
+		if serr != nil {
+			fmt.Fprintf(os.Stderr, "pigo: skills: some skills failed to load: %v\n", serr)
+		}
 	}
 	if shadowed := reg.Shadowed(); len(shadowed) > 0 {
 		fmt.Fprintf(os.Stderr, "pigo: user commands shadowed by built-ins (rename to use): %v\n", shadowed)
