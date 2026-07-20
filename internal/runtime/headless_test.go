@@ -93,6 +93,53 @@ func TestRunHeadlessStreamJSON(t *testing.T) {
 	}
 }
 
+// TestRunHeadlessStreamJSONSessionID verifies that when RunConfig.SessionID is
+// set, the first stream-json event (agent_start) carries it under "sessionId",
+// so a consumer can associate the run's output with a session and resume it
+// later (对标 pi/Claude Code). When SessionID is empty the key is omitted.
+func TestRunHeadlessStreamJSONSessionID(t *testing.T) {
+	run := func(sessionID string) map[string]any {
+		p := &fauxProvider{
+			name:   "faux",
+			models: []provider.Model{{Provider: "faux", ID: "faux"}},
+			turns:  []fauxTurn{textTurn("done")},
+		}
+		cfg := newFauxRunCfg(p)
+		cfg.SessionID = sessionID
+		var out bytes.Buffer
+		agentCtx := &agentcore.AgentContext{Messages: agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("start")}}}}
+		if err := RunHeadless(context.Background(), agentCtx, HeadlessConfig{Run: cfg, Mode: StreamJSONMode, Out: &out}); err != nil {
+			t.Fatalf("RunHeadless stream-json: unexpected error %v", err)
+		}
+		sc := bufio.NewScanner(&out)
+		for sc.Scan() {
+			line := sc.Bytes()
+			if len(bytes.TrimSpace(line)) == 0 {
+				continue
+			}
+			var env map[string]any
+			if err := json.Unmarshal(line, &env); err != nil {
+				t.Fatalf("stream-json line is not valid JSON: %q (%v)", line, err)
+			}
+			if env["type"] == agentcore.EventAgentStart {
+				return env
+			}
+		}
+		t.Fatal("no agent_start event found")
+		return nil
+	}
+
+	first := run("sess-123")
+	if got, ok := first["sessionId"].(string); !ok || got != "sess-123" {
+		t.Errorf("agent_start sessionId = %v, want %q", first["sessionId"], "sess-123")
+	}
+
+	none := run("")
+	if _, present := none["sessionId"]; present {
+		t.Errorf("agent_start must omit sessionId when SessionID is empty, got %v", none["sessionId"])
+	}
+}
+
 // TestRunHeadlessReportsFailure verifies that a run whose final assistant message
 // carries stopReason=error surfaces as an ErrRunFailed, so the CLI maps it to a
 // non-zero exit code.

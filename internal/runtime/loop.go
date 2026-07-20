@@ -71,6 +71,11 @@ type RunConfig struct {
 	// EventBuffer is the buffer size of the emitted EventStream. 0 gives fully
 	// synchronous back-pressure (matching pi's awaited emit).
 	EventBuffer int
+
+	// SessionID, when set, is carried in the run's agent_start event so a
+	// stream-json consumer sees the backing session id in the first event and can
+	// resume the run later (对标 pi/Claude Code).
+	SessionID string
 }
 
 // LoopEventStream is the stream returned by the loop entry points: it carries
@@ -119,7 +124,7 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 		stream.Close()
 	}
 
-	if err := emit(agentcore.AgentStartEvent{}); err != nil {
+	if err := emit(agentcore.AgentStartEvent{SessionID: cfg.SessionID}); err != nil {
 		finish()
 		return
 	}

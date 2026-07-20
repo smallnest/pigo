@@ -217,22 +217,33 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "pigo: %v\n", err)
 		return 1
 	}
+
+	// Back the headless run with a session so its id appears in the first
+	// stream-json event and the run can be resumed with --resume/--continue,
+	// matching the interactive REPL and pi/Claude Code. A resumed session seeds
+	// its prior messages ahead of the new prompt.
+	priorMsgs, hs, err := openHeadlessSession(resumeID, opts.model, env.providerName, env.sysPrompt)
+	if err != nil {
+		fmt.Fprintf(errOut, "pigo: %v\n", err)
+		return 1
+	}
+	messages := append(priorMsgs, agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: promptContent})
 	agentCtx := &agentcore.AgentContext{
-		SystemPrompt: env.sysPrompt,
-		Messages: agentcore.MessageList{
-			agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: promptContent},
-		},
-		Tools: env.tools,
+		SystemPrompt: hs.header.SystemPrompt,
+		Messages:     messages,
+		Tools:        env.tools,
 	}
 
 	// Resolve the API key by provider name from the environment (never logged).
 	// An explicit --api-key overrides env/config for the resolved provider.
 	creds := provider.NewCredentialStore(nil)
 	creds.SetOverride(env.providerName, opts.apiKey)
+	runCfg := newRunConfig(opts.model, env.providerName, env.provider, creds, toolRegistry(env.tools))
+	runCfg.SessionID = hs.header.ID
 	cfg := runtime.HeadlessConfig{
 		Mode: mode,
 		Out:  out,
-		Run:  newRunConfig(opts.model, env.providerName, env.provider, creds, toolRegistry(env.tools)),
+		Run:  runCfg,
 	}
 	// Deliver agent lifecycle events to any subscribed plugin (US-017, #133).
 	// NewEventNotifier returns nil when no plugin subscribes, so the OnEvent hook
@@ -240,8 +251,15 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 	if n := plugin.NewEventNotifier(env.plugins, errOut); n != nil {
 		cfg.OnEvent = n.Handle
 	}
-	if err := runtime.RunHeadless(ctx, agentCtx, cfg); err != nil {
-		fmt.Fprintf(errOut, "pigo: %v\n", err)
+	runErr := runtime.RunHeadless(ctx, agentCtx, cfg)
+	// Persist the run's messages regardless of run outcome so a partial run is
+	// still resumable; a persistence failure is reported but does not mask a run
+	// error.
+	if perr := hs.persist(agentCtx); perr != nil {
+		fmt.Fprintf(errOut, "pigo: warning: could not persist session %s: %v\n", hs.header.ID, perr)
+	}
+	if runErr != nil {
+		fmt.Fprintf(errOut, "pigo: %v\n", runErr)
 		return 1
 	}
 	return 0
