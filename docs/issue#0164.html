@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0164</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEEA; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/164">#164</a> &mdash; pigo update 更新包到最新版本 &mdash; 2026-07-20</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> fetch+classify 先行，确认有新版本后才删旧文件</h3>
+      <p><strong>Ambiguity:</strong> AC 要求"更新失败时保留原安装（不留下损坏状态）"，但未规定失败点与顺序。</p>
+      <p><strong>Choice:</strong> <code>Update</code> 先 <code>Fetch</code>+<code>Classify</code> 拿到新版本号；只有当新版本 ≠ 已装版本时，才 <code>Uninstall</code> 旧文件再 <code>installFetched</code> 新版本。</p>
+      <p><strong>Rationale:</strong> 网络/解析失败发生在任何删除之前，旧安装原封不动，天然满足"不留损坏状态"。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 抽出 <code>installFetched</code> 供 install 与 update 共用</h3>
+      <p><strong>Ambiguity:</strong> update 的"重新分发+写 lockfile"与 install 后半段重复。</p>
+      <p><strong>Choice:</strong> 把 <code>Install</code> 的 classify→distribute→lockfile 抽成 <code>installFetched(pkgDir, ref, ...)</code>，<code>Install</code> 与 <code>Update</code> 都走它。</p>
+      <p><strong>Rationale:</strong> 单一路径保证 install/update 分发与记账行为一致，减少漂移。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> update 以 source 去掉 pinned 版本拉最新</h3>
+      <p><strong>Choice:</strong> 从 lockfile 的 <code>Source</code> 解析出 ref 后清空 <code>Version</code>，让 <code>npm pack</code> 取最新已发布版本。</p>
+      <p><strong>Rationale:</strong> "update to latest"的语义即忽略当初固定的版本。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 更新旧文件用「Uninstall 后再装」而非原地覆盖</h3>
+      <p><strong>Spec:</strong> AC 描述为"卸载旧文件 → 重新拉取 → 重新分发"。</p>
+      <p><strong>Implemented:</strong> 精确按此：复用 <code>Uninstall</code> 删除 lockfile 记录的旧文件，再 <code>installFetched</code>。这保证跨版本删掉的文件不会残留（原地覆盖会漏删旧版本独有文件）。</p>
+      <p><strong>Why:</strong> 与 spec 一致，且比覆盖更干净。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> <code>update</code>（不带名）遇错：中止 vs 继续</h3>
+      <p><strong>Alternatives:</strong> (A) 任一包失败即整体中止；(B) 逐包更新，失败收集进 joined error，最终退出码非零。</p>
+      <p><strong>Pros/Cons:</strong> A 简单但一个坏包卡住全部；B 尽力而为，与 install/uninstall 的多目标行为对称。</p>
+      <p><strong>Winner:</strong> B（<code>UpdateAll</code>）。CLI <code>runUpdate</code> 无参走 UpdateAll，有参逐个 Update。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> "最新版本"由本机 npm 决定，无版本比较</h3>
+      <p><strong>Assumption:</strong> 判定"是否需要更新"仅比较 <code>npm pack</code> 返回的版本字符串是否等于已装版本；不做 semver 大小比较。</p>
+      <p><strong>Verify:</strong> 若 registry 回退到更旧的 latest（罕见），当前逻辑会"更新"到那个版本。是否需要"仅当更高才更新"的 semver 守卫，留待确认。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
