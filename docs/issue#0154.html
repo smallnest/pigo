@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0154</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEEA; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/154">#154</a> &mdash; 定义包清单 lockfile 与安装目录约定 &mdash; 2026-07-20</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 新建 internal/pkgmgr package，镜像 internal/trust 的约定</h3>
+      <p><strong>Ambiguity:</strong> PRD/Issue 未指定 lockfile 模块放哪、用什么加载语义。</p>
+      <p><strong>Choice:</strong> 新建 <code>internal/pkgmgr</code>，lockfile 的 load/save 语义完全对齐既有的 <code>internal/trust.Manager</code>：文件缺失 = 空清单（非错误），文件存在但损坏 = 硬错误。</p>
+      <p><strong>Rationale:</strong> 项目已有一套成熟的「$PIGO_HOME + 缺失非错/损坏报错」范式，复用它让读者零学习成本，也满足验收条件里的「不存在时视为空清单」「损坏文件容错」。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> lockfile 按包名 map 存储，List/Save 排序输出</h3>
+      <p><strong>Ambiguity:</strong> Issue 只要求「记录每个已安装包」，未规定内部结构与顺序。</p>
+      <p><strong>Choice:</strong> <code>Packages map[string]InstalledPackage</code>（按名查找 O(1)，卸载/更新友好）；<code>Save</code> 用 <code>MarshalIndent</code> 且 map 天然由 encoding/json 按 key 排序，<code>List()</code> 显式按 name 排序。</p>
+      <p><strong>Rationale:</strong> uninstall/update 都按包名操作，map 是最自然的主键结构；排序输出保证 lockfile diff 稳定、list 输出确定。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> skills 目录不挂在 $PIGO_HOME 下</h3>
+      <p><strong>Ambiguity:</strong> PRD 映射表把 skill 落到「skills 目录」，但 pigo 的 skill 加载器读的是 <code>~/.agents/skills</code>（<code>PIGO_SKILLS_DIR</code> 可覆盖），而非 $PIGO_HOME/skills。</p>
+      <p><strong>Choice:</strong> <code>SkillsDir()</code> 遵循现有 skill 加载器的路径约定，是唯一不挂在 $PIGO_HOME 下的类型；plugins/commands/themes 都在 $PIGO_HOME 下。</p>
+      <p><strong>Rationale:</strong> 分发的唯一目的是让文件被现有发现机制加载。若装到 $PIGO_HOME/skills，skill 加载器根本不会去读，安装等于无效。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> lockfile 字段用 <code>types[]</code> 而非 PRD 文字里的 <code>type[]</code></h3>
+      <p><strong>Spec:</strong> PRD 正文写「<code>type[]</code>」。</p>
+      <p><strong>Implemented:</strong> JSON 字段名用 <code>types</code>（Go 字段 <code>Types []PackageType</code>）。</p>
+      <p><strong>Why:</strong> 复数名更符合 Go/JSON 惯例（切片用复数），语义完全一致。这是纯命名，不影响契约。若后续 Issue 依赖精确字段名，以本实现为准。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> lockfile 记录绝对文件路径</h3>
+      <p><strong>Alternatives:</strong> (A) 记录相对 $PIGO_HOME 的相对路径；(B) 记录落地文件的绝对路径。</p>
+      <p><strong>Pros/Cons:</strong> 相对路径更可移植（$PIGO_HOME 搬家不失效），但 uninstall 需要重新拼接根路径、且 skills 不在 $PIGO_HOME 下、相对基准不统一；绝对路径 uninstall 直接删、逻辑最简，代价是 $PIGO_HOME 迁移后失效。</p>
+      <p><strong>Winner:</strong> 绝对路径。安装是本机行为、$PIGO_HOME 迁移极少见，而 skills/commands/plugins 分属不同根，统一绝对路径避免「相对谁」的歧义，uninstall 实现最直接。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Home() 返回空字符串时的上层处理</h3>
+      <p><strong>Assumption:</strong> 当无法解析 home 目录且未设 PIGO_HOME 时，<code>Home()</code>/<code>DirForType()</code> 返回 <code>""</code>（对齐 trust.DefaultPath 的「不可用」契约）。</p>
+      <p><strong>Verify:</strong> 后续分发/安装 Issue（#158–#161、#162）需在拿到空目录时报清晰错误，而非用空路径写文件。此边界留给消费方处理，本 Issue 只提供契约。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> lockfile 版本迁移策略</h3>
+      <p><strong>Assumption:</strong> 预留了 <code>Version</code> 字段（当前恒为 1），但未实现任何版本迁移逻辑。</p>
+      <p><strong>Verify:</strong> 本期只有 v1，无需迁移；确认未来 schema 变更时再补迁移即可，符合当前范围。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
