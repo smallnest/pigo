@@ -44,9 +44,9 @@ type agentEnv struct {
 // read, otherwise the value is literal text) and layered onto the end of the
 // prompt (对标 pi 的 --append-system-prompt). It returns an error rather than
 // exiting so the caller owns exit-code mapping.
-func setupAgentEnv(model, baseURL, protocol string, noTools bool, systemPrompt string, appendSystemPrompt []string) (agentEnv, error) {
+func setupAgentEnv(model, baseURL, protocol, providerName string, noTools bool, systemPrompt string, appendSystemPrompt []string) (agentEnv, error) {
 	cwd, _ := os.Getwd()
-	prov, providerName, err := resolveProvider(model, baseURL, protocol)
+	prov, resolvedName, err := resolveProvider(model, baseURL, protocol, providerName)
 	if err != nil {
 		return agentEnv{}, err
 	}
@@ -80,7 +80,7 @@ func setupAgentEnv(model, baseURL, protocol string, noTools bool, systemPrompt s
 		cwd:          cwd,
 		tools:        tools,
 		provider:     prov,
-		providerName: providerName,
+		providerName: resolvedName,
 		sysPrompt:    sysPrompt,
 		plugins:      mgr,
 	}, nil
@@ -155,7 +155,12 @@ type cliOptions struct {
 	baseURL      string
 	apiKey       string
 	protocol     string
-	outputFmt    string
+	// provider, when non-empty, selects a built-in provider by name from the
+	// registry (对标 pi 的 provider selection): resolveProvider then builds the
+	// matching wire driver using the provider's default base URL, protocol, and
+	// API-key env var, ignoring the model-id heuristics.
+	provider  string
+	outputFmt string
 	noTools      bool
 	listSessions bool
 	resumeID     string
@@ -229,7 +234,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			fmt.Fprintln(errOut, "pigo: no prompt (use -p \"...\" or positional args)")
 			return 2
 		}
-		env, err := setupAgentEnv(opts.model, opts.baseURL, opts.protocol, opts.noTools, opts.systemPrompt, opts.appendSystemPrompt)
+		env, err := setupAgentEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.noTools, opts.systemPrompt, opts.appendSystemPrompt)
 		if err != nil {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
 			return 1
@@ -263,7 +268,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		return 2
 	}
 
-	env, err := setupAgentEnv(opts.model, opts.baseURL, opts.protocol, opts.noTools, opts.systemPrompt, opts.appendSystemPrompt)
+	env, err := setupAgentEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.noTools, opts.systemPrompt, opts.appendSystemPrompt)
 	if err != nil {
 		fmt.Fprintf(errOut, "pigo: %v\n", err)
 		return 1
