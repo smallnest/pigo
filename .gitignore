@@ -47,3 +47,5 @@ book/*.aux
 book/*.log
 book/*.toc
 book/*.out
+# Figures pre-rendered from SVG by build_pdf.sh (rsvg-convert); source is the .svg
+book/images/*.pdf
