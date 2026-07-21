@@ -101,6 +101,7 @@
       <nav>
         <a class="group zh">入门</a><a class="group en">Getting Started</a>
         <a href="#intro"><span class="zh">简介</span><span class="en">Introduction</span></a>
+        <a href="#architecture"><span class="zh">运行架构</span><span class="en">Architecture</span></a>
         <a href="#install"><span class="zh">安装与构建</span><span class="en">Install &amp; Build</span></a>
         <a href="#quickstart"><span class="zh">快速开始</span><span class="en">Quick Start</span></a>
         <a class="group zh">Agent 模式</a><a class="group en">Agent Mode</a>
@@ -142,6 +143,14 @@
           <span class="zh">　包管理子命令是位置参数，独立于 Agent 模式的 flag；pigo 会在解析 flag 之前先把它们剥离出来。</span>
           <span class="en">　Package subcommands are positional arguments, independent of the agent-mode flags; pigo strips them out before parsing flags.</span>
         </div>
+      </section>
+
+      <section id="architecture">
+        <h2><span class="zh">运行架构</span><span class="en">Runtime Architecture</span></h2>
+        <p class="zh">下图展示 pigo 的高层运行架构：主请求路径（用户 → CLI → Agent 循环 → Provider → LLM 网关）、外部依赖，以及信任边界（pigo 进程 vs 外部网络，副作用工具经 Trust Gate 进入本地文件系统与 Shell）。</p>
+        <p class="en">A high-level runtime view of pigo: the primary request path (user → CLI → agent loop → provider → LLM gateway), external dependencies, and trust boundaries (the pigo process vs. the external network, with side-effecting tools crossing the Trust Gate into the local filesystem and shell).</p>
+        <p><a href="pigo-runtime.html" target="_blank" rel="noopener"><span class="zh">在新标签页打开交互式架构图 ↗</span><span class="en">Open the interactive diagram in a new tab ↗</span></a></p>
+        <iframe src="pigo-runtime.html" title="pigo runtime architecture" loading="lazy" style="width:100%;height:640px;border:1px solid var(--border,#d0d7de);border-radius:8px;"></iframe>
       </section>
 
       <section id="install">

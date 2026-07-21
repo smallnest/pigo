@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "pigo — Runtime Architecture",
+    "subtitle": "CLI AI coding agent · request path, external deps, trust boundaries",
+    "output": "pigo-runtime.html",
+    "visual_preset": "classic",
+    "quality_profile": "standard"
+  },
+  "components": [
+    { "id": "users", "type": "external", "label": "User / Terminal", "sublabel": "REPL · -p headless", "pos": [40, 250] },
+
+    { "id": "session", "type": "database", "label": "Session Store", "sublabel": "JSONL · resume", "pos": [230, 120] },
+    { "id": "compaction", "type": "cloud", "label": "Context Compaction", "sublabel": "auto-summary", "pos": [420, 120] },
+
+    { "id": "cli", "type": "backend", "label": "CLI & Run Assembly", "sublabel": "cmd/pigo", "pos": [230, 250] },
+    { "id": "loop", "type": "backend", "label": "Agent Loop", "sublabel": "runtime · two-layer", "pos": [420, 250] },
+    { "id": "provider", "type": "backend", "label": "Provider Layer", "sublabel": "transport · SSE", "pos": [610, 250] },
+
+    { "id": "subagent", "type": "backend", "label": "Sub-agent Orchestrator", "sublabel": "goroutine · process", "pos": [230, 410], "size": [140, 60] },
+    { "id": "tools", "type": "backend", "label": "Tool Executor", "sublabel": "registry · read/edit/bash", "pos": [420, 410], "size": [140, 60] },
+
+    { "id": "trust", "type": "security", "label": "Trust Gate", "sublabel": "per-dir permission", "pos": [430, 540] },
+
+    { "id": "llm", "type": "external", "label": "LLM Gateway", "sublabel": "OpenRouter · Anthropic · Ollama", "pos": [820, 250], "size": [170, 60] },
+    { "id": "web", "type": "external", "label": "Web", "sublabel": "webfetch targets", "pos": [820, 410] },
+    { "id": "localenv", "type": "external", "label": "Local FS & Shell", "sublabel": "files · commands", "pos": [430, 690] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "pigo process · local, trusted", "wraps": ["session", "compaction", "cli", "loop", "provider", "subagent", "tools", "trust"] },
+    { "kind": "security-group", "label": "External network · untrusted", "wraps": ["llm", "web"] }
+  ],
+  "connections": [
+    { "id": "user-cli", "from": "users", "to": "cli", "label": "prompt · flags", "variant": "emphasis", "labelDy": -40 },
+    { "id": "cli-loop", "from": "cli", "to": "loop", "label": "run config", "variant": "emphasis" },
+    { "id": "loop-provider", "from": "loop", "to": "provider", "label": "completion req", "variant": "emphasis", "labelDy": -40 },
+    { "id": "provider-llm", "from": "provider", "to": "llm", "label": "HTTPS · SSE stream", "variant": "emphasis", "labelDy": -40 },
+
+    { "id": "cli-session", "from": "cli", "to": "session", "label": "persist · resume", "fromSide": "top", "toSide": "bottom", "route": "straight", "labelDy": -22 },
+    { "id": "loop-compaction", "from": "loop", "to": "compaction", "label": "auto-summary", "fromSide": "top", "toSide": "bottom", "route": "straight", "labelDy": -22 },
+
+    { "id": "loop-tools", "from": "loop", "to": "tools", "label": "tool calls", "fromSide": "bottom", "toSide": "top", "route": "straight", "labelDy": 70 },
+    { "id": "tools-subagent", "from": "tools", "to": "subagent", "label": "spawn", "variant": "dashed", "fromSide": "left", "toSide": "right", "route": "straight" },
+    { "id": "tools-trust", "from": "tools", "to": "trust", "label": "gate side effects", "variant": "security", "fromSide": "bottom", "toSide": "top", "route": "straight", "labelDy": 55 },
+    { "id": "trust-localenv", "from": "trust", "to": "localenv", "label": "read/write/exec", "variant": "security", "fromSide": "bottom", "toSide": "top", "route": "straight", "labelDy": 65 },
+    { "id": "tools-web", "from": "tools", "to": "web", "label": "webfetch", "variant": "dashed", "fromSide": "right", "toSide": "left", "route": "straight" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Run modes", "items": ["REPL: interactive session", "Headless -p: one-shot for CI", "stream-json: line-delimited events", "--resume / --continue"] },
+    { "dot": "emerald", "title": "Built-in tools", "items": ["read · write · edit", "grep · find · bash", "todo · webfetch", "JSON-Schema validated args"] },
+    { "dot": "violet", "title": "Providers & protocols", "items": ["OpenRouter (default), Ollama, NIM", "Anthropic, any OpenAI-compatible", "OpenAI + Anthropic-Messages wire", "dual failure model · retry · SSE"] },
+    { "dot": "amber", "title": "Agent loop internals", "items": ["Inner: stream → run tools → feed back", "Outer: follow-up messages", "Per-turn hooks: steer / prepare / stop", "Compaction near context limit"] },
+    { "dot": "rose", "title": "Trust & safety", "items": ["bash/write/edit gated in untrusted dirs", "--approve one-shot authorization", "Sub-agents: goroutine or process isolation"] },
+    { "dot": "slate", "title": "Extensibility", "items": ["Skills: /slash commands", "Plugins: ~/.pigo/plugins", "Package mgr: pigo install npm:<pkg>", "Layered system prompt + AGENTS.md"] }
+  ]
+}
