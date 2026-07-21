@@ -564,6 +564,33 @@ func newAnthropicCompat(name, defaultURL, baseURL string, models []Model, authHe
 	}
 }
 
+// anthropicAuthHeaderFor returns the auth-header setter for an Anthropic-Messages
+// provider given its registry AuthScheme (spec.AuthScheme). The two shapes seen
+// among anthropic-protocol providers are:
+//
+//   - AuthBearer      → Authorization: Bearer <key>. Used by anthropic-protocol
+//     gateways that authenticate with a plain bearer token on their /anthropic
+//     endpoint.
+//   - AuthXAPIKey     → x-api-key: <key> plus the required anthropic-version
+//     header. This is the direct-Anthropic convention and, per pi's behavior,
+//     also what MiniMax (minimax / minimax-cn) uses on its /anthropic endpoint.
+//
+// Any other scheme (e.g. AuthAWS for Bedrock, AuthSpecial) falls back to the
+// x-api-key convention so a generic anthropic-protocol provider does not crash;
+// bespoke auth for those is layered by a later node. The returned func never
+// logs the secret value.
+func anthropicAuthHeaderFor(authScheme string) func(*http.Request, string) {
+	if authScheme == AuthBearer {
+		return func(req *http.Request, apiKey string) {
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+		}
+	}
+	return func(req *http.Request, apiKey string) {
+		req.Header.Set("x-api-key", apiKey)
+		req.Header.Set("anthropic-version", anthropicAPIVersion)
+	}
+}
+
 // NewAnthropicProvider builds a provider that speaks the Anthropic Messages wire
 // format directly (POST {baseURL}/messages), the target of an explicit
 // --protocol=anthropic selection. baseURL defaults to the public Anthropic API
@@ -573,10 +600,20 @@ func newAnthropicCompat(name, defaultURL, baseURL string, models []Model, authHe
 // secret values are never logged.
 func NewAnthropicProvider(baseURL string, models []Model) Provider {
 	return newAnthropicCompat("anthropic", anthropicBaseURL, baseURL, models,
-		func(req *http.Request, apiKey string) {
-			req.Header.Set("x-api-key", apiKey)
-			req.Header.Set("anthropic-version", anthropicAPIVersion)
-		})
+		anthropicAuthHeaderFor(AuthXAPIKey))
+}
+
+// NewAnthropicProtocolProvider builds a named Anthropic-Messages provider whose
+// auth header follows the given registry AuthScheme. It is the target of an
+// explicit --provider selection for any anthropic-protocol built-in (anthropic,
+// minimax, minimax-cn, and — routed generically for now — bedrock/
+// cloudflare-ai-gateway): the driver identity is the provider's own name (so
+// errors reference it), baseURL is the already-resolved endpoint (spec default
+// or override), and authScheme selects the header shape (see
+// anthropicAuthHeaderFor). Secret values are never logged.
+func NewAnthropicProtocolProvider(name, baseURL, authScheme string, models []Model) Provider {
+	return newAnthropicCompat(name, anthropicBaseURL, baseURL, models,
+		anthropicAuthHeaderFor(authScheme))
 }
 
 // NewBedrockProvider builds the Bedrock provider, reusing the Anthropic Messages

@@ -177,7 +177,11 @@ func resolveNamedProvider(name, model, baseURL, protocol string) (provider.Provi
 	// carry no ExtraHeaders, so this is a no-op today (refined alongside #188).
 	switch spec.Protocol {
 	case provider.ProtocolAnthropic:
-		return provider.NewAnthropicProvider(url, models), spec.Name, nil
+		// Auth header follows the spec's AuthScheme (x-api-key + anthropic-version
+		// for anthropic/minimax/minimax-cn; Bearer for any anthropic-protocol
+		// gateway that authenticates with a plain bearer token). The driver name is
+		// the spec name so errors reference the selected provider.
+		return provider.NewAnthropicProtocolProvider(spec.Name, url, spec.AuthScheme, models), spec.Name, nil
 	case provider.ProtocolOpenAI:
 		return provider.NewOpenAICompatibleProvider(url, models), spec.Name, nil
 	default:
