@@ -53,6 +53,21 @@ bash build_pdf.sh
 
 ## 全书大纲
 
-<!-- TODO(node #201): 在此填入全书 10 章大纲表格（章号、标题、要点、对应 pigo 源码模块）。 -->
+全书含 **引言**、**10 章正文** 与 **后记**，按「从入口向内、再向外」的解剖顺序展开：
+CLI → agentcore → 两层循环 → provider → 工具 → 压缩 → 会话 → 信任 → 子 Agent → 生态。
+完整分章详解见 [`outline.md`](./outline.md)。
 
-*（占位：完整的 10 章大纲将由节点 #201 补全。）*
+| 章号 | 主题 | 一句话核心 | 对应源码包 |
+| --- | --- | --- | --- |
+| 引言 | 为什么解剖 pigo | 从 pi 到 pigo：一只可拆解的命令行 Agent 标本 | — |
+| 第 1 章 | CLI 装配与运行架构 | 命令行入口如何解析参数、装配 Provider/工具并选择运行模式 | `cmd/pigo`、`internal/runtime`（config/headless） |
+| 第 2 章 | agentcore 抽象 | 消息、内容、事件、工具、钩子等贯穿全局的核心类型契约 | `internal/agentcore` |
+| 第 3 章 | 两层 Agent 循环 | 内层「流式回复→执行工具→回填」与外层「后续消息」如何驱动一次 run | `internal/runtime`（loop/stream_response/prompt） |
+| 第 4 章 | Provider 层与传输 | 统一 Provider 接口之下的 OpenAI/Anthropic 协议、SSE 传输与鉴权 | `internal/provider` |
+| 第 5 章 | 工具系统 | 内置工具的注册、批量执行与读写/搜索/网络等能力实现 | `internal/agenttool` |
+| 第 6 章 | 上下文压缩 | 逼近 token 上限时如何选切点、做摘要并压缩上下文 | `internal/compaction`、`internal/runtime`（compaction） |
+| 第 7 章 | 会话持久化 | 会话的存取、导出与 HTML 回放 | `internal/session` |
+| 第 8 章 | 项目信任与安全 | 首次进入目录的信任决策与受信状态管理 | `internal/trust`、`cmd/pigo`（trust） |
+| 第 9 章 | 子 Agent 编排 | 进程隔离的子 Agent 与基于 JSON-RPC 的父子通信 | `internal/runtime`（subagent）、`internal/jsonrpc`、`cmd/pigo`（subagent_rpc） |
+| 第 10 章 | 可扩展性生态 | Skills / 斜杠命令 / Plugins 与包管理器如何让 Agent 可插拔生长 | `internal/plugin`、`internal/pkgmgr`、`internal/runtime`（skills/slashcommand）、`cmd/pigo`（pkgcmd） |
+| 后记 | 解牛之后 | 从阅读源码到重造轮子：设计取舍与延伸方向 | — |
