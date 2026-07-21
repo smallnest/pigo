@@ -339,6 +339,48 @@ git push origin v0.2.0
 | `~/.pigo/commands` | 用户自定义命令模板 |
 | `<PROVIDER>_API_KEY` | 各 Provider 的 API Key（见[模型与 Provider](#模型与-provider)） |
 
+### 内置 Provider 一览（`--provider`）
+
+`--provider <name>` 直接选中某个内置 Provider，使用其默认 base URL、协议与 API Key 环境变量（可用 `--base-url` 或 `<PROVIDER>_BASE_URL` 覆盖，`--api-key` 或对应环境变量提供 Key）。下表与注册表 `internal/provider/registry.go` 保持一致，`pigo --help` 也会列出同样的清单。
+
+| provider | 环境变量（按优先级） | 默认 base_url | 协议 |
+|----------|----------------------|---------------|------|
+| `anthropic` | `ANTHROPIC_OAUTH_TOKEN` / `ANTHROPIC_API_KEY` / `CLAUDE_API_KEY` | `https://api.anthropic.com/v1` | anthropic |
+| `openai` | `OPENAI_API_KEY` | `https://api.openai.com/v1` | openai |
+| `ant-ling` | `ANT_LING_API_KEY` | `https://api.ant-ling.com/v1` | openai |
+| `deepseek` | `DEEPSEEK_API_KEY` | `https://api.deepseek.com` | openai |
+| `nvidia` | `NVIDIA_API_KEY` / `NVIDIA_NIM_API_KEY` | `https://integrate.api.nvidia.com/v1` | openai |
+| `google` | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | `https://generativelanguage.googleapis.com/v1beta` | openai |
+| `groq` | `GROQ_API_KEY` | `https://api.groq.com/openai/v1` | openai |
+| `cerebras` | `CEREBRAS_API_KEY` | `https://api.cerebras.ai/v1` | openai |
+| `xai` | `XAI_API_KEY` | `https://api.x.ai/v1` | openai |
+| `openrouter` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` | openai |
+| `vercel-ai-gateway` | `AI_GATEWAY_API_KEY` | `https://ai-gateway.vercel.sh` | openai |
+| `zai` | `ZAI_API_KEY` | `https://api.z.ai/api/coding/paas/v4` | openai |
+| `zai-coding-cn` | `ZAI_CODING_CN_API_KEY` | `https://open.bigmodel.cn/api/coding/paas/v4` | openai |
+| `mistral` | `MISTRAL_API_KEY` | `https://api.mistral.ai` | openai |
+| `minimax` | `MINIMAX_API_KEY` | `https://api.minimax.io/anthropic` | anthropic |
+| `minimax-cn` | `MINIMAX_CN_API_KEY` | `https://api.minimaxi.com/anthropic` | anthropic |
+| `moonshotai` | `MOONSHOT_API_KEY` | `https://api.moonshot.ai/v1` | openai |
+| `moonshotai-cn` | `MOONSHOT_API_KEY` | `https://api.moonshot.cn/v1` | openai |
+| `huggingface` | `HF_TOKEN` | `https://router.huggingface.co/v1` | openai |
+| `fireworks` | `FIREWORKS_API_KEY` | `https://api.fireworks.ai/inference` | openai |
+| `together` | `TOGETHER_API_KEY` | `https://api.together.ai/v1` | openai |
+| `opencode` | `OPENCODE_API_KEY` | `https://opencode.ai/zen` | openai |
+| `opencode-go` | `OPENCODE_API_KEY` | `https://opencode.ai/zen/go` | openai |
+| `kimi-coding` | `KIMI_API_KEY` | `https://api.kimi.com/coding` | openai |
+| `xiaomi` | `XIAOMI_API_KEY` | `https://api.xiaomimimo.com/v1` | openai |
+| `xiaomi-token-plan-cn` | `XIAOMI_TOKEN_PLAN_CN_API_KEY` | `https://token-plan-cn.xiaomimimo.com/v1` | openai |
+| `xiaomi-token-plan-ams` | `XIAOMI_TOKEN_PLAN_AMS_API_KEY` | `https://token-plan-ams.xiaomimimo.com/v1` | openai |
+| `xiaomi-token-plan-sgp` | `XIAOMI_TOKEN_PLAN_SGP_API_KEY` | `https://token-plan-sgp.xiaomimimo.com/v1` | openai |
+| `azure-openai-responses` | `AZURE_OPENAI_API_KEY`（+ `AZURE_OPENAI_BASE_URL` / `AZURE_OPENAI_RESOURCE_NAME`） | 由环境变量拼接 | openai（Azure） |
+| `amazon-bedrock` | `AWS_BEARER_TOKEN_BEDROCK`（或 `AWS_PROFILE` / `AWS_ACCESS_KEY_ID`+`AWS_SECRET_ACCESS_KEY`；`AWS_REGION` 默认 `us-east-1`） | `https://bedrock-runtime.{AWS_REGION}.amazonaws.com` | anthropic |
+| `google-vertex` | `GOOGLE_CLOUD_API_KEY`（或 ADC）+ `GOOGLE_CLOUD_PROJECT` + `GOOGLE_CLOUD_LOCATION` | `https://{location}-aiplatform.googleapis.com` | openai |
+| `cloudflare-workers-ai` | `CLOUDFLARE_API_KEY` + `CLOUDFLARE_ACCOUNT_ID` | `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1` | openai |
+| `cloudflare-ai-gateway` | `CLOUDFLARE_API_KEY` + `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_GATEWAY_ID` | `https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/anthropic` | anthropic |
+
+> base_url 覆盖优先级：`--base-url` > provider 专有 `*_BASE_URL` 环境变量 > 泛化 `<PROVIDER>_BASE_URL`（provider 名大写、`-` 转 `_`）> 注册表默认值。任意 Provider 也支持泛化的 `<PROVIDER>_API_KEY` 约定作为 Key 回退。
+
 ---
 
 ## 安全说明
