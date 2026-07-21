@@ -43,9 +43,15 @@ graph.html
 
 # Book build products (source in, products out — see book/README.md)
 book/*.pdf
+book/book.tex
+book/.build-bin/
 book/*.aux
 book/*.log
 book/*.toc
 book/*.out
+book/*.bcf
+book/*.bbl
+book/*.blg
+book/*.run.xml
 # Figures pre-rendered from SVG by build_pdf.sh (rsvg-convert); source is the .svg
 book/images/*.pdf

@@ -1,23 +1,33 @@
-% Simple title cover for 《庖丁解牛 pigo》.
-% A clean navy/cyan title band — no external image, fully reproducible.
+% Title cover for 《用 Go 从零构建 Pi Agent》.
+% Self-contained, no external image — clean editorial layout in the cyan theme.
 \begin{titlepage}
 \thispagestyle{empty}
 \centering
-\vspace*{3cm}
+\vspace*{2cm}
 
-{\fontsize{34}{42}\selectfont\rmfamily\bfseries 庖丁解牛 pigo\par}
-\vspace{0.8cm}
-{\Large\sffamily\color{structurecolor} 用 Go 从零构建命令行 AI Agent\par}
+% ── Kicker + top rule ────────────────────────────────────────────
+{\sffamily\large\color{structurecolor!75} 庖丁解牛 · 逐行拆解一个AI Agent\par}
+\vspace{0.5cm}
+{\color{accentrule}\rule{0.30\linewidth}{0.8pt}\par}
+\vspace{1.5cm}
 
-\vspace{2cm}
-{\color{structurecolor}\rule{0.5\linewidth}{1.2pt}\par}
-\vspace{2cm}
+% ── Main title (two lines) ───────────────────────────────────────
+{\sffamily\bfseries\fontsize{42}{50}\selectfont\color{structurecolor} 用 Go 从零\\[0.25em]构建 Pi Agent\par}
+\vspace{1.2cm}
 
-{\large\sffamily 副标题：一行一行读懂 pi 的 Go 复刻实现\par}
+% ── Subtitle ─────────────────────────────────────────────────────
+{\Large\sffamily 一行一行读懂 pi agent 的 Go 语言实现\par}
+
+\vspace{1.7cm}
+{\color{structurecolor}\rule{0.55\linewidth}{1.4pt}\par}
 
 \vfill
-{\LARGE\sffamily pigo 项目\quad 著\par}
-\vspace{0.7cm}
-{\small\sffamily\color{structurecolor!80} \number\year 年 \number\month 月\par}
-\vspace{1.2cm}
+
+% ── Author / date / project ──────────────────────────────────────
+{\LARGE\sffamily 鸟\,窝\quad{\color{black!45}著}\par}
+\vspace{0.9cm}
+{\sffamily\color{black!60} \number\year 年 \number\month 月\par}
+\vspace{0.4cm}
+{\small\ttfamily\color{structurecolor} \href{https://github.com/smallnest/pigo}{github.com/smallnest/pigo}\par}
+\vspace{1.4cm}
 \end{titlepage}

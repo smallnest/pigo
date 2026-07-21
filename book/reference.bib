@@ -1,0 +1,5 @@
+% 本书正文不含文献引用，但 ElegantBook 文档类在 elegantbook.cls 中硬编码了
+%   \addbibresource[location=local]{reference.bib}
+% 并以 biber 作为后端。若此文件缺失，biber 会因找不到 .bib 而直接报错、
+% 中断整条构建管线。故保留这份空的（仅注释）参考文献库，让 biber 正常产出
+% 一个空的 .bbl，构建得以完成。将来如需引用文献，在此追加 BibTeX 条目即可。

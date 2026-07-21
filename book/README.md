@@ -1,6 +1,6 @@
-# 《庖丁解牛 pigo：用 Go 从零构建命令行 AI Agent》
+# 《用 Go 从零构建 Pi Agent》
 
-本目录存放技术书《庖丁解牛 pigo》的书稿源文件与 PDF 构建管线。
+本目录存放技术书《用 Go 从零构建 Pi Agent》的书稿源文件与 PDF 构建管线。
 管线仿照参考书 [ai-agent-book](https://github.com/bojieli/ai-agent-book)：
 Markdown 章节 → pandoc → xelatex → ElegantBook 文档类（cyan 主题）。
 
@@ -49,18 +49,18 @@ bash build_pdf.sh
    （不存在的文件自动跳过），因此书稿可随章节逐步补全而增量构建。
 2. 用 `rsvg-convert` 把 `images/*.svg` 预转为同名 `images/*.pdf`（向量，无损）。
 3. `pandoc` 经 `svg2pdf.lua`、`crossref.lua`、`experiment_box.lua` 三个 Lua 过滤器
-   生成 LaTeX，再用探测到的可用 `xelatex` 编译为单个 PDF：`庖丁解牛-pigo.pdf`。
+   生成 LaTeX，再用探测到的可用 `xelatex` 编译为单个 PDF：`用Go从零构建Pi Agent.pdf`。
 
 `svg2pdf.lua` 把图片引用中的 `.svg` 改写为已生成的 `.pdf`，避免 pandoc 默认的
 `\usepackage{svg}` + `\includesvg`（那条路径依赖 Inkscape 与 `-shell-escape`）。
-生成的 `庖丁解牛-pigo.pdf` 与 `images/*.pdf` 均为构建产物，不纳入版本管理
+生成的 `用Go从零构建Pi Agent.pdf` 与 `images/*.pdf` 均为构建产物，不纳入版本管理
 （见根目录 `.gitignore`）。
 
 ### 验证产物
 
 ```bash
-pdfinfo 庖丁解牛-pigo.pdf              # 页数、页面尺寸
-pdftotext 庖丁解牛-pigo.pdf - | grep -n '庖丁解牛\|引言\|CLI 装配\|图1-1'
+pdfinfo "用Go从零构建Pi Agent.pdf"              # 页数、页面尺寸
+pdftotext "用Go从零构建Pi Agent.pdf" - | grep -n '庖丁解牛\|引言\|CLI 装配\|图1-1'
 ```
 
 正常产出应包含：封面 + 目录（TOC）+ 引言 + 第 1 章（含图 1-1）。
@@ -105,7 +105,7 @@ bash book/build_pdf.sh               # 脚本会自动选用 /Library/TeX/texbin
 ```
 
 只要 PATH 或 `/Library/TeX/texbin`、`/usr/local/texlive` 下存在一个能编译的 xelatex，
-脚本即会优先选用它，绕开损坏的 MiKTeX，正常产出 `庖丁解牛-pigo.pdf`。
+脚本即会优先选用它，绕开损坏的 MiKTeX，正常产出 `用Go从零构建Pi Agent.pdf`。
 
 ## 写作约定
 

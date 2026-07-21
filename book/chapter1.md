@@ -1,12 +1,12 @@
-# 第 1 章 全景与骨架：从 main() 到一次对话
+# 全景与骨架：从 main() 到一次对话
 
-引言里我们把 Agent 抽象成一个朴素的公式——**LLM + 上下文 + 工具**，再用一个循环把三者串起来。但公式落到工程上，第一个要回答的问题不是"循环怎么转"，而是"程序怎么搭起来"：一条命令行敲下去，参数如何被解析成一次运行的意图？Provider、工具、系统提示这些零件在什么时候、由谁装配？装配完成后，程序又是沿着哪条路径把控制权交给 Agent 循环的？
+引言里我们把 Agent 抽象成一个朴素的公式——**LLM + 上下文 + 工具**，再用一个循环把三者串起来。但公式落到工程上，第一个要回答的问题不是"循环怎么转"，而是"程序怎么搭起来"。一条命令行敲下去，参数怎么被解析成一次运行的意图？Provider、工具、系统提示这些零件，在什么时候、由谁装配？装配完成后，程序又是沿哪条路径把控制权交给 Agent 循环的？
 
-本章就是全书的第一刀，落在结构最外层的关节处：`cmd/pigo` 这一层 CLI 装配代码。我们会先鸟瞰 pigo 的运行架构，看清各个组件的位置与连线；然后顺着 `main()` → `dispatch()` 一路向内，拆解"一次运行"是如何被装配出来的；最后分头走完两条驱动路径——交互式 REPL 与无头（headless）模式，看同一套装配如何服务于两种截然不同的使用场景。读完本章，你会对"pigo 是一个什么形状的程序"有一张清晰的地图，后续每一章都是在这张地图的某个区域里深挖。
+本章是全书的第一刀，落在结构最外层的关节处：`cmd/pigo` 这一层 CLI 装配代码。我们先鸟瞰 pigo 的运行架构，看清各个组件的位置与连线；然后顺着 `main()` → `dispatch()` 一路向内，拆解"一次运行"是怎么被装配出来的；最后分头走完两条驱动路径，交互式 REPL 和无头（headless）模式，看同一套装配如何服务于两种截然不同的场景。读完本章，你会对"pigo 是个什么形状的程序"有一张清晰的地图，后面每一章都是在这张地图的某个区域里深挖。
 
-## 1.1 鸟瞰运行架构
+## 鸟瞰运行架构
 
-在钻进源码之前，先在脑子里立起一张全景图。pigo 运行时可以拆成三条主线，它们共享同一套核心装配，却各自负责不同的数据流向。
+在钻进源码之前，先在脑子里立起一张全景图。pigo 运行时可以拆成三条主线，它们共享同一套核心装配，各自负责不同的数据流向。
 
 ![图1-1 pigo 高层运行架构](images/fig1-1.svg){#fig:1-1 width=100%}
 
@@ -14,7 +14,7 @@
 
 ### 请求路径：从用户到 LLM
 
-最外层是用户输入，经由 CLI 入口进入 Agent 循环；循环把消息、系统提示、工具定义组织成一次请求，交给 Provider 层；Provider 层负责把统一的内部表示翻译成具体大模型网关（OpenAI 兼容或 Anthropic-Messages 协议）的线上格式，并通过 HTTP + SSE 把流式回复送回来。这条线对应引言里的"LLM + 上下文"，是每一次对话的主干。
+最外层是用户输入，经 CLI 入口进入 Agent 循环；循环把消息、系统提示、工具定义组织成一次请求，交给 Provider 层；Provider 层把统一的内部表示翻译成具体大模型网关（OpenAI 兼容或 Anthropic-Messages 协议）的线上格式，再通过 HTTP + SSE 把流式回复送回来。这条线对应引言里的"LLM + 上下文"，是每一次对话的主干。
 
 ### 工具路径：从循环到本地环境
 
@@ -22,15 +22,15 @@
 
 ### 支撑边：会话与压缩
 
-除了两条主线，还有两条支撑边贯穿始终：会话存储负责把一次运行的消息持久化下来（供 `--resume`/`--continue` 复用），上下文压缩负责在逼近 token 上限时腾出窗口。它们不在请求的关键路径上，却决定了 Agent 能否"记得住、跑得久"。
+除了两条主线，还有两条支撑边贯穿始终：会话存储把一次运行的消息持久化下来（供 `--resume`/`--continue` 复用），上下文压缩在逼近 token 上限时腾出窗口。它们不在请求的关键路径上，却决定了 Agent 能不能"记得住、跑得久"。
 
-本章聚焦的是这张图最左侧的部分——CLI 入口如何把这些组件装配成一个可运行的整体。循环、Provider、工具、会话、压缩各自的内部机制，是后续章节的主题。
+本章聚焦的是这张图最左侧的部分：CLI 入口怎么把这些组件装配成一个可运行的整体。循环、Provider、工具、会话、压缩各自的内部机制，留给后面的章节。
 
-## 1.2 入口与分派：main() 与 dispatch()
+## 入口与分派：main() 与 dispatch()
 
-pigo 的可执行入口是 `cmd/pigo/main.go` 中的 `main()`。它出人意料地短：解析参数、处理几个"一次性动作"、然后把真正的工作交给 `dispatch()`。这种"入口只负责解析与分派"的写法，是理解整个 CLI 层的钥匙。
+pigo 的可执行入口是 `cmd/pigo/main.go` 里的 `main()`。它出人意料地短：解析参数、处理几个"一次性动作"，然后把真正的工作交给 `dispatch()`。这种"入口只负责解析与分派"的写法，是理解整个 CLI 层的钥匙。
 
-### 1.2.1 包管理子命令的先行剥离
+### 包管理子命令的先行剥离
 
 `main()` 做的第一件事，是在 `pflag` 解析之前把包管理子命令挑出来：
 
@@ -40,9 +40,9 @@ if len(os.Args) > 1 && packageSubcommands[os.Args[1]] {
 }
 ```
 
-`pigo install|list|uninstall|update ...` 这类子命令是位置参数式的，与后面 flag 驱动的 Agent 模式完全不同，所以要在 flag 解析之前先"剥离"出去（`cmd/pigo/pkgcmd.go` 里的 `runPackageCommand`）。这条设计边界值得记住：**pigo 其实是两种 CLI 风格的叠加**——包管理走 Git 风格的子命令，Agent 运行走 flag 风格。
+`pigo install|list|uninstall|update ...` 这类子命令是位置参数式的，跟后面 flag 驱动的 Agent 模式完全不同，所以要在 flag 解析之前先"剥离"出去（`cmd/pigo/pkgcmd.go` 里的 `runPackageCommand`）。这条设计边界值得记住：**pigo 其实是两种 CLI 风格的叠加**，包管理走 Git 风格的子命令，Agent 运行走 flag 风格。
 
-### 1.2.2 参数解析：pflag 与 cliOptions
+### 参数解析：pflag 与 cliOptions
 
 剥离子命令后，`main()` 用 `github.com/spf13/pflag` 声明一整组标志，全部绑定到一个 `cliOptions` 结构体（定义在 `cmd/pigo/run.go`）。几个贯穿全书的关键标志值得先记住：
 
@@ -52,7 +52,7 @@ if len(os.Args) > 1 && packageSubcommands[os.Args[1]] {
 - `--provider`：按名字选内置 Provider，覆盖模型 id 的启发式推断。
 - `-n/--no-tools`、`-a/--approve`、`--no-skills`、`--system-prompt`、`--append-system-prompt` 等运行时开关。
 
-`main()` 还重写了 `flag.Usage`，在标准用法后追加一段 "Supported providers" 列表（`printProviderHelp`），这段列表由 Provider 注册表实时生成，因此永远不会和代码漂移。解析完成后，`--version` 作为一个独立动作直接打印构建元信息并退出；否则把 `opts` 交给 `dispatch()`：
+`main()` 还重写了 `flag.Usage`，在标准用法后追加一段 "Supported providers" 列表（`printProviderHelp`），这段列表由 Provider 注册表实时生成，所以永远不会和代码漂移。解析完成后，`--version` 作为一个独立动作直接打印构建元信息并退出；否则把 `opts` 交给 `dispatch()`：
 
 ```go
 os.Exit(dispatch(context.Background(), opts, os.Stdout, os.Stderr))
@@ -60,7 +60,7 @@ os.Exit(dispatch(context.Background(), opts, os.Stdout, os.Stderr))
 
 注意 `main()` 只做"解析 → 分派 → 映射退出码"三件事，不含任何业务逻辑。这让 `dispatch()` 可以脱离全局 flag 集被单独测试（见 `cmd/pigo/run_test.go`）。
 
-### 1.2.3 dispatch 的四条岔路
+### dispatch 的四条岔路
 
 `dispatch()`（`cmd/pigo/run.go`）是"运行装配缝"（run-assembly seam）：所有运行路径都从这里出发。它按优先级依次判断，把请求引向四条岔路之一：
 
@@ -69,13 +69,16 @@ os.Exit(dispatch(context.Background(), opts, os.Stdout, os.Stderr))
 3. **无提示词**（`opts.prompt == ""`）：若在终端上，或带 `--resume`，进入交互式 REPL；若 stdout 非终端（管道/CI）又无 resume，则报错退出——因为既没有要跑的东西，也没有可交互的对象。
 4. **有提示词**：进入无头模式，按 `--output-format` 决定 `text` 还是 `stream-json` 输出。
 
-这四条岔路里，第 3、4 条是本章的主角，它们共享同一套环境装配，却走向两种不同的驱动器。
+这四条岔路里，第 3、4 条是本章的主角。它们共享同一套环境装配，却走向两种不同的驱动器。
 
-## 1.3 装配一次运行：setupAgentEnv 与 newRunConfig
+![图1-2 dispatch：一个进来，四条岔路出去](images/fig1-2.png){#fig:1-2 width=100%}
+
+
+## 装配一次运行：setupAgentEnv 与 newRunConfig
 
 在重构之前，REPL 分支和无头分支各自把 Provider、工具集、系统提示、`RunConfig` 装配了一遍——同样的装配写了两次，`RunConfig` 字面量还在 `run.go` 和 `repl.go` 之间重复。`cmd/pigo/run.go` 顶部的注释把这段历史讲得很清楚。现在这套装配收敛到了两个函数：`setupAgentEnv` 组装共享环境，`newRunConfig` 构建两条驱动路径都要用的循环配置。
 
-### 1.3.1 setupAgentEnv：环境的一次性装配
+### setupAgentEnv：环境的一次性装配
 
 `setupAgentEnv`（`cmd/pigo/run.go`）返回一个 `agentEnv` 结构体，它是"每次运行都共享的环境"：工作目录、根植于该目录的工具集、解析出的 Provider 与其名字、系统提示，以及可选的外部插件管理器。
 
@@ -95,9 +98,12 @@ func setupAgentEnv(model, baseURL, protocol, providerName string, noTools bool,
 3. **构建工具集**：调用 `builtinTools`（`cmd/pigo/main.go`），返回根植于 cwd 的默认文件/shell 工具集（`ReadTool`/`WriteTool`/`EditTool`/`GrepTool`/`FindTool`/`BashTool`/`TodoTool`/`WebFetchTool`），`--no-tools` 时返回 nil。
 4. **发现插件**：非 `--no-tools` 时调用 `plugin.Discover` 追加外部插件工具；插件加载是容错的，启动失败只记录并跳过。
 
-关键在于它返回 `error` 而不是自己退出，把退出码映射的职责留给调用方——这正是"入口只负责分派"原则的延续。
+关键在于它返回 `error` 而不是自己退出，把退出码映射的职责留给调用方——这是"入口只负责分派"原则的延续。
 
-### 1.3.2 Provider 解析：resolveProvider
+![图1-3 setupAgentEnv：一次装配，两处复用](images/fig1-3.png){#fig:1-3 width=100%}
+
+
+### Provider 解析：resolveProvider
 
 `resolveProvider`（`cmd/pigo/main.go`）把"用户想用哪个模型"翻译成"用哪个 Provider 驱动、说哪套协议"。它的优先级链值得记住：
 
@@ -105,9 +111,9 @@ func setupAgentEnv(model, baseURL, protocol, providerName string, noTools bool,
 2. 显式 `--protocol`（`openai`/`anthropic`）次之，直接对 base URL 构造对应协议驱动。
 3. 都没有时，回落到模型 id 启发式：先查精选目录（`provider.LookupPreset`），再看 `ollama/`、`nvidia/` 前缀，最后默认落到 OpenRouter 这个参照级 OpenAI 兼容网关。
 
-这段解析的细节是第 4 章的主题，本章只需记住：`setupAgentEnv` 出来时，Provider 已经是一个可以直接发起流式请求的具体对象了。
+这段解析的细节是第 4 章的主题，本章只需记住一点：`setupAgentEnv` 出来时，Provider 已经是一个可以直接发起流式请求的具体对象了。
 
-### 1.3.3 newRunConfig：把装配收敛成 RunConfig
+### newRunConfig：把装配收敛成 RunConfig
 
 `newRunConfig`（`cmd/pigo/run.go`）是"一次运行如何接线"的**唯一定义**，因此 REPL 与无头驱动不可能各自漂移：
 
@@ -134,13 +140,16 @@ func newRunConfig(model, providerName string, prov provider.Provider,
 - **动态 API Key 解析器**：`creds.GetAPIKey`，运行期按 Provider 名从环境/覆盖里惰性取密钥，且从不写入可能被日志打印的结构体（对齐 US-012 的密钥安全约束）。
 - **工具注册表**：`agenttool.BatchConfig`，承载批量执行工具调用所需的注册表。
 
-`RunConfig` 内嵌的 `LoopConfig` 与四个循环钩子（`GetFollowUpMessages` 等）是第 3 章两层循环的主题；这里只需看到：无头驱动直接调用 `newRunConfig`（`run.go` 的 `dispatch` 里），而 REPL 的 `streamRun` 出于要挂 `BeforeToolCall` 信任钩子等原因，自行拼了一个结构相同的 `RunConfig`——两者的公共骨架是一致的。
+`RunConfig` 内嵌的 `LoopConfig` 与四个循环钩子（`GetFollowUpMessages` 等）是第 3 章两层循环的主题；这里只需看到一点：无头驱动直接调用 `newRunConfig`（`run.go` 的 `dispatch` 里），而 REPL 的 `streamRun` 因为要挂 `BeforeToolCall` 信任钩子等，自行拼了一个结构相同的 `RunConfig`——两者的公共骨架是一致的。
 
-## 1.4 两条驱动路径：交互式 REPL 与无头模式
+## 两条驱动路径：交互式 REPL 与无头模式
 
-装配就绪后，控制权流向两条驱动路径之一。它们共享 `setupAgentEnv` 的环境，却面向完全不同的使用场景：REPL 是人坐在终端前的多轮对话，无头模式是脚本/CI 里的一次性调用。
+装配就绪后，控制权流向两条驱动路径之一。它们共享 `setupAgentEnv` 的环境，却面向完全不同的场景：REPL 是人坐在终端前的多轮对话，无头模式是脚本/CI 里的一次性调用。
 
-### 1.4.1 交互式 REPL：runInteractive → runREPL → streamRun
+![图1-4 同一套装配，两种活法](images/fig1-4.png){#fig:1-4 width=100%}
+
+
+### 交互式 REPL：runInteractive → runREPL → streamRun
 
 当 `dispatch` 判定"无提示词且在终端"时，调用 `runInteractive`（`cmd/pigo/interactive.go`）。它负责建立会话、装配 REPL 依赖，最后把控制权交给 `runREPL`：
 
@@ -149,9 +158,9 @@ func newRunConfig(model, providerName string, prov provider.Provider,
 3. **信任闸门**：加载项目信任存储；首次进入未决目录时（且无 `--approve`）先问用户信任到什么程度，再放行任何工具。
 4. **进入循环**：调用 `runREPL`（`cmd/pigo/repl.go`）。
 
-`runREPL` 是一个跑在主 goroutine 上的同步循环：读一行 → 解析斜杠命令 → 启动一次运行 → 把事件流打印到 stdout → 持久化会话 → 回到提示符。运行中的 `SIGINT` 只取消当前这次运行的 context 并返回提示符，空闲时读到 EOF 则干净退出。每一次真正的对话由 `streamRun` 驱动：它把提示词追加进共享上下文，调用 `runtime.StartRun` 启动循环，再用 `runtime.DrainStream` 把流式文本与工具活动实时渲染出来。注意 REPL 版的 `RunConfig` 额外挂了 `BeforeToolCall: trustBeforeToolCall(...)`——这是交互模式独有的逐次工具确认闸门。
+`runREPL` 是一个跑在主 goroutine 上的同步循环：读一行 → 解析斜杠命令 → 启动一次运行 → 把事件流打印到 stdout → 持久化会话 → 回到提示符。运行中的 `SIGINT` 只取消当前这次运行的 context 并返回提示符，空闲时读到 EOF 则干净退出。每一次真正的对话由 `streamRun` 驱动：它把提示词追加进共享上下文，调用 `runtime.StartRun` 启动循环，再用 `runtime.DrainStream` 把流式文本与工具活动实时渲染出来。注意 REPL 版的 `RunConfig` 额外挂了 `BeforeToolCall: trustBeforeToolCall(...)`，这是交互模式独有的逐次工具确认闸门。
 
-### 1.4.2 无头模式：-p 与 stream-json
+### 无头模式：-p 与 stream-json
 
 当 `dispatch` 拿到非空提示词时，走无头路径（`cmd/pigo/run.go` 的 `dispatch` 后半段）：
 
@@ -168,17 +177,20 @@ func newRunConfig(model, providerName string, prov provider.Provider,
 
 运行结束后，无论成败都会 `hs.persist(agentCtx)` 把这次产生的消息回写会话（部分运行也可 resume）；若运行以 `StopReasonError`/`StopReasonAborted` 收尾，`RunHeadless` 返回 `*ErrRunFailed`，`dispatch` 据此把退出码映射为 1。
 
-### 1.4.3 会话回填与 session_id 的诞生
+### 会话回填与 session_id 的诞生
 
 无头运行也被一个会话文件"托底"，这正是 `session_id` 的来源。`openHeadlessSession` 在 `--resume` 时从磁盘 `LoadEntries` 重建 prior messages 并重新锚定分支叶子，否则用 `session.NewID` 造一个新会话头。这个 id 被写进 `runCfg.SessionID`，而循环在最开始就会发出一个 `agentcore.AgentStartEvent{SessionID: cfg.SessionID}`（`internal/runtime/loop.go` 的 `runLoop`）。在 stream-json 模式下，`eventEnvelope` 会把它序列化成第一行 JSON 里的 `sessionId` 字段（事件 `type` 为 `agent_start`）。
 
-这一点非常关键：**`agent_start` 事件在任何网络请求之前就被发出**，所以哪怕后续 Provider 调用因缺少密钥而失败，你依然能在第一行看到本次运行的会话 id——它可以被 `--resume`/`--continue` 用来续跑，对齐了 pi / Claude Code 的行为。下面的实验就来亲眼看一看这第一行事件。
+这一点很关键：**`agent_start` 事件在任何网络请求之前就被发出**。所以哪怕后续 Provider 调用因缺少密钥而失败，你依然能在第一行看到本次运行的会话 id，它可以被 `--resume`/`--continue` 用来续跑，对齐了 pi / Claude Code 的行为。下面的实验就来亲眼看一看这第一行事件。
 
-### 实验 1-1 ★：在 stream-json 首个事件里捕获 session_id
+![图1-5 session_id 抢在网络请求之前落地](images/fig1-5.png){#fig:1-5 width=100%}
+
+
+### 实验 1-1 ★：在 stream-json 首个事件里捕获 session_id {.unnumbered}
 
 **目标**：验证无头模式下 pigo 会把会话 id 放进 `stream-json` 的第一个 `agent_start` 事件里，并且这个事件在任何模型请求之前就已发出。
 
-**前置**：在仓库根目录下能 `go run ./cmd/pigo`（或已 `go build -o pigo ./cmd/pigo`）。本实验不需要任何真实 API Key——我们只看第一行事件。
+**前置**：在仓库根目录下能 `go run ./cmd/pigo`（或已 `go build -o pigo ./cmd/pigo`）。本实验不需要任何真实 API Key，我们只看第一行事件。
 
 **步骤 1**：以 stream-json 模式跑一个提示词，并只取第一行输出。
 
@@ -192,9 +204,9 @@ go run ./cmd/pigo -p "你好" --output-format stream-json --no-tools 2>/dev/null
 {"sessionId":"20260721-080320-412306","type":"agent_start"}
 ```
 
-只要看到 `type` 为 `agent_start` 且带 `sessionId`，就说明会话 id 已随第一个事件发出——即便后续因缺 Key 而报错，这一行也已经落地。
+只要看到 `type` 为 `agent_start` 且带 `sessionId`，就说明会话 id 已随第一个事件发出，即便后续因缺 Key 而报错，这一行也已经落地。
 
-**步骤 2**：把这个 id 抓出来，用 `--resume` 续跑同一个会话。注意这里让第一次运行**完整跑完**（把全部输出收进变量再提取 id），而不是用 `head` 截断——因为 `head` 读到第一行就关闭管道，会话尚未回填到磁盘时 pigo 就可能被 `SIGPIPE` 提前终止，导致后续 `--resume` 找不到会话文件。
+**步骤 2**：把这个 id 抓出来，用 `--resume` 续跑同一个会话。注意这里让第一次运行**完整跑完**（把全部输出收进变量再提取 id），而不是用 `head` 截断。因为 `head` 读到第一行就关闭管道，会话尚未回填到磁盘时 pigo 就可能被 `SIGPIPE` 提前终止，导致后续 `--resume` 找不到会话文件。
 
 ```bash
 OUT=$(go run ./cmd/pigo -p "第一轮" --output-format stream-json --no-tools 2>/dev/null)
@@ -206,9 +218,9 @@ go run ./cmd/pigo -p "第二轮" --resume "$SID" --output-format stream-json --n
 
 **预期**：第二次运行的第一行 `agent_start` 事件里的 `sessionId` 与 `$SID` 一致，说明 `--resume` 命中了同一个会话文件（会话由 `openHeadlessSession` 在 `~/.pigo/sessions/<id>.jsonl` 落地）。
 
-**观察点**：对照 `internal/runtime/headless.go` 的 `eventEnvelope`（`agent_start` 分支填 `sessionId`）与 `internal/runtime/loop.go` 中 `runLoop` 开头的 `emit(agentcore.AgentStartEvent{SessionID: cfg.SessionID})`，你会看到"id 在装配期生成（`openHeadlessSession`）→ 写进 `RunConfig.SessionID` → 循环首个事件发出"这条完整链路。这正是 1.3 与 1.4 两节装配逻辑的一次端到端印证。
+**观察点**：对照 `internal/runtime/headless.go` 的 `eventEnvelope`（`agent_start` 分支填 `sessionId`）与 `internal/runtime/loop.go` 中 `runLoop` 开头的 `emit(agentcore.AgentStartEvent{SessionID: cfg.SessionID})`，你会看到这条完整链路：id 在装配期生成（`openHeadlessSession`）→ 写进 `RunConfig.SessionID` → 循环首个事件发出。这正是 1.3 与 1.4 两节装配逻辑的一次端到端印证。
 
-## 1.5 本章小结
+## 本章小结
 
 本章把 pigo 最外层的 CLI 装配骨架彻底拆了一遍：
 
@@ -218,9 +230,9 @@ go run ./cmd/pigo -p "第二轮" --resume "$SID" --output-format stream-json --n
 - **两条驱动路径**：交互式 REPL（`runInteractive` → `runREPL` → `streamRun`）是人在终端的多轮对话，额外挂了信任确认钩子；无头模式（`-p` + `--output-format`）经 `runtime.RunHeadless` 一次性跑完，支持 `text` 与 `stream-json` 两种输出。
 - **session_id 的诞生**：无头运行由 `openHeadlessSession` 托底，会话 id 写进 `RunConfig.SessionID`，随循环首个 `agent_start` 事件在任何网络请求前发出，可用于 `--resume`/`--continue`。
 
-有了这张"程序怎么搭起来"的地图，下一步就该走进地图的中心——第 2 章拆解贯穿全局的 `agentcore` 核心类型契约，第 3 章则揭开真正驱动一次对话的两层 Agent 循环。
+有了这张"程序怎么搭起来"的地图，下一步就该走进地图的中心：第 2 章拆解贯穿全局的 `agentcore` 核心类型契约，第 3 章则揭开真正驱动一次对话的两层 Agent 循环。
 
-## 1.6 思考题
+## 思考题
 
 1. `main()` 为什么要在 `pflag` 解析之前就把 `pigo install|list|...` 这类包管理子命令剥离出去？如果把它们也做成 flag 会带来什么问题？
 2. `setupAgentEnv` 返回 `error` 而不是自己调用 `os.Exit`，这个设计对可测试性与退出码控制分别有什么好处？（可对照 `cmd/pigo/run_test.go` 里对 `dispatch` 的测试。）

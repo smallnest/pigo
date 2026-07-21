@@ -6,10 +6,18 @@
 % ── Chinese font fallback across platforms ───────────────────────
 % macOS ships Songti SC / Heiti SC; most Linux/CI images ship Noto CJK.
 % Degrade gracefully so the build never hard-fails on a missing family.
+% Order: (1) display names — resolved by a full TeX Live xelatex and on Linux;
+% (2) explicit macOS system-font paths — tectonic can't resolve the CJK display
+%     names via fontconfig, so it needs the filename-stem + Path + Extension form;
+% (3) Noto CJK for Linux/CI; (4) let xeCJK keep its default as a last resort.
 \IfFontExistsTF{Songti SC}{%
   \setCJKmainfont[AutoFakeBold=2.5]{Songti SC}%
   \setCJKsansfont[AutoFakeBold=2.5]{Heiti SC}%
   \setCJKmonofont[AutoFakeBold=2.5]{Songti SC}%
+}{\IfFontExistsTF{/System/Library/Fonts/Supplemental/Songti.ttc}{%
+  \setCJKmainfont{Songti}[Path=/System/Library/Fonts/Supplemental/,Extension=.ttc,UprightFeatures={FontIndex=0},AutoFakeBold=2.5]%
+  \setCJKsansfont{STHeiti Medium}[Path=/System/Library/Fonts/,Extension=.ttc,UprightFeatures={FontIndex=0},AutoFakeBold=2.5]%
+  \setCJKmonofont{Songti}[Path=/System/Library/Fonts/Supplemental/,Extension=.ttc,UprightFeatures={FontIndex=0},AutoFakeBold=2.5]%
 }{\IfFontExistsTF{Noto Serif CJK SC}{%
   \setCJKmainfont[AutoFakeBold=2.5]{Noto Serif CJK SC}%
   \setCJKsansfont[AutoFakeBold=2.5]{Noto Sans CJK SC}%
@@ -20,7 +28,7 @@
   \setCJKmonofont[AutoFakeBold=2.5]{Noto Sans CJK SC}%
 }{%
   % Last resort: let ctex/xeCJK keep its own default so compilation proceeds.
-}}}
+}}}}
 
 % ── Unicode glyph fallback for symbols the Latin text font lacks ──
 \usepackage{newunicodechar}
