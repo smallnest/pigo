@@ -38,3 +38,5 @@ go.work.sum
 
 # goreleaser output
 /dist/
+.graph_state
+graph.html
