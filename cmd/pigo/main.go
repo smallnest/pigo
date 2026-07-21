@@ -148,11 +148,11 @@ func resolveProvider(model, baseURL, protocol, providerName string) (provider.Pr
 // resolveNamedProvider builds the driver for an explicit --provider selection.
 // It looks the name up in the built-in registry and constructs the wire driver
 // matching the spec's Protocol: "openai" → an OpenAI-compatible (Bearer) driver,
-// "anthropic" → an Anthropic-Messages driver. The provider's DefaultBaseURL is
-// used unless --base-url overrides it (node #185 layers <PROVIDER>_BASE_URL on
-// top afterward; this node keeps the flag precedence unchanged). The returned
-// provider-name string is the spec name, so downstream API-key resolution reads
-// the provider's own env var (spec.EnvVars).
+// "anthropic" → an Anthropic-Messages driver. The base URL follows the override
+// precedence in resolveBaseURL (--base-url > provider-specific env > generic
+// <PROVIDER>_BASE_URL > spec default). The returned provider-name string is the
+// spec name, so downstream API-key resolution reads the provider's own env var
+// (spec.EnvVars).
 //
 // Special providers whose bespoke auth is not wired yet (azure/bedrock/vertex/
 // cloudflare — AuthScheme aws/azure/special) are routed to the closest generic
@@ -168,12 +168,9 @@ func resolveNamedProvider(name, model, baseURL, protocol string) (provider.Provi
 	if p := strings.TrimSpace(protocol); p != "" && p != spec.Protocol {
 		return nil, "", fmt.Errorf("--provider %q speaks the %q protocol, which conflicts with --protocol %q; drop --protocol or set it to %q", name, spec.Protocol, p, spec.Protocol)
 	}
-	// --base-url overrides the spec default; otherwise use the spec's default
-	// endpoint. (Base-URL override precedence beyond this is node #185's.)
-	url := strings.TrimSpace(baseURL)
-	if url == "" {
-		url = spec.DefaultBaseURL
-	}
+	// Base-URL precedence (US-004 / FR-8, FR-9): --base-url flag > provider-
+	// specific base-url env var(s) > generic <PROVIDER>_BASE_URL > spec default.
+	url := resolveBaseURL(spec, baseURL)
 	models := []provider.Model{{Provider: spec.Name, ID: model, SupportsImages: true}}
 	// Note: spec.ExtraHeaders would be attached here, but the exported generic
 	// constructors do not yet accept custom headers; all built-in specs currently
