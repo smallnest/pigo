@@ -87,7 +87,7 @@ func handleSubAgentRequest(ctx context.Context, enc *json.Encoder, req *jsonrpc.
 	// Resolve the provider the same way the CLI does, so the subprocess targets
 	// the same gateway the parent's NewRunConfig encoded. Credentials come from
 	// the inherited environment (the parent's env vars).
-	prov, providerName, err := resolveProvider(params.Model, params.BaseURL, params.Protocol)
+	prov, providerName, err := resolveProvider(params.Model, params.BaseURL, params.Protocol, "")
 	if err != nil {
 		writeSubAgentError(enc, req.ID, -32603, "resolve provider: "+err.Error())
 		return
