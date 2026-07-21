@@ -39,14 +39,16 @@ func TestPresetsByProviderGroups(t *testing.T) {
 }
 
 // TestPresetProvidersHaveCredentialMapping verifies every non-local preset
-// provider has an API-key env var mapping in providerEnvVars, so a selected
-// preset can actually resolve a credential. Ollama is local and keyless.
+// provider has API-key env vars in the provider registry (the single source of
+// truth), so a selected preset can actually resolve a credential. Ollama is
+// local and keyless.
 func TestPresetProvidersHaveCredentialMapping(t *testing.T) {
 	for _, pv := range PresetProviders {
 		if pv.Name == "ollama" {
 			continue
 		}
-		if _, ok := providerEnvVars[pv.Name]; !ok {
+		spec, ok := LookupProviderSpec(pv.Name)
+		if !ok || len(spec.EnvVars) == 0 {
 			t.Errorf("preset provider %q has no credential env var mapping", pv.Name)
 		}
 	}

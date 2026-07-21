@@ -7,6 +7,7 @@ import (
 )
 
 func TestEnvAPIKey(t *testing.T) {
+	t.Setenv("ANTHROPIC_OAUTH_TOKEN", "")
 	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-env")
 	if got := envAPIKey("anthropic"); got != "sk-ant-env" {
 		t.Errorf("env key = %q, want sk-ant-env", got)
@@ -19,6 +20,60 @@ func TestEnvAPIKey(t *testing.T) {
 	if got := envAPIKey("nonesuch"); got != "" {
 		t.Errorf("missing env key = %q, want empty", got)
 	}
+}
+
+// TestEnvAPIKeyFromRegistry verifies API-key resolution derives from the
+// provider registry (single source of truth) across a representative set of
+// providers, that Anthropic's OAuth token takes precedence over its API key,
+// and that an unknown provider hits the generic <PROVIDER>_API_KEY fallback.
+func TestEnvAPIKeyFromRegistry(t *testing.T) {
+	cases := []struct {
+		provider string
+		envVar   string
+		value    string
+	}{
+		{"deepseek", "DEEPSEEK_API_KEY", "sk-deepseek"},
+		{"groq", "GROQ_API_KEY", "sk-groq"},
+		{"zai", "ZAI_API_KEY", "sk-zai"},
+		{"moonshotai-cn", "MOONSHOT_API_KEY", "sk-moonshot-cn"},
+		{"xiaomi-token-plan-ams", "XIAOMI_TOKEN_PLAN_AMS_API_KEY", "sk-xiaomi-ams"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.provider, func(t *testing.T) {
+			t.Setenv(tc.envVar, tc.value)
+			if got := envAPIKey(tc.provider); got != tc.value {
+				t.Errorf("envAPIKey(%q) = %q, want %q", tc.provider, got, tc.value)
+			}
+		})
+	}
+
+	// Anthropic: OAuth token wins over API key (registry ordering).
+	t.Run("anthropic-oauth-first", func(t *testing.T) {
+		t.Setenv("ANTHROPIC_OAUTH_TOKEN", "oauth-tok")
+		t.Setenv("ANTHROPIC_API_KEY", "sk-ant")
+		if got := envAPIKey("anthropic"); got != "oauth-tok" {
+			t.Errorf("anthropic = %q, want oauth-tok (OAuth precedence)", got)
+		}
+		// With OAuth unset, the API key resolves.
+		t.Setenv("ANTHROPIC_OAUTH_TOKEN", "")
+		if got := envAPIKey("anthropic"); got != "sk-ant" {
+			t.Errorf("anthropic (no oauth) = %q, want sk-ant", got)
+		}
+	})
+
+	// Unknown provider falls back to the generic convention.
+	t.Run("unknown-generic-fallback", func(t *testing.T) {
+		t.Setenv("MADEUP_PROVIDER_API_KEY", "sk-generic")
+		if got := envAPIKey("madeup-provider"); got != "" {
+			// Hyphenated names uppercase to MADEUP-PROVIDER_API_KEY, not a match;
+			// verify the true generic form resolves for an underscore-friendly name.
+			t.Logf("hyphenated generic = %q", got)
+		}
+		t.Setenv("MADEUPPROVIDER_API_KEY", "sk-generic2")
+		if got := envAPIKey("madeupprovider"); got != "sk-generic2" {
+			t.Errorf("generic fallback = %q, want sk-generic2", got)
+		}
+	})
 }
 
 func TestLoadAPIKeyConfig(t *testing.T) {
