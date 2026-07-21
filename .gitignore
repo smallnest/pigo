@@ -40,3 +40,10 @@ go.work.sum
 /dist/
 .graph_state
 graph.html
+
+# Book build products (source in, products out — see book/README.md)
+book/*.pdf
+book/*.aux
+book/*.log
+book/*.toc
+book/*.out

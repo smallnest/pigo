@@ -1,0 +1,73 @@
+% ===== ElegantBook (cyan theme) customizations for 《庖丁解牛 pigo》 =====
+% The cyan theme supplies the accent color (\structurecolor). Everything below
+% is layered on top: Chinese font fallback, code-block styling, and the
+% \begin{experimentbox} environment consumed by experiment_box.lua.
+
+% ── Chinese font fallback across platforms ───────────────────────
+% macOS ships Songti SC / Heiti SC; most Linux/CI images ship Noto CJK.
+% Degrade gracefully so the build never hard-fails on a missing family.
+\IfFontExistsTF{Songti SC}{%
+  \setCJKmainfont[AutoFakeBold=2.5]{Songti SC}%
+  \setCJKsansfont[AutoFakeBold=2.5]{Heiti SC}%
+  \setCJKmonofont[AutoFakeBold=2.5]{Songti SC}%
+}{\IfFontExistsTF{Noto Serif CJK SC}{%
+  \setCJKmainfont[AutoFakeBold=2.5]{Noto Serif CJK SC}%
+  \setCJKsansfont[AutoFakeBold=2.5]{Noto Sans CJK SC}%
+  \setCJKmonofont[AutoFakeBold=2.5]{Noto Sans CJK SC}%
+}{\IfFontExistsTF{Noto Sans CJK SC}{%
+  \setCJKmainfont[AutoFakeBold=2.5]{Noto Sans CJK SC}%
+  \setCJKsansfont[AutoFakeBold=2.5]{Noto Sans CJK SC}%
+  \setCJKmonofont[AutoFakeBold=2.5]{Noto Sans CJK SC}%
+}{%
+  % Last resort: let ctex/xeCJK keep its own default so compilation proceeds.
+}}}
+
+% ── Unicode glyph fallback for symbols the Latin text font lacks ──
+\usepackage{newunicodechar}
+\IfFontExistsTF{Arial Unicode MS}{\newfontfamily\fallbackfont{Arial Unicode MS}}{%
+  \IfFontExistsTF{Noto Sans CJK SC}{\newfontfamily\fallbackfont{Noto Sans CJK SC}}{%
+    \newfontfamily\fallbackfont{DejaVu Sans}}}
+\newunicodechar{✓}{{\fallbackfont ✓}}
+\newunicodechar{✗}{{\fallbackfont ✗}}
+\newunicodechar{★}{{\fallbackfont ★}}
+\newunicodechar{≈}{{\fallbackfont ≈}}
+\newunicodechar{→}{{\fallbackfont →}}
+
+% ── Monospace font for code (falls back gracefully) ──────────────
+\IfFontExistsTF{Menlo}{\setmonofont[Scale=0.86]{Menlo}}{%
+  \IfFontExistsTF{DejaVu Sans Mono}{\setmonofont[Scale=0.86]{DejaVu Sans Mono}}{}}
+
+% ── Accent color: derive chrome shades from the theme's cyan ─────
+\colorlet{accent}{structurecolor}
+\colorlet{accentbg}{structurecolor!8}
+\colorlet{accentrule}{structurecolor!40}
+
+% Clickable internal cross-reference command used by crossref.lua.
+\newcommand{\crossreflink}[2]{\hyperref[#1]{\textcolor{structurecolor}{#2}}}
+
+% ── tcolorbox libraries (ElegantBook already loads tcolorbox) ────
+\tcbuselibrary{skins,breakable}
+
+% ── Wrap long lines in code blocks so they don't overflow the page ─
+\usepackage{fvextra}
+\fvset{breaklines=true,breakanywhere=true,%
+  breaksymbolleft={\footnotesize\textcolor{accentrule}{$\hookrightarrow$}\,}}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}%
+  {commandchars=\\\{\},breaklines,breakanywhere}
+
+% ── Code blocks: subtle framed box (shared by highlighted & plain) ─
+\newtcolorbox{codebox}{%
+  breakable, enhanced,
+  colback=black!3, colframe=accentrule,
+  boxrule=0.5pt, leftrule=2.5pt,
+  left=0.7em, right=0.6em, top=0.4em, bottom=0.4em,
+  arc=0.6mm, before skip=0.7em, after skip=0.7em}
+\renewenvironment{Shaded}{\begin{codebox}}{\end{codebox}}
+
+% ── Experiment callout box (rendered by experiment_box.lua) ──────
+% Paragraphs/divs marked「实验 N-M」are wrapped in this bordered box.
+\newtcolorbox{experimentbox}{%
+  breakable, enhanced,
+  colback=accentbg, colframe=accent,
+  boxrule=0.6pt, left=0.8em, right=0.8em, top=0.6em, bottom=0.6em,
+  arc=1mm, before skip=0.9em, after skip=0.9em}
