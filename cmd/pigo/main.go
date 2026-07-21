@@ -154,10 +154,10 @@ func resolveProvider(model, baseURL, protocol, providerName string) (provider.Pr
 // spec name, so downstream API-key resolution reads the provider's own env var
 // (spec.EnvVars).
 //
-// Special providers whose bespoke auth is not wired yet (azure/bedrock/vertex/
-// cloudflare — AuthScheme aws/azure/special) are routed to the closest generic
-// driver by Protocol against the spec's (possibly templated) base URL so this
-// node does not crash on them; node #188 refines their auth.
+// Special providers with bespoke auth (azure/bedrock/vertex/cloudflare —
+// AuthScheme aws/azure/special, or the cloudflare-* names) are routed to
+// provider.ResolveSpecialProvider, which validates their required env vars and
+// composes the concrete endpoint (node #188).
 func resolveNamedProvider(name, model, baseURL, protocol string) (provider.Provider, string, error) {
 	spec, ok := provider.LookupProviderSpec(name)
 	if !ok {
@@ -167,6 +167,18 @@ func resolveNamedProvider(name, model, baseURL, protocol string) (provider.Provi
 	// an incompatible pair is a user error naming both flags.
 	if p := strings.TrimSpace(protocol); p != "" && p != spec.Protocol {
 		return nil, "", fmt.Errorf("--provider %q speaks the %q protocol, which conflicts with --protocol %q; drop --protocol or set it to %q", name, spec.Protocol, p, spec.Protocol)
+	}
+	// Special-auth providers (Azure / Bedrock / Vertex / Cloudflare) compose
+	// their endpoint from several env vars and/or need non-standard credential
+	// validation, so route them to the dedicated resolver (US-007 / node #188).
+	// It performs its own base-URL composition (honoring the --base-url override)
+	// and returns a clear error naming any absent required env var.
+	if provider.IsSpecialAuthProvider(spec) {
+		p, err := provider.ResolveSpecialProvider(spec, model, baseURL, os.Getenv)
+		if err != nil {
+			return nil, "", err
+		}
+		return p, spec.Name, nil
 	}
 	// Base-URL precedence (US-004 / FR-8, FR-9): --base-url flag > provider-
 	// specific base-url env var(s) > generic <PROVIDER>_BASE_URL > spec default.
