@@ -19,20 +19,6 @@ import (
 	"time"
 )
 
-// providerEnvVars maps a provider name to the environment variables checked (in
-// order) for its API key. The first non-empty value wins.
-var providerEnvVars = map[string][]string{
-	"anthropic":  {"ANTHROPIC_API_KEY", "CLAUDE_API_KEY"},
-	"openai":     {"OPENAI_API_KEY"},
-	"google":     {"GOOGLE_API_KEY", "GEMINI_API_KEY"},
-	"deepseek":   {"DEEPSEEK_API_KEY"},
-	"xai":        {"XAI_API_KEY"},
-	"groq":       {"GROQ_API_KEY"},
-	"openrouter": {"OPENROUTER_API_KEY"},
-	"nvidia":     {"NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY"},
-	"mistral":    {"MISTRAL_API_KEY"},
-}
-
 // APIKeyConfig is the on-disk config-file shape: a map of provider name to API
 // key. It is parsed from JSON and holds only static keys (OAuth lives in
 // TokenSource). Values are secrets and must not be logged.
@@ -67,16 +53,20 @@ func LoadAPIKeyConfigFile(path string) (*APIKeyConfig, error) {
 	return LoadAPIKeyConfig(data)
 }
 
-// envAPIKey returns the API key for a provider from the environment, checking
-// the provider's known variable names in order, then a generic
-// <PROVIDER>_API_KEY fallback. Returns "" when none is set.
+// envAPIKey returns the API key for a provider from the environment. It derives
+// the candidate variable names from the provider registry (the single source of
+// truth: LookupProviderSpec(provider).EnvVars, in precedence order), then falls
+// back to a generic <PROVIDER>_API_KEY when the provider is unknown or none of
+// its registered vars are set. Returns "" when no value is present.
 func envAPIKey(provider string) string {
-	for _, name := range providerEnvVars[provider] {
-		if v := os.Getenv(name); v != "" {
-			return v
+	if spec, ok := LookupProviderSpec(provider); ok {
+		for _, name := range spec.EnvVars {
+			if v := os.Getenv(name); v != "" {
+				return v
+			}
 		}
 	}
-	// Generic fallback for providers not in the table.
+	// Generic fallback for unknown providers or when no registered var is set.
 	generic := strings.ToUpper(provider) + "_API_KEY"
 	return os.Getenv(generic)
 }
