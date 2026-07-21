@@ -42,6 +42,17 @@ var PresetProviders = []struct {
 }{
 	{Name: "openrouter", EnvVar: "OPENROUTER_API_KEY"},
 	{Name: "nvidia", EnvVar: "NVIDIA_API_KEY"},
+	{Name: "deepseek", EnvVar: "DEEPSEEK_API_KEY"},
+	{Name: "groq", EnvVar: "GROQ_API_KEY"},
+	{Name: "xai", EnvVar: "XAI_API_KEY"},
+	{Name: "cerebras", EnvVar: "CEREBRAS_API_KEY"},
+	{Name: "mistral", EnvVar: "MISTRAL_API_KEY"},
+	{Name: "moonshotai", EnvVar: "MOONSHOT_API_KEY"},
+	{Name: "zai", EnvVar: "ZAI_API_KEY"},
+	{Name: "fireworks", EnvVar: "FIREWORKS_API_KEY"},
+	{Name: "together", EnvVar: "TOGETHER_API_KEY"},
+	{Name: "minimax", EnvVar: "MINIMAX_API_KEY"},
+	{Name: "xiaomi", EnvVar: "XIAOMI_API_KEY"},
 	{Name: "ollama", EnvVar: ""}, // local, no key
 }
 
@@ -88,6 +99,59 @@ var PresetCatalog = []PresetModel{
 	{Provider: "nvidia", ID: "qwen/qwen2.5-7b-instruct", DisplayName: "Qwen 2.5 7B (NVIDIA)"},
 	{Provider: "nvidia", ID: "google/gemma-2-9b-it", DisplayName: "Gemma 2 9B (NVIDIA)"},
 	{Provider: "nvidia", ID: "microsoft/phi-3.5-mini-instruct", DisplayName: "Phi-3.5 Mini (NVIDIA)"},
+
+	// --- DeepSeek (direct, OpenAI-compatible; ids from pi deepseek.models.ts) ---
+	{Provider: "deepseek", ID: "deepseek-v4-flash", DisplayName: "DeepSeek V4 Flash"},
+	{Provider: "deepseek", ID: "deepseek-v4-pro", DisplayName: "DeepSeek V4 Pro"},
+
+	// --- Groq (fast inference; ids from pi groq.models.ts) ---
+	{Provider: "groq", ID: "llama-3.3-70b-versatile", DisplayName: "Llama 3.3 70B (Groq)"},
+	{Provider: "groq", ID: "openai/gpt-oss-120b", DisplayName: "GPT OSS 120B (Groq)"},
+	{Provider: "groq", ID: "qwen/qwen3-32b", DisplayName: "Qwen3 32B (Groq)"},
+
+	// --- xAI Grok (ids from pi xai.models.ts) ---
+	{Provider: "xai", ID: "grok-4.5", DisplayName: "Grok 4.5"},
+	{Provider: "xai", ID: "grok-4.3", DisplayName: "Grok 4.3"},
+
+	// --- Cerebras (fast inference; ids from pi cerebras.models.ts) ---
+	{Provider: "cerebras", ID: "gpt-oss-120b", DisplayName: "GPT OSS 120B (Cerebras)"},
+	{Provider: "cerebras", ID: "zai-glm-4.7", DisplayName: "Z.AI GLM-4.7 (Cerebras)"},
+	{Provider: "cerebras", ID: "gemma-4-31b", DisplayName: "Gemma 4 31B (Cerebras)"},
+
+	// --- Mistral (ids from pi mistral.models.ts) ---
+	{Provider: "mistral", ID: "mistral-large-latest", DisplayName: "Mistral Large (latest)"},
+	{Provider: "mistral", ID: "mistral-medium-latest", DisplayName: "Mistral Medium (latest)"},
+	{Provider: "mistral", ID: "codestral-latest", DisplayName: "Codestral (latest)"},
+	{Provider: "mistral", ID: "devstral-medium-latest", DisplayName: "Devstral Medium (latest)"},
+
+	// --- Moonshot AI Kimi (ids from pi moonshotai.models.ts) ---
+	{Provider: "moonshotai", ID: "kimi-k2-thinking", DisplayName: "Kimi K2 Thinking"},
+	{Provider: "moonshotai", ID: "kimi-k2.6", DisplayName: "Kimi K2.6"},
+	{Provider: "moonshotai", ID: "kimi-k3", DisplayName: "Kimi K3"},
+
+	// --- Z.AI GLM (ids from pi zai.models.ts) ---
+	{Provider: "zai", ID: "glm-4.7", DisplayName: "GLM-4.7"},
+	{Provider: "zai", ID: "glm-5.1", DisplayName: "GLM-5.1"},
+	{Provider: "zai", ID: "glm-5.2", DisplayName: "GLM-5.2"},
+
+	// --- Fireworks (ids from pi fireworks.models.ts) ---
+	{Provider: "fireworks", ID: "accounts/fireworks/models/deepseek-v4-pro", DisplayName: "DeepSeek V4 Pro (Fireworks)"},
+	{Provider: "fireworks", ID: "accounts/fireworks/models/gpt-oss-120b", DisplayName: "GPT OSS 120B (Fireworks)"},
+	{Provider: "fireworks", ID: "accounts/fireworks/models/kimi-k2p7-code", DisplayName: "Kimi K2.7 Code (Fireworks)"},
+
+	// --- Together AI (ids from pi together.models.ts) ---
+	{Provider: "together", ID: "deepseek-ai/DeepSeek-V4-Pro", DisplayName: "DeepSeek V4 Pro (Together)"},
+	{Provider: "together", ID: "Qwen/Qwen3.7-Max", DisplayName: "Qwen3.7 Max (Together)"},
+	{Provider: "together", ID: "meta-llama/Llama-3.3-70B-Instruct-Turbo", DisplayName: "Llama 3.3 70B Turbo (Together)"},
+
+	// --- MiniMax (Anthropic-protocol; ids from pi minimax.models.ts) ---
+	{Provider: "minimax", ID: "MiniMax-M2.7", DisplayName: "MiniMax-M2.7"},
+	{Provider: "minimax", ID: "MiniMax-M3", DisplayName: "MiniMax-M3"},
+
+	// --- Xiaomi MiMo (ids from pi xiaomi.models.ts) ---
+	{Provider: "xiaomi", ID: "mimo-v2-pro", DisplayName: "MiMo-V2-Pro"},
+	{Provider: "xiaomi", ID: "mimo-v2.5", DisplayName: "MiMo-V2.5"},
+	{Provider: "xiaomi", ID: "mimo-v2.5-pro", DisplayName: "MiMo-V2.5-Pro"},
 
 	// --- Ollama (local, no API key) ---
 	{Provider: "ollama", ID: "ollama/llama3.3", DisplayName: "Llama 3.3 (local Ollama)"},
