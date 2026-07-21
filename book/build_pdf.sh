@@ -186,7 +186,7 @@ PANDOC_COMMON=(
     --metadata author-meta="pigo"
     -H preamble.tex
     --include-before-body=cover.tex
-    --highlight-style=kate
+    --highlight-style=tango
     --columns=80
 )
 
