@@ -35,7 +35,7 @@ func TestAnthropicEnvVarOrder(t *testing.T) {
 	if !ok {
 		t.Fatal("LookupProviderSpec(anthropic): expected hit")
 	}
-	want := []string{"ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"}
+	want := []string{"ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_API_KEY"}
 	if len(spec.EnvVars) != len(want) {
 		t.Fatalf("EnvVars = %v, want %v", spec.EnvVars, want)
 	}

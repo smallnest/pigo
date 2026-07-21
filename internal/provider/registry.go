@@ -66,7 +66,7 @@ const (
 var providerRegistry = []ProviderSpec{
 	{
 		Name:           "anthropic",
-		EnvVars:        []string{"ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"},
+		EnvVars:        []string{"ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_API_KEY"},
 		DefaultBaseURL: anthropicBaseURL, // https://api.anthropic.com/v1
 		Protocol:       ProtocolAnthropic,
 		AuthScheme:     AuthXAPIKey,
@@ -94,14 +94,14 @@ var providerRegistry = []ProviderSpec{
 	},
 	{
 		Name:           "nvidia",
-		EnvVars:        []string{"NVIDIA_API_KEY"},
+		EnvVars:        []string{"NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY"},
 		DefaultBaseURL: nvidiaBaseURL, // https://integrate.api.nvidia.com/v1
 		Protocol:       ProtocolOpenAI,
 		AuthScheme:     AuthBearer,
 	},
 	{
 		Name:           "google",
-		EnvVars:        []string{"GEMINI_API_KEY"},
+		EnvVars:        []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"},
 		DefaultBaseURL: "https://generativelanguage.googleapis.com/v1beta",
 		Protocol:       ProtocolOpenAI,
 		AuthScheme:     AuthBearer,
