@@ -394,6 +394,10 @@ git push origin v0.2.0
 | `xiaomi-token-plan-cn` | `XIAOMI_TOKEN_PLAN_CN_API_KEY` | `https://token-plan-cn.xiaomimimo.com/v1` | openai |
 | `xiaomi-token-plan-ams` | `XIAOMI_TOKEN_PLAN_AMS_API_KEY` | `https://token-plan-ams.xiaomimimo.com/v1` | openai |
 | `xiaomi-token-plan-sgp` | `XIAOMI_TOKEN_PLAN_SGP_API_KEY` | `https://token-plan-sgp.xiaomimimo.com/v1` | openai |
+| `qianfan` | `QIANFAN_API_KEY` | `https://qianfan.baidubce.com/v2` | openai |
+| `volcengine` | `ARK_API_KEY` / `VOLCENGINE_API_KEY` | `https://ark.cn-beijing.volces.com/api/v3` | openai |
+| `dashscope` | `DASHSCOPE_API_KEY` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | openai |
+| `hunyuan` | `HUNYUAN_API_KEY` | `https://api.hunyuan.cloud.tencent.com/v1` | openai |
 | `azure-openai-responses` | `AZURE_OPENAI_API_KEY`（+ `AZURE_OPENAI_BASE_URL` / `AZURE_OPENAI_RESOURCE_NAME`） | 由环境变量拼接 | openai（Azure） |
 | `amazon-bedrock` | `AWS_BEARER_TOKEN_BEDROCK`（或 `AWS_PROFILE` / `AWS_ACCESS_KEY_ID`+`AWS_SECRET_ACCESS_KEY`；`AWS_REGION` 默认 `us-east-1`） | `https://bedrock-runtime.{AWS_REGION}.amazonaws.com` | anthropic |
 | `google-vertex` | `GOOGLE_CLOUD_API_KEY`（或 ADC）+ `GOOGLE_CLOUD_PROJECT` + `GOOGLE_CLOUD_LOCATION` | `https://{location}-aiplatform.googleapis.com` | openai |
@@ -401,6 +405,8 @@ git push origin v0.2.0
 | `cloudflare-ai-gateway` | `CLOUDFLARE_API_KEY` + `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_GATEWAY_ID` | `https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/anthropic` | anthropic |
 
 > base_url 覆盖优先级：`--base-url` > provider 专有 `*_BASE_URL` 环境变量 > 泛化 `<PROVIDER>_BASE_URL`（provider 名大写、`-` 转 `_`）> 注册表默认值。任意 Provider 也支持泛化的 `<PROVIDER>_API_KEY` 约定作为 Key 回退。
+
+> 火山方舟（`volcengine`）部分模型需以「推理接入点 ID（endpoint id）」而非模型名调用，此时用 `-m <endpoint-id>` 指定即可；本仓库预置的 `doubao-seed-1-6` 走模型名方式。
 
 ---
 

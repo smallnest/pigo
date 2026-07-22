@@ -59,6 +59,47 @@ func TestHuggingfaceEnvVar(t *testing.T) {
 	}
 }
 
+func TestChineseCloudProviders(t *testing.T) {
+	cases := []struct {
+		name    string
+		envVars []string
+		baseURL string
+	}{
+		{"qianfan", []string{"QIANFAN_API_KEY"}, "https://qianfan.baidubce.com/v2"},
+		{"volcengine", []string{"ARK_API_KEY", "VOLCENGINE_API_KEY"}, "https://ark.cn-beijing.volces.com/api/v3"},
+		{"dashscope", []string{"DASHSCOPE_API_KEY"}, "https://dashscope.aliyuncs.com/compatible-mode/v1"},
+		{"hunyuan", []string{"HUNYUAN_API_KEY"}, "https://api.hunyuan.cloud.tencent.com/v1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, ok := LookupProviderSpec(tc.name)
+			if !ok {
+				t.Fatalf("LookupProviderSpec(%q): expected hit", tc.name)
+			}
+			if spec.Name != tc.name {
+				t.Errorf("Name = %q, want %q", spec.Name, tc.name)
+			}
+			if spec.DefaultBaseURL != tc.baseURL {
+				t.Errorf("DefaultBaseURL = %q, want %q", spec.DefaultBaseURL, tc.baseURL)
+			}
+			if spec.Protocol != ProtocolOpenAI {
+				t.Errorf("Protocol = %q, want %q", spec.Protocol, ProtocolOpenAI)
+			}
+			if spec.AuthScheme != AuthBearer {
+				t.Errorf("AuthScheme = %q, want %q", spec.AuthScheme, AuthBearer)
+			}
+			if len(spec.EnvVars) != len(tc.envVars) {
+				t.Fatalf("EnvVars = %v, want %v", spec.EnvVars, tc.envVars)
+			}
+			for i := range tc.envVars {
+				if spec.EnvVars[i] != tc.envVars[i] {
+					t.Errorf("EnvVars[%d] = %q, want %q", i, spec.EnvVars[i], tc.envVars[i])
+				}
+			}
+		})
+	}
+}
+
 func TestAzureBaseURLEnvVars(t *testing.T) {
 	spec, ok := LookupProviderSpec("azure-openai-responses")
 	if !ok {
@@ -83,6 +124,7 @@ func TestRegistryContainsAllExpectedProviders(t *testing.T) {
 		"moonshotai-cn", "huggingface", "fireworks", "together", "opencode",
 		"opencode-go", "kimi-coding", "xiaomi", "xiaomi-token-plan-cn",
 		"xiaomi-token-plan-ams", "xiaomi-token-plan-sgp",
+		"qianfan", "volcengine", "dashscope", "hunyuan",
 		"azure-openai-responses", "amazon-bedrock", "google-vertex",
 		"cloudflare-workers-ai", "cloudflare-ai-gateway",
 	}
