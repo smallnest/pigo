@@ -57,6 +57,14 @@ pigo 的运行时分层架构：请求路径从用户经 CLI、Agent 循环、Pr
 
 > 更多分层图解（事件骨架、统一 Provider、工具批量执行、子 Agent 委派等）见配套电子书。
 
+### Agent 两层循环
+
+运行时的核心是 `internal/runtime/loop.go` 的两层循环：**内层** turn 循环反复「流式回复 → 停止原因分派 → 执行工具 → 回填」，直到某次助手消息不再发起工具调用；**外层**在内层收敛后消费 `GetFollowUpMessages`，有后续消息则重跑内层，否则结束。所有终止路径（自然结束 / error / aborted / 停止钩子 / 无后续消息）都汇于唯一出口 `finish()`。
+
+![pigo Agent 两层循环](book/images/agent-loop-flowchart.svg)
+
+> 交互式版本（含摘要卡片）见 [`docs/agent-loop-flowchart.html`](docs/agent-loop-flowchart.html)。
+
 ---
 
 ## 安装与构建

@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "pigo Agent Loop",
+    "subtitle": "两层循环：流式回复 → 停止原因分派 → 工具执行 → 回填 → 续跑",
+    "animation": "trace",
+    "visual_preset": "signal-flow",
+    "quality_profile": "standard",
+    "views": [
+      {
+        "id": "happy-path",
+        "label": "一次完整的 run",
+        "focus": ["user", "loop", "llm", "dispatch", "exec", "final"],
+        "note": "跟随用户请求走完流式回复、工具执行与最终回答。"
+      },
+      {
+        "id": "tool-path",
+        "label": "工具与信任",
+        "focus": ["dispatch", "exec", "trust"],
+        "note": "看副作用工具如何经信任闸门执行。"
+      },
+      {
+        "id": "control-path",
+        "label": "循环控制",
+        "focus": ["loop", "dispatch", "exec", "final"],
+        "note": "停止原因决定续跑还是收尾。"
+      }
+    ],
+    "output": "docs/pigo-agent-loop.html",
+    "viewBox": [760, 740]
+  },
+  "lanes": [
+    { "id": "ui", "label": "用户 / 驱动层" },
+    { "id": "agent", "label": "Agent 循环" },
+    { "id": "provider", "label": "Provider / LLM" },
+    { "id": "tools", "label": "工具执行" },
+    { "id": "trust", "label": "信任边界", "variant": "exception" }
+  ],
+  "phases": [
+    { "id": "intake", "label": "接收请求", "fromCol": 0, "toCol": 1 },
+    { "id": "reason", "label": "流式推理", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "act", "label": "执行 + 回填", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "inner_loop", "label": "内层 turn 循环", "lane": "agent", "fromCol": 1, "toCol": 3, "variant": "emphasis" }
+  ],
+  "mainPath": ["user", "loop", "llm", "dispatch", "exec", "final"],
+  "nodes": [
+    { "id": "user", "lane": "ui", "col": 0, "type": "external", "label": "用户请求", "sublabel": "prompt / REPL" },
+    { "id": "final", "lane": "ui", "col": 5, "type": "backend", "label": "最终回答", "sublabel": "agent_end · finish()" },
+    { "id": "loop", "lane": "agent", "col": 1, "type": "backend", "label": "Agent 循环", "sublabel": "turn_start", "tag": "外层续跑判定" },
+    { "id": "dispatch", "lane": "agent", "col": 3, "type": "backend", "label": "停止原因分派", "sublabel": "stop / tool_use / length" },
+    { "id": "llm", "lane": "provider", "col": 2, "type": "cloud", "label": "Provider · SSE", "sublabel": "流式解码 message_update", "tag": "增量文本" },
+    { "id": "exec", "lane": "tools", "col": 4, "type": "messagebus", "label": "工具批量执行", "sublabel": "read/write/edit/bash…", "tag": "串行 / 并发" },
+    { "id": "trust", "lane": "trust", "col": 4, "type": "security", "label": "信任闸门", "sublabel": "副作用工具确认", "tag": "trust gate" }
+  ],
+  "edges": [
+    { "id": "user-loop", "from": "user", "to": "loop", "variant": "default" },
+    { "id": "loop-llm", "from": "loop", "to": "llm", "label": "请求消息", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "route": "drop", "labelSegment": 1, "labelDy": 14 },
+    { "id": "llm-dispatch", "from": "llm", "to": "dispatch", "label": "停止原因", "variant": "emphasis", "fromSide": "top", "toSide": "bottom", "route": "drop", "labelSegment": 1 },
+    { "id": "dispatch-exec", "from": "dispatch", "to": "exec", "label": "tool_use", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "route": "drop", "labelSegment": 1 },
+    { "id": "exec-trust", "from": "exec", "to": "trust", "label": "需确认", "variant": "security", "fromSide": "bottom", "toSide": "top", "route": "drop", "labelSegment": 1, "labelDy": 12 },
+    { "id": "exec-final", "from": "exec", "to": "final", "label": "结果", "variant": "emphasis", "role": "return", "fromSide": "right", "toSide": "right", "route": "outside-right", "width": 1.2 },
+    { "id": "exec-loop", "from": "exec", "to": "loop", "label": "回填并续跑", "variant": "dashed", "role": "branch", "fromSide": "top", "toSide": "top", "route": "up-channel", "labelSegment": 1 }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "两层循环",
+      "items": [
+        "外层：判定是否续跑（还有工具要跑就继续）",
+        "内层：一个 turn 内流式回复 + 工具执行",
+        "多条终止路径汇于唯一出口 finish()",
+        "finish 计算新消息、发 agent_end、关流"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "停止原因分派",
+      "items": [
+        "stop：本轮结束，走收尾",
+        "tool_use：执行工具后回填并续跑",
+        "length：上下文超限，触发压缩",
+        "分派逻辑是循环的中枢"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "工具与信任",
+      "items": [
+        "read/grep/find 只读，直接执行",
+        "bash/write/edit 副作用，经信任闸门",
+        "批量执行支持串行与并发调度",
+        "结果回填为 tool_result 进入下一轮"
+      ]
+    }
+  ]
+}

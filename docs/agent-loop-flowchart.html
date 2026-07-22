@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>pigo Agent Loop 流程图</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Geist', sans-serif;
+      background: #faf6f0;
+      min-height: 100vh;
+      padding: 2.5rem 2rem;
+      color: #1c1917;
+    }
+    .container { max-width: 980px; margin: 0 auto; }
+    .header { margin-bottom: 2rem; }
+    .eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.6875rem; font-weight: 500;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      color: #78716c; margin-bottom: 0.375rem;
+    }
+    h1 { font-family: 'Instrument Serif', serif; font-size: 1.75rem; font-weight: 400; color: #1c1917; }
+    .subtitle { color: #78716c; font-size: 0.8125rem; margin-top: 0.375rem; }
+    .diagram-desc { color: #a8a29e; font-size: 0.6875rem; margin-top: 0.5rem; line-height: 1.5; font-style: italic; }
+    .diagram-container {
+      background: #f0ebe3; border: 1px solid rgba(28,25,23,0.12);
+      border-radius: 8px; padding: 1.5rem; overflow-x: auto;
+    }
+    svg { width: 100%; min-width: 640px; display: block; }
+    .cards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-top: 1.5rem; }
+    .card { background: #ffffff; border: 1px solid rgba(28,25,23,0.12); border-radius: 6px; padding: 1.25rem; }
+    .card-eyebrow {
+      font-family: 'Geist Mono', monospace; font-size: 0.625rem; font-weight: 500;
+      letter-spacing: 0.18em; text-transform: uppercase; color: #a8a29e; margin-bottom: 0.5rem;
+    }
+    .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .card-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .card-dot.ink { background: #1c1917; }
+    .card-dot.accent { background: #d97706; }
+    .card-dot.muted { background: #78716c; }
+    .card h3 { font-size: 0.8125rem; font-weight: 600; color: #1c1917; }
+    .card ul { list-style: none; color: #78716c; font-size: 0.75rem; line-height: 1.6; }
+    .card li { margin-bottom: 0.25rem; }
+    .footer {
+      margin-top: 1.5rem; padding-top: 0.75rem; border-top: 1px solid rgba(28,25,23,0.08);
+      text-align: center; font-family: 'Geist Mono', monospace; color: #a8a29e;
+      font-size: 0.625rem; letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <p class="eyebrow">Agent Loop Flowchart</p>
+      <h1>pigo Agent 两层循环</h1>
+      <p class="subtitle">internal/runtime/loop.go · 外层后续消息驱动 · 内层 turn 直到无工具调用 · 唯一出口 finish()</p>
+      <p class="diagram-desc"><b>流程图 (Flowchart)</b> — 行为性图形。聚焦 Agent 主循环的两层嵌套结构：内层跑 turn（流式回复→停止原因分派→执行工具→回填），外层在内层收敛后消费后续消息。</p>
+    </div>
+    <div class="diagram-container">
+      <svg viewBox="0 0 780 1040">
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#78716c"/>
+          </marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#d97706"/>
+          </marker>
+          <marker id="arrow-loop" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#b45309"/>
+          </marker>
+          <marker id="arrow-exc" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#c05621"/>
+          </marker>
+          <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.9" fill="rgba(28,25,23,0.10)"/>
+          </pattern>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#faf6f0"/>
+        <rect width="100%" height="100%" fill="url(#dots)" opacity="0.6"/>
+
+        <!-- ===== Loop boundaries (behind everything) ===== -->
+        <rect x="64" y="100" width="648" height="860" rx="14" fill="rgba(120,113,108,0.04)" stroke="#78716c" stroke-width="1.2" stroke-dasharray="7,5"/>
+        <text x="82" y="122" fill="#78716c" font-size="10" font-weight="600" font-family="'Geist Mono', monospace" letter-spacing="0.1em">外层循环 · for { } · 后续消息驱动</text>
+
+        <rect x="112" y="150" width="380" height="560" rx="12" fill="rgba(217,119,6,0.04)" stroke="#b45309" stroke-width="1.2" stroke-dasharray="7,5"/>
+        <text x="128" y="170" fill="#b45309" font-size="10" font-weight="600" font-family="'Geist Mono', monospace" letter-spacing="0.1em">内层循环 · for { } · turns until no tool calls</text>
+
+        <!-- ============================================================
+             ARROWS (drawn first — z-order behind boxes)
+             ============================================================ -->
+
+        <!-- E1 agent_start → turn_start -->
+        <line x1="290" y1="66" x2="290" y2="176" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <!-- E2 turn_start → 流式回复 -->
+        <line x1="290" y1="216" x2="290" y2="256" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <!-- E3 流式回复 → 停止原因 (accent) -->
+        <line x1="290" y1="304" x2="290" y2="340" stroke="#d97706" stroke-width="1.3" marker-end="url(#arrow-accent)"/>
+        <!-- E4 停止原因 → 执行工具 (tool_use, accent) -->
+        <line x1="290" y1="414" x2="290" y2="456" stroke="#d97706" stroke-width="1.3" marker-end="url(#arrow-accent)"/>
+        <rect x="256" y="426" width="70" height="14" rx="2" fill="#faf6f0"/>
+        <text x="291" y="437" fill="#b45309" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">tool_use · 有工具</text>
+        <!-- E5 执行工具 → 回填 (accent) -->
+        <line x1="290" y1="504" x2="290" y2="544" stroke="#d97706" stroke-width="1.3" marker-end="url(#arrow-accent)"/>
+        <!-- E6 回填 → afterTurn -->
+        <line x1="290" y1="586" x2="290" y2="614" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+
+        <!-- E7 afterTurn 否 → back to turn_start (INNER loop, loop-color dashed) -->
+        <path d="M218,650 H160 V196 H190" fill="none" stroke="#b45309" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow-loop)"/>
+        <rect x="132" y="418" width="56" height="30" rx="3" fill="#faf6f0" stroke="rgba(180,83,9,0.4)" stroke-width="0.8"/>
+        <text x="160" y="431" fill="#b45309" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">否 · 继续</text>
+        <text x="160" y="442" fill="#b45309" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">下一 turn</text>
+
+        <!-- E8 afterTurn 是 → finish -->
+        <line x1="290" y1="686" x2="290" y2="900" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="298" y="778" width="80" height="14" rx="2" fill="#faf6f0"/>
+        <text x="338" y="789" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">是 · shouldStop</text>
+
+        <!-- E9 停止原因 无工具 → 后续消息 (outer) -->
+        <path d="M362,377 H590 V686" fill="none" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="404" y="362" width="98" height="14" rx="2" fill="#faf6f0"/>
+        <text x="453" y="373" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">无工具 · 自然结束 → break</text>
+
+        <!-- E10 停止原因 error/aborted → finish (exception dashed) -->
+        <path d="M218,377 H126 V923 H190" fill="none" stroke="#c05621" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow-exc)"/>
+        <rect x="98" y="352" width="56" height="14" rx="2" fill="#faf6f0"/>
+        <text x="126" y="363" fill="#c05621" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">error/abort</text>
+
+        <!-- E11 后续消息 有 → back to turn_start (OUTER loop, loop-color dashed) -->
+        <path d="M524,720 H90 V196 H190" fill="none" stroke="#b45309" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow-loop)"/>
+        <rect x="250" y="700" width="96" height="14" rx="2" fill="#faf6f0"/>
+        <text x="298" y="711" fill="#b45309" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">有 · 追加后续消息</text>
+
+        <!-- E12 后续消息 无 → finish -->
+        <path d="M590,754 V923 H390" fill="none" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="566" y="812" width="48" height="14" rx="2" fill="#faf6f0"/>
+        <text x="590" y="823" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">无 · 收尾</text>
+
+        <!-- ============================================================
+             NODES (drawn after arrows — z-order above)
+             ============================================================ -->
+
+        <!-- agent_start oval -->
+        <rect x="190" y="26" width="200" height="40" rx="20" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+        <text x="290" y="51" fill="#1c1917" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent_start · session</text>
+
+        <!-- turn_start step -->
+        <rect x="190" y="176" width="200" height="40" rx="6" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+        <text x="290" y="201" fill="#1c1917" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">emit turn_start</text>
+
+        <!-- 流式回复 step (FOCAL accent) -->
+        <rect x="190" y="256" width="200" height="48" rx="6" fill="#faf6f0"/>
+        <rect x="190" y="256" width="200" height="48" rx="6" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="1.2"/>
+        <rect x="198" y="262" width="96" height="12" rx="2" fill="transparent" stroke="rgba(217,119,6,0.40)" stroke-width="0.8"/>
+        <text x="246" y="271" fill="rgba(180,83,9,0.85)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">streamAssistantResponse</text>
+        <text x="290" y="293" fill="#1c1917" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">流式回复 · message_update</text>
+
+        <!-- 停止原因 diamond -->
+        <polygon points="290,340 362,377 290,414 218,377" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+        <text x="290" y="374" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">停止原因?</text>
+        <text x="290" y="388" fill="#78716c" font-size="7.5" font-family="'Geist Mono', monospace" text-anchor="middle">StopReason</text>
+
+        <!-- 执行工具 step (FOCAL accent) -->
+        <rect x="190" y="456" width="200" height="48" rx="6" fill="#faf6f0"/>
+        <rect x="190" y="456" width="200" height="48" rx="6" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="1.2"/>
+        <rect x="198" y="462" width="82" height="12" rx="2" fill="transparent" stroke="rgba(217,119,6,0.40)" stroke-width="0.8"/>
+        <text x="239" y="471" fill="rgba(180,83,9,0.85)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">ExecuteToolCalls</text>
+        <text x="290" y="493" fill="#1c1917" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">执行工具 · 串行/并发</text>
+
+        <!-- 回填 step -->
+        <rect x="190" y="544" width="200" height="42" rx="6" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+        <text x="290" y="570" fill="#1c1917" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">回填 tool_result · turn_end</text>
+
+        <!-- afterTurn diamond -->
+        <polygon points="290,614 362,650 290,686 218,650" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+        <text x="290" y="647" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">afterTurn</text>
+        <text x="290" y="661" fill="#78716c" font-size="7.5" font-family="'Geist Mono', monospace" text-anchor="middle">压缩+钩子·停止?</text>
+
+        <!-- 后续消息 diamond (outer) -->
+        <polygon points="590,686 656,720 590,754 524,720" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+        <text x="590" y="717" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">后续消息?</text>
+        <text x="590" y="731" fill="#78716c" font-size="7.5" font-family="'Geist Mono', monospace" text-anchor="middle">FollowUp</text>
+
+        <!-- finish terminal -->
+        <rect x="190" y="900" width="200" height="46" rx="8" fill="#1c1917"/>
+        <text x="290" y="921" fill="#faf6f0" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">finish()</text>
+        <text x="290" y="936" fill="rgba(250,246,240,0.7)" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">agent_end · SetResult · 关流</text>
+
+        <!-- ============================================================
+             LEGEND
+             ============================================================ -->
+        <line x1="30" y1="982" x2="750" y2="982" stroke="rgba(28,25,23,0.10)" stroke-width="0.8"/>
+        <text x="30" y="1006" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+        <rect x="100" y="996" width="24" height="14" rx="4" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+        <text x="132" y="1007" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">步骤</text>
+
+        <polygon points="196,996 208,1003 196,1010 184,1003" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+        <text x="216" y="1007" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">判断</text>
+
+        <rect x="272" y="996" width="24" height="14" rx="4" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="1"/>
+        <text x="304" y="1007" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">主路径步骤</text>
+
+        <line x1="392" y1="1003" x2="416" y2="1003" stroke="#b45309" stroke-width="1.2" stroke-dasharray="5,4"/>
+        <text x="424" y="1007" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">循环回边</text>
+
+        <line x1="500" y1="1003" x2="524" y2="1003" stroke="#c05621" stroke-width="1" stroke-dasharray="5,4"/>
+        <text x="532" y="1007" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">异常/终态</text>
+
+        <rect x="620" y="996" width="24" height="14" rx="4" fill="#1c1917"/>
+        <text x="652" y="1007" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">唯一出口</text>
+      </svg>
+
+    </div>
+    <div class="cards">
+      <div class="card">
+        <p class="card-eyebrow">INNER LOOP</p>
+        <div class="card-header">
+          <div class="card-dot accent"></div>
+          <h3>内层 · turn 循环</h3>
+        </div>
+        <ul>
+          <li>• 一次 turn：流式回复 → 执行工具 → 回填</li>
+          <li>• 无工具调用即自然结束，break 出内层</li>
+          <li>• afterTurn 未停止则继续下一 turn</li>
+          <li>• allTerminate（工具全体请求终止）直达 finish</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <p class="card-eyebrow">STOP REASON</p>
+        <div class="card-header">
+          <div class="card-dot ink"></div>
+          <h3>停止原因分派</h3>
+        </div>
+        <ul>
+          <li>• tool_use：执行工具后回填续跑</li>
+          <li>• 无工具：自然结束，转外层判定</li>
+          <li>• length：失败所有工具调用促模型重发</li>
+          <li>• error / aborted：终态，立即 finish</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <p class="card-eyebrow">OUTER LOOP</p>
+        <div class="card-header">
+          <div class="card-dot muted"></div>
+          <h3>外层 · 后续消息</h3>
+        </div>
+        <ul>
+          <li>• 内层收敛后查 GetFollowUpMessages</li>
+          <li>• 有后续消息 → 追加并重跑内层</li>
+          <li>• 无 → break 收尾</li>
+          <li>• 所有终止路径汇于唯一出口 finish()</li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer">
+      pigo · github.com/smallnest/pigo · internal/runtime/loop.go
+    </div>
+  </div>
+</body>
+</html>
