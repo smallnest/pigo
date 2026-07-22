@@ -155,8 +155,13 @@ func resolveProvider(model, baseURL, protocol, providerName string) (provider.Pr
 		case "ollama":
 			id := strings.TrimPrefix(model, "ollama/")
 			return provider.NewOllamaProvider(baseURL, []provider.Model{{Provider: "ollama", ID: id, SupportsImages: true}}), "ollama", nil
-		default: // openrouter and any OpenAI-compatible upstream
+		case "", "openrouter":
 			return provider.NewOpenRouterProvider(baseURL, []provider.Model{{Provider: "openrouter", ID: model, SupportsImages: true}}), "openrouter", nil
+		default:
+			// Any other preset provider is a named built-in (e.g. deepseek,
+			// qianfan, dashscope): build it from the registry so the correct
+			// base URL, protocol, and API-key env var are used — not OpenRouter's.
+			return resolveNamedProvider(p.Provider, model, baseURL, protocol)
 		}
 	}
 

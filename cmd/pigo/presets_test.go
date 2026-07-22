@@ -128,6 +128,45 @@ func TestResolveProviderExplicitProvider(t *testing.T) {
 	}
 }
 
+// TestResolveProviderCNPresets verifies the Chinese-cloud preset ids route to
+// their own provider (not the OpenRouter default) via the LookupPreset branch,
+// so the returned provider-name matches the registry entry and key/base-URL
+// resolution reads the platform's own env var.
+func TestResolveProviderCNPresets(t *testing.T) {
+	cases := []struct {
+		model    string
+		wantName string
+	}{
+		{"ernie-4.5-turbo-32k", "qianfan"},
+		{"doubao-seed-1-6", "volcengine"},
+		{"qwen-max", "dashscope"},
+		{"hunyuan-turbos-latest", "hunyuan"},
+	}
+	for _, c := range cases {
+		_, name, err := resolveProvider(c.model, "", "", "")
+		if err != nil {
+			t.Errorf("resolveProvider(%q) error: %v", c.model, err)
+			continue
+		}
+		if name != c.wantName {
+			t.Errorf("resolveProvider(%q) = %q, want %q", c.model, name, c.wantName)
+		}
+	}
+}
+
+// TestResolveProviderCNExplicit verifies --provider selects the CN providers
+// directly and that --base-url overrides without changing the provider name.
+func TestResolveProviderCNExplicit(t *testing.T) {
+	for _, name := range []string{"qianfan", "volcengine", "dashscope", "hunyuan"} {
+		if _, got, err := resolveProvider("some-model", "", "", name); err != nil || got != name {
+			t.Errorf("provider=%s = (%q, %v), want (%s, nil)", name, got, err, name)
+		}
+		if _, got, err := resolveProvider("some-model", "https://proxy.local/v1", "", name); err != nil || got != name {
+			t.Errorf("provider=%s + base-url = (%q, %v), want (%s, nil)", name, got, err, name)
+		}
+	}
+}
+
 // TestPresetListingGroupsAndFilters verifies /models lists all providers by
 // default and filters to one provider when given an argument.
 func TestPresetListingGroupsAndFilters(t *testing.T) {

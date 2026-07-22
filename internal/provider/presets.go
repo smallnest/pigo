@@ -53,6 +53,10 @@ var PresetProviders = []struct {
 	{Name: "together", EnvVar: "TOGETHER_API_KEY"},
 	{Name: "minimax", EnvVar: "MINIMAX_API_KEY"},
 	{Name: "xiaomi", EnvVar: "XIAOMI_API_KEY"},
+	{Name: "qianfan", EnvVar: "QIANFAN_API_KEY"},
+	{Name: "volcengine", EnvVar: "ARK_API_KEY"},
+	{Name: "dashscope", EnvVar: "DASHSCOPE_API_KEY"},
+	{Name: "hunyuan", EnvVar: "HUNYUAN_API_KEY"},
 	{Name: "ollama", EnvVar: ""}, // local, no key
 }
 
@@ -152,6 +156,20 @@ var PresetCatalog = []PresetModel{
 	{Provider: "xiaomi", ID: "mimo-v2-pro", DisplayName: "MiMo-V2-Pro"},
 	{Provider: "xiaomi", ID: "mimo-v2.5", DisplayName: "MiMo-V2.5"},
 	{Provider: "xiaomi", ID: "mimo-v2.5-pro", DisplayName: "MiMo-V2.5-Pro"},
+
+	// --- 百度智能云千帆 Qianfan (OpenAI-compatible; ERNIE family) ---
+	{Provider: "qianfan", ID: "ernie-4.5-turbo-32k", DisplayName: "ERNIE 4.5 Turbo (百度千帆)"},
+
+	// --- 字节火山引擎方舟 Volcengine Ark (OpenAI-compatible; Doubao family) ---
+	// Some Ark models require a "推理接入点 ID (endpoint id)" instead of a model
+	// name — use --base-url / -m to target those; this preset uses a model name.
+	{Provider: "volcengine", ID: "doubao-seed-1-6", DisplayName: "Doubao Seed 1.6 (火山方舟)"},
+
+	// --- 阿里云百炼 DashScope (OpenAI-compatible; Qwen family) ---
+	{Provider: "dashscope", ID: "qwen-max", DisplayName: "Qwen Max (阿里百炼)"},
+
+	// --- 腾讯混元 Hunyuan (OpenAI-compatible) ---
+	{Provider: "hunyuan", ID: "hunyuan-turbos-latest", DisplayName: "Hunyuan TurboS (腾讯混元)"},
 
 	// --- Ollama (local, no API key) ---
 	{Provider: "ollama", ID: "ollama/llama3.3", DisplayName: "Llama 3.3 (local Ollama)"},
