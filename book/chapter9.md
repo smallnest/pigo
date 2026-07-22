@@ -389,6 +389,8 @@ func defaultProcessCall(ctx context.Context, cfg SubAgentProcessConfig, params S
 
 一次委派的全貌于是清晰了：父进程 spawn `pigo --subagent-rpc`，往它 stdin 发一条 `subagent/run` 请求，等一条响应，然后 `Close`。`Close` 本身也有讲究——它先关子进程 stdin（示意优雅退场），再等一小段 `closeGrace`（5 秒），子进程若不识趣地赖着不走，就强杀。这样一个卡死的子进程（忽略 stdin EOF、又攥着 stdout 不放）也没法把父进程永远拖住。父 `ctx` 取消时，`Call` 返回、`defer client.Close()` 触发，子进程随之被终结——第 3 章那种"父运行被中断，在途的一切也应一并中止"的语义，在进程边界上依然成立。
 
+![图9-7 子 Agent 的一次委派：父进程 spawn pigo --subagent-rpc，在 stdio 上跑一轮 subagent/run，回结果后 Close 收尾](images/fig9-7.svg){#fig:9-7 width=100%}
+
 ## 实验 9-1 ★：手动扮演父进程，用 stdio 驱动一次 subagent/run {.unnumbered}
 
 **目标**：绕开 `SubAgentTool`，亲手往 `pigo --subagent-rpc` 的 stdin 喂一条 JSON-RPC 请求，观察它作为子进程如何应答——先看一条"参数缺失"如何变成结构化的 RPC 错误，从而印证 `handleSubAgentRequest` 的校验分支，且全程不需要任何真实 API Key。

@@ -340,6 +340,8 @@ finish := func() {
 
 所以骨架是：`agent_start`（带 session id，第1章的实验就抓的这一条）→ 若干个 `turn_start … turn_end` 对，每个 turn 内嵌 `message_start`/若干 `message_update`/`message_end`，跑了工具还会有 `tool_execution_start`/`end` → 最后一个 `agent_end`。`finish()` 是所有退出路径的唯一出口：它计算这次 run 新产生的消息、发 `agent_end`、把结果塞进 stream 供 `DrainStream` 取用、关流。无论是正常收尾、终态错误、还是 `emit` 中途取消，都收敛到这一个 `finish()`，保证事件流"有始有终"、消费方不会永久阻塞。
 
+![图3-7 两层循环的事件骨架：内层 turn 流式回复→按停止原因分派→执行工具→回填，外层判定是否续跑；多条终止路径汇于唯一出口 finish](images/fig3-7.svg){#fig:3-7 width=100%}
+
 顺带说，消费这条事件流的是 `render.go` 里的 `DrainStream`——REPL、无头驱动、子 Agent 工具都靠它。它把 `MessageUpdateEvent` 的流式文本做增量计算（只吐新增的后缀），把 `TurnEndEvent` 交给消费者渲染工具活动，是"三处消费者共享一个抽干循环"的收口。它属于第1章讲的驱动层，这里不展开，只需知道：循环发事件，`DrainStream` 收事件，两者靠上面这套骨架对齐。
 
 ## 六个钩子与三种停止原因

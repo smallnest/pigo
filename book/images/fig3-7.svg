@@ -1,0 +1,224 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 652" role="img" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-theme="light" data-quality-profile="standard">
+<style>
+.c-grid {stroke: #e2e8f0; fill: none;}
+.c-mask {fill: #ffffff; stroke: none;}
+.c-frontend {fill: rgba(34, 211, 238, 0.15);   stroke: #0891b2;}
+.c-backend {fill: rgba(52, 211, 153, 0.18);    stroke: #059669;}
+.c-database {fill: rgba(167, 139, 250, 0.2);   stroke: #7c3aed;}
+.c-security {fill: rgba(251, 113, 133, 0.15);   stroke: #e11d48;}
+.c-messagebus {fill: rgba(251, 146, 60, 0.15); stroke: #ea580c;}
+.t-primary {fill: #0f172a;}
+.t-muted {fill: #64748b;}
+.t-dim {fill: #94a3b8;}
+.t-backend {fill: #059669;}
+.t-database {fill: #7c3aed;}
+.t-security {fill: #e11d48;}
+.a-default {stroke: #94a3b8; fill: none;}
+.a-emphasis {stroke: #059669; fill: none;}
+.a-security {stroke: #e11d48; fill: none; stroke-dasharray: 5,5;}
+.a-dashed {stroke: #7c3aed; fill: none; stroke-dasharray: 4,4;}
+.m-default {fill: #94a3b8;}
+.m-emphasis {fill: #059669;}
+.m-security {fill: #e11d48;}
+.m-dashed {fill: #7c3aed;}
+.c-lane {fill: rgba(248, 250, 252, 0.65); stroke: #cbd5e1; stroke-dasharray: 6,6;}
+</style>
+<rect width="100%" height="100%" fill="#f8fafc" />
+
+        <title id="archify-diagram-title">两层循环：一次 run 的事件骨架</title>
+        <desc id="archify-diagram-description">内层 turn 流式回复→执行工具→回填，外层判定要不要续跑；多条路径汇于唯一出口</desc>
+        <!-- Definitions -->
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-default" />
+          </marker>
+          <marker id="arrowhead-emphasis" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-emphasis" />
+          </marker>
+          <marker id="arrowhead-security" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-security" />
+          </marker>
+          <marker id="arrowhead-dashed" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-dashed" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" class="c-grid" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <!-- Background Grid -->
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- Swimlanes -->
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-0" x="40" y="52" width="640" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="74" class="t-dim" font-size="10" font-weight="600">01 / 外层 run</text>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-1" x="40" y="176" width="640" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="198" class="t-dim" font-size="10" font-weight="600">02 / 内层 turn</text>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-2" x="40" y="300" width="640" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="322" class="t-dim" font-size="10" font-weight="600">03 / 一次流式回复</text>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-3" x="40" y="424" width="640" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="446" class="t-dim" font-size="10" font-weight="600">04 / 工具执行</text>
+
+        <!-- Phase headers -->
+
+
+        <!-- Workflow groups -->
+
+
+        <!-- Edge paths -->
+        <path data-edge-from="n1" data-edge-to="n2" data-edge-key="0" data-edge-id="e1" data-composition-points="134,119;134,166;174,166;174,243" d="M 134 119 L 134 166 L 174 166 L 174 243" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="n2" data-edge-to="n3" data-edge-key="1" data-edge-id="e2" data-composition-points="220,269;220,290;300,290;300,341" d="M 220 269 L 220 290 L 300 290 L 300 341" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="n3" data-edge-to="n7" data-edge-key="2" data-edge-id="e3" data-composition-points="300,341;300,290;430,290;430,269" d="M 300 341 L 300 290 L 430 290 L 430 269" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="n7" data-edge-to="n18" data-edge-label="error / aborted" data-edge-key="3" data-edge-id="e5" data-composition-points="430,217;430,40;860,40;625,93" d="M 430 217 L 430 40 L 860 40 L 625 93" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="n7" data-edge-to="n11" data-edge-label="有工具 tool_use" data-edge-key="4" data-edge-id="e6" data-composition-points="430,269;430,352;500,352;500,465" d="M 430 269 L 430 352 L 500 352 L 500 465" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="n7" data-edge-to="n15" data-edge-label="空：自然收尾" data-edge-key="5" data-edge-id="e7" data-composition-points="476,243;579,243" d="M 476 243 L 579 243" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="n11" data-edge-to="n15" data-edge-key="6" data-edge-id="e8" data-composition-points="500,465;500,352;625,352;625,269" d="M 500 465 L 500 352 L 625 352 L 625 269" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="n11" data-edge-to="n18" data-edge-label="全 terminate" data-edge-key="7" data-edge-id="e10" data-composition-points="546,491;830,491;830,119;671,119" d="M 546 491 L 830 491 L 830 119 L 671 119" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="n15" data-edge-to="n2" data-edge-label="喂回结果，下一轮 turn" data-edge-key="8" data-edge-id="e11" data-composition-points="579,243;520,243;520,320;220,320;220,269" d="M 579 243 L 520 243 L 520 320 L 220 320 L 220 269" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="n15" data-edge-to="n18" data-edge-label="shouldStop=true" data-edge-key="9" data-edge-id="e12" data-composition-points="625,217;625,166;625,166;625,145" d="M 625 217 L 625 166 L 625 166 L 625 145" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+
+        <!-- Nodes -->
+        <g id="node-n1" data-node-id="n1" data-node-label="agent_start" tabindex="0" role="button" aria-label="Focus agent_start, emit AgentStartEvent, 外层 run" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="emit AgentStartEvent" data-node-context="外层 run">
+          <title>agent_start · emit AgentStartEvent · 外层 run</title>
+          <rect x="42" y="93" width="92" height="52" rx="6" class="c-mask"/>
+          <rect x="42" y="93" width="92" height="52" rx="6" class="c-messagebus" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(48 99) scale(0.6875)">
+            <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/>
+            <circle cx="5" cy="4.5" r="1" class="sigil-fill"/>
+            <circle cx="10.5" cy="8" r="1" class="sigil-fill"/>
+            <circle cx="7" cy="11.5" r="1" class="sigil-fill"/>
+          </g>
+          <text data-detail-anchor="" x="88" y="114" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">agent_start</text>
+          <text data-detail="context" x="88" y="131" class="t-muted" font-size="8" text-anchor="middle">emit AgentStartEvent</text>
+        </g>
+
+        <g id="node-n2" data-node-id="n2" data-node-label="turn_start" tabindex="0" role="button" aria-label="Focus turn_start, 一个 turn 开场, 内层 turn" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="一个 turn 开场" data-node-context="内层 turn">
+          <title>turn_start · 一个 turn 开场 · 内层 turn</title>
+          <rect x="174" y="217" width="92" height="52" rx="6" class="c-mask"/>
+          <rect x="174" y="217" width="92" height="52" rx="6" class="c-messagebus" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(180 223) scale(0.6875)">
+            <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/>
+            <circle cx="5" cy="4.5" r="1" class="sigil-fill"/>
+            <circle cx="10.5" cy="8" r="1" class="sigil-fill"/>
+            <circle cx="7" cy="11.5" r="1" class="sigil-fill"/>
+          </g>
+          <text data-detail-anchor="" x="220" y="238" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">turn_start</text>
+          <text data-detail="context" x="220" y="255" class="t-muted" font-size="8" text-anchor="middle">一个 turn 开场</text>
+        </g>
+
+        <g id="node-n3" data-node-id="n3" data-node-label="流式回复" tabindex="0" role="button" aria-label="Focus 流式回复, 塑形 LlmContext + 回填成完整消息, 一次流式回复" aria-pressed="false" data-node-kind="backend" data-node-sublabel="塑形 LlmContext + 回填成完整消息" data-node-context="一次流式回复">
+          <title>流式回复 · 塑形 LlmContext + 回填成完整消息 · 一次流式回复</title>
+          <rect x="254" y="341" width="92" height="52" rx="6" class="c-mask"/>
+          <rect x="254" y="341" width="92" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(260 347) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="300" y="362" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">流式回复</text>
+          <text data-detail="context" x="300" y="379" class="t-muted" font-size="8" text-anchor="middle">塑形 LlmContext + 回填成完整消息</text>
+        </g>
+
+        <g id="node-n7" data-node-id="n7" data-node-label="按停止原因" tabindex="0" role="button" aria-label="Focus 按停止原因, switch stopReason 分派, 内层 turn" aria-pressed="false" data-node-kind="backend" data-node-sublabel="switch stopReason 分派" data-node-context="内层 turn">
+          <title>按停止原因 · switch stopReason 分派 · 内层 turn</title>
+          <rect x="384" y="217" width="92" height="52" rx="6" class="c-mask"/>
+          <rect x="384" y="217" width="92" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(390 223) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="430" y="238" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">按停止原因</text>
+          <text data-detail="context" x="430" y="255" class="t-muted" font-size="8" text-anchor="middle">switch stopReason 分派</text>
+        </g>
+
+        <g id="node-n11" data-node-id="n11" data-node-label="执行工具" tabindex="0" role="button" aria-label="Focus 执行工具, 闸门+批量执行+回填 toolResults, 工具执行" aria-pressed="false" data-node-kind="backend" data-node-sublabel="闸门+批量执行+回填 toolResults" data-node-context="工具执行">
+          <title>执行工具 · 闸门+批量执行+回填 toolResults · 工具执行</title>
+          <rect x="454" y="465" width="92" height="52" rx="6" class="c-mask"/>
+          <rect x="454" y="465" width="92" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(460 471) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="500" y="486" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">执行工具</text>
+          <text data-detail="context" x="500" y="503" class="t-muted" font-size="8" text-anchor="middle">闸门+批量执行+回填 toolResults</text>
+        </g>
+
+        <g id="node-n15" data-node-id="n15" data-node-label="afterTurn" tabindex="0" role="button" aria-label="Focus afterTurn, steering→autoCompact→shouldStop, 内层 turn" aria-pressed="false" data-node-kind="backend" data-node-sublabel="steering→autoCompact→shouldStop" data-node-context="内层 turn">
+          <title>afterTurn · steering→autoCompact→shouldStop · 内层 turn</title>
+          <rect x="579" y="217" width="92" height="52" rx="6" class="c-mask"/>
+          <rect x="579" y="217" width="92" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(585 223) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="625" y="238" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">afterTurn</text>
+          <text data-detail="context" x="625" y="255" class="t-muted" font-size="8" text-anchor="middle">steering→autoCompact→shouldStop</text>
+        </g>
+
+        <g id="node-n18" data-node-id="n18" data-node-label="finish" tabindex="0" role="button" aria-label="Focus finish, 唯一出口 + agent_end, 外层 run" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="唯一出口 + agent_end" data-node-context="外层 run">
+          <title>finish · 唯一出口 + agent_end · 外层 run</title>
+          <rect x="579" y="93" width="92" height="52" rx="6" class="c-mask"/>
+          <rect x="579" y="93" width="92" height="52" rx="6" class="c-messagebus" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(585 99) scale(0.6875)">
+            <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/>
+            <circle cx="5" cy="4.5" r="1" class="sigil-fill"/>
+            <circle cx="10.5" cy="8" r="1" class="sigil-fill"/>
+            <circle cx="7" cy="11.5" r="1" class="sigil-fill"/>
+          </g>
+          <text data-detail-anchor="" x="625" y="114" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">finish</text>
+          <text data-detail="context" x="625" y="131" class="t-muted" font-size="8" text-anchor="middle">唯一出口 + agent_end</text>
+        </g>
+
+        <!-- Edge labels -->
+
+
+
+        <g data-detail="context" data-edge-from="n7" data-edge-to="n18" data-edge-label="error / aborted" data-edge-key="3" data-edge-id="e5">
+          <rect x="604" y="20" width="82" height="14" rx="3" class="c-mask"/>
+          <text x="645" y="30" class="t-security" font-size="8" text-anchor="middle">error / aborted</text>
+        </g>
+        <g data-detail="context" data-edge-from="n7" data-edge-to="n11" data-edge-label="有工具 tool_use" data-edge-key="4" data-edge-id="e6">
+          <rect x="424" y="332" width="82" height="14" rx="3" class="c-mask"/>
+          <text x="465" y="342" class="t-backend" font-size="8" text-anchor="middle">有工具 tool_use</text>
+        </g>
+        <g data-detail="context" data-edge-from="n7" data-edge-to="n15" data-edge-label="空：自然收尾" data-edge-key="5" data-edge-id="e7">
+          <rect x="493.7" y="223" width="67.6" height="14" rx="3" class="c-mask"/>
+          <text x="527.5" y="233" class="t-database" font-size="8" text-anchor="middle">空：自然收尾</text>
+        </g>
+
+        <g data-detail="context" data-edge-from="n11" data-edge-to="n18" data-edge-label="全 terminate" data-edge-key="7" data-edge-id="e10">
+          <rect x="796.2" y="285" width="67.6" height="14" rx="3" class="c-mask"/>
+          <text x="830" y="295" class="t-security" font-size="8" text-anchor="middle">全 terminate</text>
+        </g>
+        <g data-detail="context" data-edge-from="n15" data-edge-to="n2" data-edge-label="喂回结果，下一轮 turn" data-edge-key="8" data-edge-id="e11">
+          <rect x="464.6" y="301.5" width="110.8" height="14" rx="3" class="c-mask"/>
+          <text x="520" y="311.5" class="t-database" font-size="8" text-anchor="middle">喂回结果，下一轮 turn</text>
+        </g>
+        <g data-detail="context" data-edge-from="n15" data-edge-to="n18" data-edge-label="shouldStop=true" data-edge-key="9" data-edge-id="e12">
+          <rect x="584" y="146" width="82" height="14" rx="3" class="c-mask"/>
+          <text x="625" y="156" class="t-backend" font-size="8" text-anchor="middle">shouldStop=true</text>
+        </g>
+
+        <!-- Legend -->
+        <g data-legend-bridge="">
+          <text x="175" y="552" class="t-primary" font-size="10" font-weight="600">Legend</text>
+        <g data-legend-kind="frontend">
+          <rect x="175" y="564" width="14" height="9" rx="2" class="c-frontend" stroke-width="1"/>
+          <text x="195" y="572" class="t-muted" font-size="7">User UI</text>
+        </g>
+        <g data-legend-kind="backend">
+          <rect x="260" y="564" width="14" height="9" rx="2" class="c-backend" stroke-width="1"/>
+          <text x="280" y="572" class="t-muted" font-size="7">Agent logic</text>
+        </g>
+        <g data-legend-kind="security">
+          <rect x="370" y="564" width="14" height="9" rx="2" class="c-security" stroke-width="1"/>
+          <text x="390" y="572" class="t-muted" font-size="7">Policy</text>
+        </g>
+        <g data-legend-kind="messagebus">
+          <rect x="455" y="564" width="14" height="9" rx="2" class="c-messagebus" stroke-width="1"/>
+          <text x="475" y="572" class="t-muted" font-size="7">Tool action</text>
+        </g>
+        <g data-legend-kind="database">
+          <rect x="565" y="564" width="14" height="9" rx="2" class="c-database" stroke-width="1"/>
+          <text x="585" y="572" class="t-muted" font-size="7">Context / trace</text>
+        </g>
+        </g>
+      </svg>

@@ -1,0 +1,299 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 674" role="img" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-theme="light" data-quality-profile="standard">
+<style>
+.c-grid {stroke: #e2e8f0; fill: none;}
+.c-mask {fill: #ffffff; stroke: none;}
+.c-backend {fill: rgba(52, 211, 153, 0.18);    stroke: #059669;}
+.c-database {fill: rgba(167, 139, 250, 0.2);   stroke: #7c3aed;}
+.c-security {fill: rgba(251, 113, 133, 0.15);   stroke: #e11d48;}
+.c-messagebus {fill: rgba(251, 146, 60, 0.15); stroke: #ea580c;}
+.c-external {fill: rgba(148, 163, 184, 0.18);   stroke: #64748b;}
+.t-primary {fill: #0f172a;}
+.t-muted {fill: #64748b;}
+.t-backend {fill: #059669;}
+.t-cloud {fill: #d97706;}
+.t-security {fill: #e11d48;}
+.t-messagebus {fill: #ea580c;}
+.a-default {stroke: #94a3b8; fill: none;}
+.a-emphasis {stroke: #059669; fill: none;}
+.a-security {stroke: #e11d48; fill: none; stroke-dasharray: 5,5;}
+.a-dashed {stroke: #7c3aed; fill: none; stroke-dasharray: 4,4;}
+.m-default {fill: #94a3b8;}
+.m-emphasis {fill: #059669;}
+.m-security {fill: #e11d48;}
+.m-dashed {fill: #7c3aed;}
+.c-region {fill: rgba(251, 191, 36, 0.05); stroke: #d97706; stroke-dasharray: 8,4;}
+</style>
+<rect width="100%" height="100%" fill="#f8fafc" />
+
+        <title id="archify-diagram-title">统一 Provider：两种协议一条线缆</title>
+        <desc id="archify-diagram-description">从 Provider 接口到共享传输，双失败模型贯穿始终</desc>
+        <!-- Definitions -->
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-default" />
+          </marker>
+          <marker id="arrowhead-emphasis" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-emphasis" />
+          </marker>
+          <marker id="arrowhead-security" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-security" />
+          </marker>
+          <marker id="arrowhead-dashed" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-dashed" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" class="c-grid" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <!-- Background Grid -->
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- Boundaries (behind everything) -->
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="region" data-composition-frame-id="0" x="500" y="150" width="460" height="356" rx="12" class="c-region" stroke-width="1"/>
+        <text x="508" y="168" class="t-cloud" font-size="9" font-weight="600">共享传输层 transport.go</text>
+
+        <!-- Connection paths (before components for correct z-order) -->
+        <path data-edge-from="provider_iface" data-edge-to="completion_req" data-edge-label="封装三参数" data-edge-key="0" data-edge-id="iface-req" data-composition-points="115,126;115,300" d="M 115 126 L 115 300" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="completion_req" data-edge-to="oai_driver" data-edge-label="Protocol=openai" data-edge-key="1" data-edge-id="req-oai" data-composition-points="190,333;235,333;235,213;280,213" d="M 190 333 L 227 333 Q 235 333 235 325 L 235 221 Q 235 213 243 213 L 280 213" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="completion_req" data-edge-to="anthropic_driver" data-edge-label="Protocol=anthropic" data-edge-key="2" data-edge-id="req-ant" data-composition-points="190,333;235,333;235,453;280,453" d="M 190 333 L 227 333 Q 235 333 235 341 L 235 445 Q 235 453 243 453 L 280 453" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="oai_driver" data-edge-to="check_image" data-edge-key="3" data-edge-id="oai-check" data-composition-points="360,180;360,120" d="M 360 180 L 360 120" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="oai_driver" data-edge-to="stream_request" data-edge-label="newReq + Decoder" data-edge-key="4" data-edge-id="oai-stream" data-composition-points="440,213;485,213;485,330;530,330" d="M 440 213 L 477 213 Q 485 213 485 221 L 485 322 Q 485 330 493 330 L 530 330" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="anthropic_driver" data-edge-to="connect" data-edge-key="5" data-edge-id="ant-stream" data-composition-points="440,453;530,453" d="M 440 453 L 530 453" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="stream_request" data-edge-to="connect" data-edge-key="6" data-edge-id="stream-connect" data-composition-points="605,360;605,420" d="M 605 360 L 605 420" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="connect" data-edge-to="upstream" data-edge-label="POST + SSE" data-edge-key="7" data-edge-id="connect-upstream" data-composition-points="680,453;840,453;840,463;1000,463" d="M 680 453 L 835 453 Q 840 453 840 458 L 840 458 Q 840 463 845 463 L 1000 463" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="connect" data-edge-to="pump" data-edge-label="建连成功起 goroutine" data-edge-key="8" data-edge-id="connect-pump" data-composition-points="605,420;727.5,420;727.5,366;850,366" d="M 605 420 L 719.5 420 Q 727.5 420 727.5 412 L 727.5 374 Q 727.5 366 735.5 366 L 850 366" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="upstream" data-edge-to="pump" data-edge-label="SSE 字节流" data-edge-key="9" data-edge-id="upstream-pump" data-composition-points="1080,430;965,430;965,366;850,366" d="M 1080 430 L 973 430 Q 965 430 965 422 L 965 374 Q 965 366 957 366 L 850 366" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="pump" data-edge-to="decoder" data-edge-label="Decode(payload)" data-edge-key="10" data-edge-id="pump-decoder" data-composition-points="850,300;850,246" d="M 850 300 L 850 246" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="decoder" data-edge-to="event_stream" data-edge-key="11" data-edge-id="decoder-stream" data-composition-points="850,180;855,180;855,120;860,120" d="M 850 180 L 852.5 180 Q 855 180 855 177.5 L 855 122.5 Q 855 120 857.5 120 L 860 120" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="event_stream" data-edge-to="provider_iface" data-edge-label="流回传给循环" data-edge-key="12" data-edge-id="stream-loop" data-composition-points="860,60;860,30;115,30;115,60" d="M 860 60 L 860 38 Q 860 30 852 30 L 123 30 Q 115 30 115 38 L 115 60" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="registry" data-edge-to="credential_store" data-edge-label="EnvVars 优先级" data-edge-key="13" data-edge-id="reg-cred" data-composition-points="190,513;235,513;235,573;280,573" d="M 190 513 L 227 513 Q 235 513 235 521 L 235 565 Q 235 573 243 573 L 280 573" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="credential_store" data-edge-to="completion_req" data-edge-label="GetAPIKey 注入" data-edge-key="14" data-edge-id="cred-req" data-composition-points="360,540;237.5,540;237.5,366;115,366" d="M 360 540 L 245.5 540 Q 237.5 540 237.5 532 L 237.5 374 Q 237.5 366 229.5 366 L 115 366" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+
+        <!-- Components -->
+        <g id="node-provider_iface" data-node-id="provider_iface" data-node-label="Provider 接口" tabindex="0" role="button" aria-label="Focus Provider 接口, Name/Models/StreamCompletion, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Name/Models/StreamCompletion" data-node-context="Architecture component">
+          <title>Provider 接口 · Name/Models/StreamCompletion · Architecture component</title>
+          <rect x="40" y="60" width="150" height="66" rx="6" class="c-mask"/>
+          <rect x="40" y="60" width="150" height="66" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(46 66) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="115" y="91" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Provider 接口</text>
+        <text data-detail="context" x="115" y="107" class="t-muted" font-size="9" text-anchor="middle">Name/Models/StreamCompletion</text>
+        </g>
+
+        <g id="node-completion_req" data-node-id="completion_req" data-node-label="CompletionRequest" tabindex="0" role="button" aria-label="Focus CompletionRequest, Model + LlmContext + StreamConfig, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Model + LlmContext + StreamConfig" data-node-context="Architecture component">
+          <title>CompletionRequest · Model + LlmContext + StreamConfig · Architecture component</title>
+          <rect x="40" y="300" width="150" height="66" rx="6" class="c-mask"/>
+          <rect x="40" y="300" width="150" height="66" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(46 306) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="115" y="331" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">CompletionRequest</text>
+        <text data-detail="context" x="115" y="347" class="t-muted" font-size="9" text-anchor="middle">Model + LlmContext + StreamConfig</text>
+        </g>
+
+        <g id="node-oai_driver" data-node-id="oai_driver" data-node-label="openAICompatDriver" tabindex="0" role="button" aria-label="Focus openAICompatDriver, 编码 Chat Completions, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="编码 Chat Completions" data-node-context="Architecture component">
+          <title>openAICompatDriver · 编码 Chat Completions · Architecture component</title>
+          <rect x="280" y="180" width="160" height="66" rx="6" class="c-mask"/>
+          <rect x="280" y="180" width="160" height="66" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(286 186) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="360" y="211" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">openAICompatDriver</text>
+        <text data-detail="context" x="360" y="227" class="t-muted" font-size="9" text-anchor="middle">编码 Chat Completions</text>
+        </g>
+
+        <g id="node-anthropic_driver" data-node-id="anthropic_driver" data-node-label="anthropicCompatDriver" tabindex="0" role="button" aria-label="Focus anthropicCompatDriver, 编码 Messages / authHeader, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="编码 Messages / authHeader" data-node-context="Architecture component">
+          <title>anthropicCompatDriver · 编码 Messages / authHeader · Architecture component</title>
+          <rect x="280" y="420" width="160" height="66" rx="6" class="c-mask"/>
+          <rect x="280" y="420" width="160" height="66" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(286 426) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="360" y="451" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">anthropicCompatDriver</text>
+        <text data-detail="context" x="360" y="467" class="t-muted" font-size="9" text-anchor="middle">编码 Messages / authHeader</text>
+        </g>
+
+        <g id="node-check_image" data-node-id="check_image" data-node-label="checkImageSupport" tabindex="0" role="button" aria-label="Focus checkImageSupport, 早错误：模型看不见图, Architecture component" aria-pressed="false" data-node-kind="security" data-node-sublabel="早错误：模型看不见图" data-node-tag="pre-check" data-node-context="Architecture component">
+          <title>checkImageSupport · 早错误：模型看不见图 · Architecture component · pre-check</title>
+          <rect x="280" y="60" width="160" height="60" rx="6" class="c-mask"/>
+          <rect x="280" y="60" width="160" height="60" rx="6" class="c-security" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(286 66) scale(0.6875)">
+            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
+            <path d="m5.8 8 1.5 1.5 3-3"/>
+          </g>
+          <text data-detail-anchor="" x="360" y="88" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">checkImageSupport</text>
+        <text data-detail="context" x="360" y="104" class="t-muted" font-size="9" text-anchor="middle">早错误：模型看不见图</text>
+        <text data-detail="fine" x="360" y="112" class="t-security" font-size="7" text-anchor="middle">pre-check</text>
+        </g>
+
+        <g id="node-stream_request" data-node-id="stream_request" data-node-label="StreamRequest" tabindex="0" role="button" aria-label="Focus StreamRequest, 共享传输入口, 共享传输层 transport.go" aria-pressed="false" data-node-kind="backend" data-node-sublabel="共享传输入口" data-node-context="共享传输层 transport.go">
+          <title>StreamRequest · 共享传输入口 · 共享传输层 transport.go</title>
+          <rect x="530" y="300" width="150" height="60" rx="6" class="c-mask"/>
+          <rect x="530" y="300" width="150" height="60" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(536 306) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="605" y="328" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">StreamRequest</text>
+        <text data-detail="context" x="605" y="344" class="t-muted" font-size="9" text-anchor="middle">共享传输入口</text>
+        </g>
+
+        <g id="node-connect" data-node-id="connect" data-node-label="connect" tabindex="0" role="button" aria-label="Focus connect, 同步建连 + 429/503/529 重试, 共享传输层 transport.go" aria-pressed="false" data-node-kind="backend" data-node-sublabel="同步建连 + 429/503/529 重试" data-node-context="共享传输层 transport.go">
+          <title>connect · 同步建连 + 429/503/529 重试 · 共享传输层 transport.go</title>
+          <rect x="530" y="420" width="150" height="66" rx="6" class="c-mask"/>
+          <rect x="530" y="420" width="150" height="66" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(536 426) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="605" y="451" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">connect</text>
+        <text data-detail="context" x="605" y="467" class="t-muted" font-size="9" text-anchor="middle">同步建连 + 429/503/529 重试</text>
+        </g>
+
+        <g id="node-pump" data-node-id="pump" data-node-label="pump goroutine" tabindex="0" role="button" aria-label="Focus pump goroutine, SSE 读循环 + idle/stall 看门狗, 共享传输层 transport.go" aria-pressed="false" data-node-kind="backend" data-node-sublabel="SSE 读循环 + idle/stall 看门狗" data-node-context="共享传输层 transport.go">
+          <title>pump goroutine · SSE 读循环 + idle/stall 看门狗 · 共享传输层 transport.go</title>
+          <rect x="770" y="300" width="160" height="66" rx="6" class="c-mask"/>
+          <rect x="770" y="300" width="160" height="66" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(776 306) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="850" y="331" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">pump goroutine</text>
+        <text data-detail="context" x="850" y="347" class="t-muted" font-size="9" text-anchor="middle">SSE 读循环 + idle/stall 看门狗</text>
+        </g>
+
+        <g id="node-decoder" data-node-id="decoder" data-node-label="OpenAI/Anthropic Decoder" tabindex="0" role="button" aria-label="Focus OpenAI/Anthropic Decoder, 累积/事件序列解码, 共享传输层 transport.go" aria-pressed="false" data-node-kind="backend" data-node-sublabel="累积/事件序列解码" data-node-context="共享传输层 transport.go">
+          <title>OpenAI/Anthropic Decoder · 累积/事件序列解码 · 共享传输层 transport.go</title>
+          <rect x="770" y="180" width="160" height="66" rx="6" class="c-mask"/>
+          <rect x="770" y="180" width="160" height="66" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(776 186) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="850" y="211" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">OpenAI/Anthropic Decoder</text>
+        <text data-detail="context" x="850" y="227" class="t-muted" font-size="9" text-anchor="middle">累积/事件序列解码</text>
+        </g>
+
+        <g id="node-event_stream" data-node-id="event_stream" data-node-label="AssistantMessageEventStream" tabindex="0" role="button" aria-label="Focus AssistantMessageEventStream, 增量事件流回传循环, Architecture component" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="增量事件流回传循环" data-node-context="Architecture component">
+          <title>AssistantMessageEventStream · 增量事件流回传循环 · Architecture component</title>
+          <rect x="770" y="60" width="180" height="60" rx="6" class="c-mask"/>
+          <rect x="770" y="60" width="180" height="60" rx="6" class="c-messagebus" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(776 66) scale(0.6875)">
+            <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/>
+            <circle cx="5" cy="4.5" r="1" class="sigil-fill"/>
+            <circle cx="10.5" cy="8" r="1" class="sigil-fill"/>
+            <circle cx="7" cy="11.5" r="1" class="sigil-fill"/>
+          </g>
+          <text data-detail-anchor="" x="860" y="88" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">AssistantMessageEventStream</text>
+        <text data-detail="context" x="860" y="104" class="t-muted" font-size="9" text-anchor="middle">增量事件流回传循环</text>
+        </g>
+
+        <g id="node-upstream" data-node-id="upstream" data-node-label="上游模型服务" tabindex="0" role="button" aria-label="Focus 上游模型服务, OpenAI 兼容 / Anthropic 系 SSE, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="OpenAI 兼容 / Anthropic 系 SSE" data-node-context="Architecture component">
+          <title>上游模型服务 · OpenAI 兼容 / Anthropic 系 SSE · Architecture component</title>
+          <rect x="1000" y="430" width="160" height="66" rx="6" class="c-mask"/>
+          <rect x="1000" y="430" width="160" height="66" rx="6" class="c-external" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(1006 436) scale(0.6875)">
+            <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
+            <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
+          </g>
+          <text data-detail-anchor="" x="1080" y="461" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">上游模型服务</text>
+        <text data-detail="context" x="1080" y="477" class="t-muted" font-size="9" text-anchor="middle">OpenAI 兼容 / Anthropic 系 SSE</text>
+        </g>
+
+        <g id="node-registry" data-node-id="registry" data-node-label="注册表 registry.go" tabindex="0" role="button" aria-label="Focus 注册表 registry.go, ProviderSpec 唯一真相源, Architecture component" aria-pressed="false" data-node-kind="database" data-node-sublabel="ProviderSpec 唯一真相源" data-node-context="Architecture component">
+          <title>注册表 registry.go · ProviderSpec 唯一真相源 · Architecture component</title>
+          <rect x="40" y="480" width="150" height="66" rx="6" class="c-mask"/>
+          <rect x="40" y="480" width="150" height="66" rx="6" class="c-database" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(46 486) scale(0.6875)">
+            <ellipse cx="8" cy="4" rx="5" ry="2"/>
+            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
+          </g>
+          <text data-detail-anchor="" x="115" y="511" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">注册表 registry.go</text>
+        <text data-detail="context" x="115" y="527" class="t-muted" font-size="9" text-anchor="middle">ProviderSpec 唯一真相源</text>
+        </g>
+
+        <g id="node-credential_store" data-node-id="credential_store" data-node-label="CredentialStore" tabindex="0" role="button" aria-label="Focus CredentialStore, OAuth→覆盖→环境变量→配置, Architecture component" aria-pressed="false" data-node-kind="security" data-node-sublabel="OAuth→覆盖→环境变量→配置" data-node-context="Architecture component">
+          <title>CredentialStore · OAuth→覆盖→环境变量→配置 · Architecture component</title>
+          <rect x="280" y="540" width="160" height="66" rx="6" class="c-mask"/>
+          <rect x="280" y="540" width="160" height="66" rx="6" class="c-security" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(286 546) scale(0.6875)">
+            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
+            <path d="m5.8 8 1.5 1.5 3-3"/>
+          </g>
+          <text data-detail-anchor="" x="360" y="571" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">CredentialStore</text>
+        <text data-detail="context" x="360" y="587" class="t-muted" font-size="9" text-anchor="middle">OAuth→覆盖→环境变量→配置</text>
+        </g>
+
+        <!-- Connection labels -->
+        <g data-detail="context" data-edge-from="provider_iface" data-edge-to="completion_req" data-edge-label="封装三参数" data-edge-key="0" data-edge-id="iface-req">
+          <rect x="86" y="130" width="58" height="14" rx="3" class="c-mask"/>
+          <text x="115" y="140" class="t-muted" font-size="8" text-anchor="middle">封装三参数</text>
+        </g>
+        <g data-detail="context" data-edge-from="completion_req" data-edge-to="oai_driver" data-edge-label="Protocol=openai" data-edge-key="1" data-edge-id="req-oai">
+          <rect x="194" y="253" width="82" height="14" rx="3" class="c-mask"/>
+          <text x="235" y="263" class="t-muted" font-size="8" text-anchor="middle">Protocol=openai</text>
+        </g>
+        <g data-detail="context" data-edge-from="completion_req" data-edge-to="anthropic_driver" data-edge-label="Protocol=anthropic" data-edge-key="2" data-edge-id="req-ant">
+          <rect x="186.8" y="373" width="96.39999999999999" height="14" rx="3" class="c-mask"/>
+          <text x="235" y="383" class="t-muted" font-size="8" text-anchor="middle">Protocol=anthropic</text>
+        </g>
+
+        <g data-detail="context" data-edge-from="oai_driver" data-edge-to="stream_request" data-edge-label="newReq + Decoder" data-edge-key="4" data-edge-id="oai-stream">
+          <rect x="441.6" y="251.5" width="86.8" height="14" rx="3" class="c-mask"/>
+          <text x="485" y="261.5" class="t-muted" font-size="8" text-anchor="middle">newReq + Decoder</text>
+        </g>
+
+
+        <g data-detail="context" data-edge-from="connect" data-edge-to="upstream" data-edge-label="POST + SSE" data-edge-key="7" data-edge-id="connect-upstream">
+          <rect x="811" y="438" width="58" height="14" rx="3" class="c-mask"/>
+          <text x="840" y="448" class="t-muted" font-size="8" text-anchor="middle">POST + SSE</text>
+        </g>
+        <g data-detail="context" data-edge-from="connect" data-edge-to="pump" data-edge-label="建连成功起 goroutine" data-edge-key="8" data-edge-id="connect-pump">
+          <rect x="674.5" y="373" width="106" height="14" rx="3" class="c-mask"/>
+          <text x="727.5" y="383" class="t-muted" font-size="8" text-anchor="middle">建连成功起 goroutine</text>
+        </g>
+        <g data-detail="context" data-edge-from="upstream" data-edge-to="pump" data-edge-label="SSE 字节流" data-edge-key="9" data-edge-id="upstream-pump">
+          <rect x="936" y="366" width="58" height="14" rx="3" class="c-mask"/>
+          <text x="965" y="376" class="t-messagebus" font-size="8" text-anchor="middle">SSE 字节流</text>
+        </g>
+        <g data-detail="context" data-edge-from="pump" data-edge-to="decoder" data-edge-label="Decode(payload)" data-edge-key="10" data-edge-id="pump-decoder">
+          <rect x="809" y="280" width="82" height="14" rx="3" class="c-mask"/>
+          <text x="850" y="290" class="t-muted" font-size="8" text-anchor="middle">Decode(payload)</text>
+        </g>
+
+        <g data-detail="context" data-edge-from="event_stream" data-edge-to="provider_iface" data-edge-label="流回传给循环" data-edge-key="12" data-edge-id="stream-loop">
+          <rect x="453.7" y="10" width="67.6" height="14" rx="3" class="c-mask"/>
+          <text x="487.5" y="20" class="t-backend" font-size="8" text-anchor="middle">流回传给循环</text>
+        </g>
+        <g data-detail="context" data-edge-from="registry" data-edge-to="credential_store" data-edge-label="EnvVars 优先级" data-edge-key="13" data-edge-id="reg-cred">
+          <rect x="196.4" y="523" width="77.2" height="14" rx="3" class="c-mask"/>
+          <text x="235" y="533" class="t-muted" font-size="8" text-anchor="middle">EnvVars 优先级</text>
+        </g>
+        <g data-detail="context" data-edge-from="credential_store" data-edge-to="completion_req" data-edge-label="GetAPIKey 注入" data-edge-key="14" data-edge-id="cred-req">
+          <rect x="198.9" y="433" width="77.2" height="14" rx="3" class="c-mask"/>
+          <text x="237.5" y="443" class="t-security" font-size="8" text-anchor="middle">GetAPIKey 注入</text>
+        </g>
+
+        <!-- Legend -->
+        <g data-legend-bridge="">
+          <text x="40" y="645" class="t-primary" font-size="9" font-weight="600">Legend</text>
+          <g data-legend-kind="backend">
+            <rect x="40" y="650" width="14" height="9" rx="2" class="c-backend" stroke-width="1"/>
+            <text x="60" y="658" class="t-muted" font-size="8">Backend</text>
+          </g>
+          <g data-legend-kind="security">
+            <rect x="139" y="650" width="14" height="9" rx="2" class="c-security" stroke-width="1"/>
+            <text x="159" y="658" class="t-muted" font-size="8">Security</text>
+          </g>
+          <g data-legend-kind="messagebus">
+            <rect x="243" y="650" width="14" height="9" rx="2" class="c-messagebus" stroke-width="1"/>
+            <text x="263" y="658" class="t-muted" font-size="8">Message bus</text>
+          </g>
+          <g data-legend-kind="external">
+            <rect x="362" y="650" width="14" height="9" rx="2" class="c-external" stroke-width="1"/>
+            <text x="382" y="658" class="t-muted" font-size="8">External</text>
+          </g>
+          <g data-legend-kind="database">
+            <rect x="466" y="650" width="14" height="9" rx="2" class="c-database" stroke-width="1"/>
+            <text x="486" y="658" class="t-muted" font-size="8">Database</text>
+          </g>
+        </g>
+      </svg>

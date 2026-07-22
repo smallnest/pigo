@@ -415,6 +415,8 @@ func ExecuteToolCalls(ctx context.Context, cfg BatchConfig, calls []agentcore.Ag
 
 这段代码里藏着三个关键设计。
 
+![图5-8 工具注册与批量执行：启动期注册即编译，运行期按串/并发调度单调用，五道闸门与 panic 恢复兜底，全部 terminate 才让整批终止](images/fig5-8.svg){#fig:5-8 width=100%}
+
 **串行的触发条件是"或"关系**：要么调用方强制 `ForceSequential`，要么这批调用里只要有一个工具声明了 `ToolExecutionSequential`，整批就退化成串行。`batchRequiresSequential` 遍历一遍就能判定：
 
 ```go

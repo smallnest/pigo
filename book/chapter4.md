@@ -673,6 +673,8 @@ fail := func(msg string, err error) {
 
 有了统一接口、解码器和传输层，具体 Provider 的实现就变得很薄。`internal/provider/providers.go` 用两种"驱动"（driver）覆盖了所有内置 Provider——它们都实现 `Provider` 接口，都把请求交给 `StreamRequest`，区别只在"编码成哪套线上格式 + 配哪个解码器"。
 
+![图4-7 统一 Provider：从接口经两种驱动汇入共享传输，SSE 解码后以事件流回传，双失败模型贯穿始终](images/fig4-7.svg){#fig:4-7 width=100%}
+
 ### OpenAI 兼容驱动
 
 `openAICompatDriver` 是所有 OpenAI 兼容 Provider 的共同底座：

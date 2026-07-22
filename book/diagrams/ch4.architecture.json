@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "统一 Provider：两种协议一条线缆",
+    "subtitle": "从 Provider 接口到共享传输，双失败模型贯穿始终",
+    "quality_profile": "standard"
+  },
+  "components": [
+    { "id": "provider_iface", "type": "backend", "label": "Provider 接口", "sublabel": "Name/Models/StreamCompletion", "pos": [40, 60], "size": [150, 66] },
+    { "id": "completion_req", "type": "backend", "label": "CompletionRequest", "sublabel": "Model + LlmContext + StreamConfig", "pos": [40, 300], "size": [150, 66] },
+    { "id": "oai_driver", "type": "backend", "label": "openAICompatDriver", "sublabel": "编码 Chat Completions", "pos": [280, 180], "size": [160, 66] },
+    { "id": "anthropic_driver", "type": "backend", "label": "anthropicCompatDriver", "sublabel": "编码 Messages / authHeader", "pos": [280, 420], "size": [160, 66] },
+    { "id": "check_image", "type": "security", "label": "checkImageSupport", "sublabel": "早错误：模型看不见图", "pos": [280, 60], "size": [160, 60], "tag": "pre-check" },
+    { "id": "stream_request", "type": "backend", "label": "StreamRequest", "sublabel": "共享传输入口", "pos": [530, 300], "size": [150, 60] },
+    { "id": "connect", "type": "backend", "label": "connect", "sublabel": "同步建连 + 429/503/529 重试", "pos": [530, 420], "size": [150, 66] },
+    { "id": "pump", "type": "backend", "label": "pump goroutine", "sublabel": "SSE 读循环 + idle/stall 看门狗", "pos": [770, 300], "size": [160, 66] },
+    { "id": "decoder", "type": "backend", "label": "OpenAI/Anthropic Decoder", "sublabel": "累积/事件序列解码", "pos": [770, 180], "size": [160, 66] },
+    { "id": "event_stream", "type": "messagebus", "label": "AssistantMessageEventStream", "sublabel": "增量事件流回传循环", "pos": [770, 60], "size": [180, 60] },
+    { "id": "upstream", "type": "external", "label": "上游模型服务", "sublabel": "OpenAI 兼容 / Anthropic 系 SSE", "pos": [1000, 430], "size": [160, 66] },
+    { "id": "registry", "type": "database", "label": "注册表 registry.go", "sublabel": "ProviderSpec 唯一真相源", "pos": [40, 480], "size": [150, 66] },
+    { "id": "credential_store", "type": "security", "label": "CredentialStore", "sublabel": "OAuth→覆盖→环境变量→配置", "pos": [280, 540], "size": [160, 66] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "共享传输层 transport.go", "wraps": ["stream_request", "connect", "pump", "decoder"] }
+  ],
+  "connections": [
+    { "id": "iface-req", "from": "provider_iface", "to": "completion_req", "label": "封装三参数", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
+    { "id": "req-oai", "from": "completion_req", "to": "oai_driver", "label": "Protocol=openai" },
+    { "id": "req-ant", "from": "completion_req", "to": "anthropic_driver", "label": "Protocol=anthropic" },
+    { "id": "oai-check", "from": "oai_driver", "to": "check_image", "variant": "security", "fromSide": "top", "toSide": "bottom" },
+    { "id": "oai-stream", "from": "oai_driver", "to": "stream_request", "label": "newReq + Decoder" },
+    { "id": "ant-stream", "from": "anthropic_driver", "to": "connect" },
+    { "id": "stream-connect", "from": "stream_request", "to": "connect", "fromSide": "bottom", "toSide": "top" },
+    { "id": "connect-upstream", "from": "connect", "to": "upstream", "label": "POST + SSE", "fromSide": "right", "toSide": "left" },
+    { "id": "connect-pump", "from": "connect", "to": "pump", "label": "建连成功起 goroutine", "fromSide": "top", "toSide": "bottom" },
+    { "id": "upstream-pump", "from": "upstream", "to": "pump", "label": "SSE 字节流", "variant": "dashed", "fromSide": "top", "toSide": "bottom", "labelDy": -12 },
+    { "id": "pump-decoder", "from": "pump", "to": "decoder", "label": "Decode(payload)", "fromSide": "top", "toSide": "bottom" },
+    { "id": "decoder-stream", "from": "decoder", "to": "event_stream", "fromSide": "top", "toSide": "bottom" },
+    { "id": "stream-loop", "from": "event_stream", "to": "provider_iface", "label": "流回传给循环", "variant": "emphasis", "fromSide": "top", "toSide": "top", "via": [[860, 30], [115, 30]] },
+    { "id": "reg-cred", "from": "registry", "to": "credential_store", "label": "EnvVars 优先级" },
+    { "id": "cred-req", "from": "credential_store", "to": "completion_req", "label": "GetAPIKey 注入", "variant": "security", "fromSide": "top", "toSide": "bottom" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "统一契约", "items": ["Provider 接口把三参数封进 CompletionRequest", "两种驱动只负责编码，共享同一条传输"] },
+    { "dot": "emerald", "title": "传输层", "items": ["connect 同步建连，仅 429/503/529 重试", "pump goroutine 读 SSE，idle/stall 双看门狗"] },
+    { "dot": "rose", "title": "双失败模型", "items": ["建不起流 → 返回 Go error", "运行期失败 → StreamErrorEvent 随流而下"] }
+  ]
+}

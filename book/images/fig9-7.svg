@@ -1,0 +1,199 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 680" role="img" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-theme="light" data-quality-profile="standard">
+<style>
+.c-grid {stroke: #e2e8f0; fill: none;}
+.c-mask {fill: #ffffff; stroke: none;}
+.c-backend {fill: rgba(52, 211, 153, 0.18);    stroke: #059669;}
+.c-messagebus {fill: rgba(251, 146, 60, 0.15); stroke: #ea580c;}
+.c-external {fill: rgba(148, 163, 184, 0.18);   stroke: #64748b;}
+.t-primary {fill: #0f172a;}
+.t-muted {fill: #64748b;}
+.t-dim {fill: #94a3b8;}
+.t-backend {fill: #059669;}
+.a-default {stroke: #94a3b8; fill: none;}
+.a-emphasis {stroke: #059669; fill: none;}
+.a-security {stroke: #e11d48; fill: none; stroke-dasharray: 5,5;}
+.a-dashed {stroke: #7c3aed; fill: none; stroke-dasharray: 4,4;}
+.m-default {fill: #94a3b8;}
+.m-emphasis {fill: #059669;}
+.m-security {fill: #e11d48;}
+.m-dashed {fill: #7c3aed;}
+.c-lane {fill: rgba(248, 250, 252, 0.65); stroke: #cbd5e1; stroke-dasharray: 6,6;}
+</style>
+<rect width="100%" height="100%" fill="#f8fafc" />
+
+        <title id="archify-diagram-title">子 Agent：进程隔离下的一次委派</title>
+        <desc id="archify-diagram-description">父进程 spawn pigo --subagent-rpc，stdio 上跑一轮 subagent/run</desc>
+        <!-- Definitions -->
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-default" />
+          </marker>
+          <marker id="arrowhead-emphasis" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-emphasis" />
+          </marker>
+          <marker id="arrowhead-security" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-security" />
+          </marker>
+          <marker id="arrowhead-dashed" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-dashed" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" class="c-grid" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <!-- Background Grid -->
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- Time Segments -->
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="0" x="48" y="150" width="804" height="100" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="62" y="168" class="t-dim" font-size="9" font-weight="600">spawn + 建连</text>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="1" x="48" y="265" width="804" height="180" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="62" y="283" class="t-dim" font-size="9" font-weight="600">一轮 subagent/run</text>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="segment" data-composition-frame-id="2" x="48" y="460" width="804" height="140" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="62" y="478" class="t-dim" font-size="9" font-weight="600">回结果 + 收尾</text>
+
+        <!-- Lifelines -->
+        <path d="M 62 142 L 62 615" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 170 142 L 170 615" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 278 142 L 278 615" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+        <path d="M 386 142 L 386 615" class="a-default" stroke-width="0.8" stroke-dasharray="3,7"/>
+
+        <!-- Messages -->
+        <g data-edge-from="parent" data-edge-to="client" data-edge-label="executeProcess(prompt)" data-edge-key="0" data-edge-id="spawn">
+          <path data-composition-edge-from="parent" data-composition-edge-to="client" data-composition-edge-id="spawn" data-composition-points="69,180;163,180" d="M 69 180 L 163 180" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <g data-detail="context">
+          <rect x="52.8" y="160" width="126.4" height="16" rx="3" class="c-mask"/>
+          <text x="116" y="170" class="t-backend" font-size="9" text-anchor="middle">executeProcess(prompt)</text>
+        </g>
+        </g>
+
+        <g data-edge-from="client" data-edge-to="child" data-edge-label="os.Executable()+spawn，继承 Env" data-edge-key="1" data-edge-id="exec">
+          <path data-composition-edge-from="client" data-composition-edge-to="child" data-composition-edge-id="exec" data-composition-points="177,225;271,225" d="M 177 225 L 271 225" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="137.39999999999998" y="205" width="173.20000000000002" height="16" rx="3" class="c-mask"/>
+          <text x="224" y="215" class="t-backend" font-size="9" text-anchor="middle">os.Executable()+spawn，继承 Env</text>
+        </g>
+        <text data-detail="fine" x="189" y="243" class="t-dim" font-size="7">启动 readLoop；pending 按 id 存响应</text>
+        </g>
+
+        <g data-edge-from="client" data-edge-to="child" data-edge-label="写 {id,method:subagent/run,params}" data-edge-key="2" data-edge-id="call">
+          <path data-composition-edge-from="client" data-composition-edge-to="child" data-composition-edge-id="call" data-composition-points="177,295;271,295" d="M 177 295 L 271 295" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="129.6" y="275" width="188.8" height="16" rx="3" class="c-mask"/>
+          <text x="224" y="285" class="t-backend" font-size="9" text-anchor="middle">写 {id,method:subagent/run,params}</text>
+        </g>
+        <text data-detail="fine" x="189" y="313" class="t-dim" font-size="7">子进程 resolveProvider + filterBuiltinTools 重组 RunConfig</text>
+        </g>
+
+        <g data-edge-from="child" data-edge-to="childloop" data-edge-label="RunSubAgentOnce (StartRun+DrainStream)" data-edge-key="3" data-edge-id="run">
+          <path data-composition-edge-from="child" data-composition-edge-to="childloop" data-composition-edge-id="run" data-composition-points="285,355;379,355" d="M 285 355 L 379 355" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <g data-detail="context">
+          <rect x="227.2" y="335" width="209.6" height="16" rx="3" class="c-mask"/>
+          <text x="332" y="345" class="t-backend" font-size="9" text-anchor="middle">RunSubAgentOnce (StartRun+DrainStream)</text>
+        </g>
+        </g>
+
+        <g data-edge-from="childloop" data-edge-to="child" data-edge-label="最终 assistant 文本" data-edge-key="4" data-edge-id="final">
+          <path data-composition-edge-from="childloop" data-composition-edge-to="child" data-composition-edge-id="final" data-composition-points="379,405;285,405" d="M 379 405 L 285 405" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="276.6" y="385" width="110.8" height="16" rx="3" class="c-mask"/>
+          <text x="332" y="395" class="t-muted" font-size="9" text-anchor="middle">最终 assistant 文本</text>
+        </g>
+        </g>
+
+        <g data-edge-from="child" data-edge-to="client" data-edge-label="写 {id,result:{text}} 到 stdout（单条无增量）" data-edge-key="5" data-edge-id="result">
+          <path data-composition-edge-from="child" data-composition-edge-to="client" data-composition-edge-id="result" data-composition-points="271,475;177,475" d="M 271 475 L 177 475" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="101" y="455" width="246" height="16" rx="3" class="c-mask"/>
+          <text x="224" y="465" class="t-muted" font-size="9" text-anchor="middle">写 {id,result:{text}} 到 stdout（单条无增量）</text>
+        </g>
+        </g>
+
+        <g data-edge-from="client" data-edge-to="parent" data-edge-label="Call 按 id 匹配 → res.Text" data-edge-key="6" data-edge-id="match">
+          <path data-composition-edge-from="client" data-composition-edge-to="parent" data-composition-edge-id="match" data-composition-points="163,520;69,520" d="M 163 520 L 69 520" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="42.39999999999999" y="500" width="147.20000000000002" height="16" rx="3" class="c-mask"/>
+          <text x="116" y="510" class="t-muted" font-size="9" text-anchor="middle">Call 按 id 匹配 → res.Text</text>
+        </g>
+        </g>
+
+        <g data-edge-from="parent" data-edge-to="child" data-edge-label="defer Close：关 stdin，等 5s 后 kill" data-edge-key="7" data-edge-id="close">
+          <path data-composition-edge-from="parent" data-composition-edge-to="child" data-composition-edge-id="close" data-composition-points="69,575;271,575" d="M 69 575 L 271 575" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <g data-detail="context">
+          <rect x="70.39999999999999" y="555" width="199.20000000000002" height="16" rx="3" class="c-mask"/>
+          <text x="170" y="565" class="t-backend" font-size="9" text-anchor="middle">defer Close：关 stdin，等 5s 后 kill</text>
+        </g>
+        <text data-detail="fine" x="81" y="593" class="t-dim" font-size="7">stdin EOF → runSubAgentRPC 返回 0 干净退出</text>
+        </g>
+
+        <!-- Activations -->
+        <rect x="165" y="215" width="10" height="310" rx="3" class="c-mask"/>
+        <rect x="165" y="215" width="10" height="310" rx="3" class="c-messagebus" stroke-width="1"/>
+        <rect x="273" y="222" width="10" height="363" rx="3" class="c-mask"/>
+        <rect x="273" y="222" width="10" height="363" rx="3" class="c-external" stroke-width="1"/>
+        <rect x="381" y="352" width="10" height="56" rx="3" class="c-mask"/>
+        <rect x="381" y="352" width="10" height="56" rx="3" class="c-backend" stroke-width="1"/>
+
+        <!-- Participants -->
+        <g id="node-parent" data-node-id="parent" data-node-label="父 Agent" tabindex="0" role="button" aria-label="Focus 父 Agent, SubAgentTool, Sequence participant" aria-pressed="false" data-node-kind="backend" data-node-sublabel="SubAgentTool" data-node-context="Sequence participant">
+          <title>父 Agent · SubAgentTool · Sequence participant</title>
+          <rect x="19" y="72" width="86" height="54" rx="6" class="c-mask"/>
+          <rect x="19" y="72" width="86" height="54" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(25 78) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="62" y="94" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">父 Agent</text>
+          <text data-detail="context" x="62" y="111" class="t-muted" font-size="7" text-anchor="middle">SubAgentTool</text>
+        </g>
+
+        <g id="node-client" data-node-id="client" data-node-label="RPC Client" tabindex="0" role="button" aria-label="Focus RPC Client, defaultProcessCall, Sequence participant" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="defaultProcessCall" data-node-context="Sequence participant">
+          <title>RPC Client · defaultProcessCall · Sequence participant</title>
+          <rect x="127" y="72" width="86" height="54" rx="6" class="c-mask"/>
+          <rect x="127" y="72" width="86" height="54" rx="6" class="c-messagebus" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(133 78) scale(0.6875)">
+            <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/>
+            <circle cx="5" cy="4.5" r="1" class="sigil-fill"/>
+            <circle cx="10.5" cy="8" r="1" class="sigil-fill"/>
+            <circle cx="7" cy="11.5" r="1" class="sigil-fill"/>
+          </g>
+          <text data-detail-anchor="" x="170" y="94" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">RPC Client</text>
+          <text data-detail="context" x="170" y="111" class="t-muted" font-size="7" text-anchor="middle">defaultProcessCall</text>
+        </g>
+
+        <g id="node-child" data-node-id="child" data-node-label="子进程" tabindex="0" role="button" aria-label="Focus 子进程, pigo --subagent-rpc, Sequence participant" aria-pressed="false" data-node-kind="external" data-node-sublabel="pigo --subagent-rpc" data-node-context="Sequence participant">
+          <title>子进程 · pigo --subagent-rpc · Sequence participant</title>
+          <rect x="235" y="72" width="86" height="54" rx="6" class="c-mask"/>
+          <rect x="235" y="72" width="86" height="54" rx="6" class="c-external" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(241 78) scale(0.6875)">
+            <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
+            <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
+          </g>
+          <text data-detail-anchor="" x="278" y="94" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">子进程</text>
+          <text data-detail="context" x="278" y="111" class="t-muted" font-size="7" text-anchor="middle">pigo --subagent-rpc</text>
+        </g>
+
+        <g id="node-childloop" data-node-id="childloop" data-node-label="子 Agent 循环" tabindex="0" role="button" aria-label="Focus 子 Agent 循环, RunSubAgentOnce, Sequence participant" aria-pressed="false" data-node-kind="backend" data-node-sublabel="RunSubAgentOnce" data-node-context="Sequence participant">
+          <title>子 Agent 循环 · RunSubAgentOnce · Sequence participant</title>
+          <rect x="343" y="72" width="86" height="54" rx="6" class="c-mask"/>
+          <rect x="343" y="72" width="86" height="54" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(349 78) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="386" y="94" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">子 Agent 循环</text>
+          <text data-detail="context" x="386" y="111" class="t-muted" font-size="7" text-anchor="middle">RunSubAgentOnce</text>
+        </g>
+
+        <!-- Legend -->
+        <text x="150" y="606" class="t-primary" font-size="10" font-weight="600">Legend</text>
+        <path d="M 150 626 L 184 626" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <text x="193" y="629" class="t-muted" font-size="8">request</text>
+        <path d="M 270 626 L 304 626" class="a-default" stroke-width="1.4" stroke-dasharray="3,5" marker-end="url(#arrowhead)"/>
+        <text x="313" y="629" class="t-muted" font-size="8">return</text>
+        <path d="M 385 626 L 419 626" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <text x="428" y="629" class="t-muted" font-size="8">security</text>
+        <path d="M 530 626 L 564 626" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+        <text x="573" y="629" class="t-muted" font-size="8">async trace</text>
+      </svg>

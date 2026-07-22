@@ -1,0 +1,232 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 652" role="img" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-theme="light" data-quality-profile="standard">
+<style>
+.c-grid {stroke: #e2e8f0; fill: none;}
+.c-mask {fill: #ffffff; stroke: none;}
+.c-frontend {fill: rgba(34, 211, 238, 0.15);   stroke: #0891b2;}
+.c-backend {fill: rgba(52, 211, 153, 0.18);    stroke: #059669;}
+.c-database {fill: rgba(167, 139, 250, 0.2);   stroke: #7c3aed;}
+.c-security {fill: rgba(251, 113, 133, 0.15);   stroke: #e11d48;}
+.c-messagebus {fill: rgba(251, 146, 60, 0.15); stroke: #ea580c;}
+.t-primary {fill: #0f172a;}
+.t-muted {fill: #64748b;}
+.t-dim {fill: #94a3b8;}
+.t-backend {fill: #059669;}
+.t-database {fill: #7c3aed;}
+.t-security {fill: #e11d48;}
+.a-default {stroke: #94a3b8; fill: none;}
+.a-emphasis {stroke: #059669; fill: none;}
+.a-security {stroke: #e11d48; fill: none; stroke-dasharray: 5,5;}
+.a-dashed {stroke: #7c3aed; fill: none; stroke-dasharray: 4,4;}
+.m-default {fill: #94a3b8;}
+.m-emphasis {fill: #059669;}
+.m-security {fill: #e11d48;}
+.m-dashed {fill: #7c3aed;}
+.c-security-group {fill: transparent; stroke: #e11d48; stroke-dasharray: 4,4;}
+.c-lane {fill: rgba(248, 250, 252, 0.65); stroke: #cbd5e1; stroke-dasharray: 6,6;}
+</style>
+<rect width="100%" height="100%" fill="#f8fafc" />
+
+        <title id="archify-diagram-title">工具注册与批量执行</title>
+        <desc id="archify-diagram-description">启动期注册编译，运行期串/并发执行、panic 恢复、allTerminate 判定</desc>
+        <!-- Definitions -->
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-default" />
+          </marker>
+          <marker id="arrowhead-emphasis" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-emphasis" />
+          </marker>
+          <marker id="arrowhead-security" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-security" />
+          </marker>
+          <marker id="arrowhead-dashed" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-dashed" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" class="c-grid" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <!-- Background Grid -->
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- Swimlanes -->
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-0" x="40" y="52" width="640" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="74" class="t-dim" font-size="10" font-weight="600">01 / 注册期</text>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-1" x="40" y="176" width="640" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="198" class="t-dim" font-size="10" font-weight="600">02 / 批量调度</text>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-2" x="40" y="300" width="640" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="322" class="t-dim" font-size="10" font-weight="600">03 / 单调用执行</text>
+
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="lane" data-composition-frame-id="lane-3" x="40" y="424" width="640" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <rect data-graph-role="structural-frame" data-composition-frame-kind="exception-lane" data-composition-frame-id="lane-3-exception" x="46" y="430" width="628" height="92" rx="8" class="c-security-group" stroke-width="1"/>
+        <text x="54" y="446" class="t-security" font-size="10" font-weight="600">EX / 闸门 / 安全</text>
+
+        <!-- Phase headers -->
+
+
+        <!-- Workflow groups -->
+
+
+        <!-- Edge paths -->
+        <path data-edge-from="n1" data-edge-to="n2" data-edge-key="0" data-edge-id="e1" data-composition-points="134,119;174,119" d="M 134 119 L 174 119" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="n2" data-edge-to="n4" data-edge-label="Schema 非空存入" data-edge-key="1" data-edge-id="e2" data-composition-points="266,119;384,119" d="M 266 119 L 384 119" class="a-dashed" stroke-width="1.4" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="n5" data-edge-to="n7" data-edge-key="2" data-edge-id="e5" data-composition-points="134,243;174,243" d="M 134 243 L 174 243" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="n7" data-edge-to="n9" data-edge-key="3" data-edge-id="e7" data-composition-points="220,269;220,290;300,290;300,341" d="M 220 269 L 220 290 L 300 290 L 300 341" class="a-default" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+        <path data-edge-from="n9" data-edge-to="n10" data-edge-label="闸门+执行" data-edge-key="4" data-edge-id="e9" data-composition-points="300,393;300,414;430,414;430,465" d="M 300 393 L 300 414 L 430 414 L 430 465" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="n10" data-edge-to="n14" data-edge-label="放行执行" data-edge-key="5" data-edge-id="e10" data-composition-points="430,465;430,414;500,414;500,393" d="M 430 465 L 430 414 L 500 414 L 500 393" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <path data-edge-from="n14" data-edge-to="n16" data-edge-label="写回" data-edge-key="6" data-edge-id="e14" data-composition-points="500,341;500,290;625,290;625,269" d="M 500 341 L 500 290 L 625 290 L 625 269" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+
+        <!-- Nodes -->
+        <g id="node-n1" data-node-id="n1" data-node-label="构造工具集" tabindex="0" role="button" aria-label="Focus 构造工具集, builtinTools, 注册期" aria-pressed="false" data-node-kind="backend" data-node-sublabel="builtinTools" data-node-context="注册期">
+          <title>构造工具集 · builtinTools · 注册期</title>
+          <rect x="42" y="93" width="92" height="52" rx="6" class="c-mask"/>
+          <rect x="42" y="93" width="92" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(48 99) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="88" y="114" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">构造工具集</text>
+          <text data-detail="context" x="88" y="131" class="t-muted" font-size="8" text-anchor="middle">builtinTools</text>
+        </g>
+
+        <g id="node-n2" data-node-id="n2" data-node-label="注册+编译" tabindex="0" role="button" aria-label="Focus 注册+编译, 拒空名/重名，编译 Schema, 注册期" aria-pressed="false" data-node-kind="backend" data-node-sublabel="拒空名/重名，编译 Schema" data-node-context="注册期">
+          <title>注册+编译 · 拒空名/重名，编译 Schema · 注册期</title>
+          <rect x="174" y="93" width="92" height="52" rx="6" class="c-mask"/>
+          <rect x="174" y="93" width="92" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(180 99) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="220" y="114" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">注册+编译</text>
+          <text data-detail="context" x="220" y="131" class="t-muted" font-size="8" text-anchor="middle">拒空名/重名，编译 Schema</text>
+        </g>
+
+        <g id="node-n4" data-node-id="n4" data-node-label="存工具表" tabindex="0" role="button" aria-label="Focus 存工具表, tools+compiled, 注册期" aria-pressed="false" data-node-kind="database" data-node-sublabel="tools+compiled" data-node-context="注册期">
+          <title>存工具表 · tools+compiled · 注册期</title>
+          <rect x="384" y="93" width="92" height="52" rx="6" class="c-mask"/>
+          <rect x="384" y="93" width="92" height="52" rx="6" class="c-database" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(390 99) scale(0.6875)">
+            <ellipse cx="8" cy="4" rx="5" ry="2"/>
+            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
+          </g>
+          <text data-detail-anchor="" x="430" y="114" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">存工具表</text>
+          <text data-detail="context" x="430" y="131" class="t-muted" font-size="8" text-anchor="middle">tools+compiled</text>
+        </g>
+
+        <g id="node-n5" data-node-id="n5" data-node-label="收一批调用" tabindex="0" role="button" aria-label="Focus 收一批调用, ExecuteToolCalls, 批量调度" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="ExecuteToolCalls" data-node-context="批量调度">
+          <title>收一批调用 · ExecuteToolCalls · 批量调度</title>
+          <rect x="42" y="217" width="92" height="52" rx="6" class="c-mask"/>
+          <rect x="42" y="217" width="92" height="52" rx="6" class="c-messagebus" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(48 223) scale(0.6875)">
+            <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/>
+            <circle cx="5" cy="4.5" r="1" class="sigil-fill"/>
+            <circle cx="10.5" cy="8" r="1" class="sigil-fill"/>
+            <circle cx="7" cy="11.5" r="1" class="sigil-fill"/>
+          </g>
+          <text data-detail-anchor="" x="88" y="238" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">收一批调用</text>
+          <text data-detail="context" x="88" y="255" class="t-muted" font-size="8" text-anchor="middle">ExecuteToolCalls</text>
+        </g>
+
+        <g id="node-n7" data-node-id="n7" data-node-label="串行/并发" tabindex="0" role="button" aria-label="Focus 串行/并发, for / goroutine, 批量调度" aria-pressed="false" data-node-kind="backend" data-node-sublabel="for / goroutine" data-node-context="批量调度">
+          <title>串行/并发 · for / goroutine · 批量调度</title>
+          <rect x="174" y="217" width="92" height="52" rx="6" class="c-mask"/>
+          <rect x="174" y="217" width="92" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(180 223) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="220" y="238" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">串行/并发</text>
+          <text data-detail="context" x="220" y="255" class="t-muted" font-size="8" text-anchor="middle">for / goroutine</text>
+        </g>
+
+        <g id="node-n9" data-node-id="n9" data-node-label="单调用" tabindex="0" role="button" aria-label="Focus 单调用, prepare→exec→finalize, 单调用执行" aria-pressed="false" data-node-kind="backend" data-node-sublabel="prepare→exec→finalize" data-node-context="单调用执行">
+          <title>单调用 · prepare→exec→finalize · 单调用执行</title>
+          <rect x="254" y="341" width="92" height="52" rx="6" class="c-mask"/>
+          <rect x="254" y="341" width="92" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(260 347) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="300" y="362" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">单调用</text>
+          <text data-detail="context" x="300" y="379" class="t-muted" font-size="8" text-anchor="middle">prepare→exec→finalize</text>
+        </g>
+
+        <g id="node-n10" data-node-id="n10" data-node-label="五道闸门" tabindex="0" role="button" aria-label="Focus 五道闸门, 校验/拦截；runTool recover(), 闸门 / 安全" aria-pressed="false" data-node-kind="security" data-node-sublabel="校验/拦截；runTool recover()" data-node-context="闸门 / 安全">
+          <title>五道闸门 · 校验/拦截；runTool recover() · 闸门 / 安全</title>
+          <rect x="384" y="465" width="92" height="52" rx="6" class="c-mask"/>
+          <rect x="384" y="465" width="92" height="52" rx="6" class="c-security" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(390 471) scale(0.6875)">
+            <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
+            <path d="m5.8 8 1.5 1.5 3-3"/>
+          </g>
+          <text data-detail-anchor="" x="430" y="486" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">五道闸门</text>
+          <text data-detail="context" x="430" y="503" class="t-muted" font-size="8" text-anchor="middle">校验/拦截；runTool recover()</text>
+        </g>
+
+        <g id="node-n14" data-node-id="n14" data-node-label="收尾回填" tabindex="0" role="button" aria-label="Focus 收尾回填, finalize + results[i] 保序, 单调用执行" aria-pressed="false" data-node-kind="backend" data-node-sublabel="finalize + results[i] 保序" data-node-context="单调用执行">
+          <title>收尾回填 · finalize + results[i] 保序 · 单调用执行</title>
+          <rect x="454" y="341" width="92" height="52" rx="6" class="c-mask"/>
+          <rect x="454" y="341" width="92" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(460 347) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="500" y="362" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">收尾回填</text>
+          <text data-detail="context" x="500" y="379" class="t-muted" font-size="8" text-anchor="middle">finalize + results[i] 保序</text>
+        </g>
+
+        <g id="node-n16" data-node-id="n16" data-node-label="整批终止?" tabindex="0" role="button" aria-label="Focus 整批终止?, 全 terminate 才终止, 批量调度" aria-pressed="false" data-node-kind="backend" data-node-sublabel="全 terminate 才终止" data-node-context="批量调度">
+          <title>整批终止? · 全 terminate 才终止 · 批量调度</title>
+          <rect x="579" y="217" width="92" height="52" rx="6" class="c-mask"/>
+          <rect x="579" y="217" width="92" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(585 223) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-detail-anchor="" x="625" y="238" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">整批终止?</text>
+          <text data-detail="context" x="625" y="255" class="t-muted" font-size="8" text-anchor="middle">全 terminate 才终止</text>
+        </g>
+
+        <!-- Edge labels -->
+
+        <g data-detail="context" data-edge-from="n2" data-edge-to="n4" data-edge-label="Schema 非空存入" data-edge-key="1" data-edge-id="e2">
+          <rect x="284" y="79" width="82" height="14" rx="3" class="c-mask"/>
+          <text x="325" y="89" class="t-database" font-size="8" text-anchor="middle">Schema 非空存入</text>
+        </g>
+
+
+        <g data-detail="context" data-edge-from="n9" data-edge-to="n10" data-edge-label="闸门+执行" data-edge-key="4" data-edge-id="e9">
+          <rect x="338.4" y="394" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
+          <text x="365" y="404" class="t-security" font-size="8" text-anchor="middle">闸门+执行</text>
+        </g>
+        <g data-detail="context" data-edge-from="n10" data-edge-to="n14" data-edge-label="放行执行" data-edge-key="5" data-edge-id="e10">
+          <rect x="440.8" y="394" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="465" y="404" class="t-security" font-size="8" text-anchor="middle">放行执行</text>
+        </g>
+        <g data-detail="context" data-edge-from="n14" data-edge-to="n16" data-edge-label="写回" data-edge-key="6" data-edge-id="e14">
+          <rect x="547.5" y="270" width="30" height="14" rx="3" class="c-mask"/>
+          <text x="562.5" y="280" class="t-backend" font-size="8" text-anchor="middle">写回</text>
+        </g>
+
+        <!-- Legend -->
+        <g data-legend-bridge="">
+          <text x="175" y="552" class="t-primary" font-size="10" font-weight="600">Legend</text>
+        <g data-legend-kind="frontend">
+          <rect x="175" y="564" width="14" height="9" rx="2" class="c-frontend" stroke-width="1"/>
+          <text x="195" y="572" class="t-muted" font-size="7">User UI</text>
+        </g>
+        <g data-legend-kind="backend">
+          <rect x="260" y="564" width="14" height="9" rx="2" class="c-backend" stroke-width="1"/>
+          <text x="280" y="572" class="t-muted" font-size="7">Agent logic</text>
+        </g>
+        <g data-legend-kind="security">
+          <rect x="370" y="564" width="14" height="9" rx="2" class="c-security" stroke-width="1"/>
+          <text x="390" y="572" class="t-muted" font-size="7">Policy</text>
+        </g>
+        <g data-legend-kind="messagebus">
+          <rect x="455" y="564" width="14" height="9" rx="2" class="c-messagebus" stroke-width="1"/>
+          <text x="475" y="572" class="t-muted" font-size="7">Tool action</text>
+        </g>
+        <g data-legend-kind="database">
+          <rect x="565" y="564" width="14" height="9" rx="2" class="c-database" stroke-width="1"/>
+          <text x="585" y="572" class="t-muted" font-size="7">Context / trace</text>
+        </g>
+        </g>
+      </svg>

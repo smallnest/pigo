@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "两层循环：一次 run 的事件骨架",
+    "subtitle": "内层 turn 流式回复→执行工具→回填，外层判定要不要续跑；多条路径汇于唯一出口",
+    "quality_profile": "standard"
+  },
+  "lanes": [
+    { "id": "outer", "label": "外层 run" },
+    { "id": "inner", "label": "内层 turn" },
+    { "id": "stream", "label": "一次流式回复" },
+    { "id": "tools", "label": "工具执行" }
+  ],
+  "mainPath": ["n1", "n2", "n3", "n7", "n11", "n15", "n18"],
+  "nodes": [
+    { "id": "n1", "lane": "outer", "col": 0, "type": "messagebus", "label": "agent_start", "sublabel": "emit AgentStartEvent" },
+    { "id": "n2", "lane": "inner", "col": 1, "type": "messagebus", "label": "turn_start", "sublabel": "一个 turn 开场" },
+    { "id": "n3", "lane": "stream", "col": 2, "type": "backend", "label": "流式回复", "sublabel": "塑形 LlmContext + 回填成完整消息" },
+    { "id": "n7", "lane": "inner", "col": 3, "type": "backend", "label": "按停止原因", "sublabel": "switch stopReason 分派" },
+    { "id": "n11", "lane": "tools", "col": 4, "type": "backend", "label": "执行工具", "sublabel": "闸门+批量执行+回填 toolResults" },
+    { "id": "n15", "lane": "inner", "col": 5, "type": "backend", "label": "afterTurn", "sublabel": "steering→autoCompact→shouldStop" },
+    { "id": "n18", "lane": "outer", "col": 5, "type": "messagebus", "label": "finish", "sublabel": "唯一出口 + agent_end" }
+  ],
+  "edges": [
+    { "id": "e1", "from": "n1", "to": "n2" },
+    { "id": "e2", "from": "n2", "to": "n3", "fromSide": "bottom", "toSide": "top", "route": "drop" },
+    { "id": "e3", "from": "n3", "to": "n7", "fromSide": "top", "toSide": "bottom", "route": "drop" },
+    { "id": "e5", "from": "n7", "to": "n18", "label": "error / aborted", "variant": "security", "role": "error", "fromSide": "top", "toSide": "top", "via": [[430, 40], [860, 40]] },
+    { "id": "e6", "from": "n7", "to": "n11", "label": "有工具 tool_use", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "route": "drop" },
+    { "id": "e7", "from": "n7", "to": "n15", "label": "空：自然收尾", "variant": "dashed" },
+    { "id": "e8", "from": "n11", "to": "n15", "fromSide": "top", "toSide": "bottom", "route": "drop" },
+    { "id": "e10", "from": "n11", "to": "n18", "label": "全 terminate", "variant": "security", "role": "branch", "fromSide": "right", "toSide": "right", "via": [[830, 491], [830, 119]] },
+    { "id": "e11", "from": "n15", "to": "n2", "label": "喂回结果，下一轮 turn", "variant": "dashed", "role": "return", "fromSide": "left", "toSide": "bottom", "via": [[520, 243], [520, 320], [220, 320]], "labelSegment": 1, "labelDy": 40 },
+    { "id": "e12", "from": "n15", "to": "n18", "label": "shouldStop=true", "variant": "emphasis", "fromSide": "top", "toSide": "bottom", "route": "drop" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "两层循环", "items": ["内层 turn：流式回复→执行工具→回填结果", "外层 run：内层收尾后判定要不要 follow-up 续跑"] },
+    { "dot": "emerald", "title": "先看停止原因", "items": ["length：给残缺调用造错误结果后 continue 重试", "end_turn/tool_use：看是否点名工具决定收尾还是执行"] },
+    { "dot": "rose", "title": "唯一出口", "items": ["error/aborted、全 terminate、shouldStop、无 follow-up", "多条终止路径都汇到同一个 finish：算新消息+agent_end+Close"] }
+  ]
+}

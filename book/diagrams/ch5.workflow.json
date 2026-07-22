@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "工具注册与批量执行",
+    "subtitle": "启动期注册编译，运行期串/并发执行、panic 恢复、allTerminate 判定",
+    "quality_profile": "standard"
+  },
+  "lanes": [
+    { "id": "reg", "label": "注册期" },
+    { "id": "batch", "label": "批量调度" },
+    { "id": "percall", "label": "单调用执行" },
+    { "id": "gate", "label": "闸门 / 安全", "variant": "exception" }
+  ],
+  "mainPath": ["n5", "n7", "n9", "n10", "n14", "n16"],
+  "nodes": [
+    { "id": "n1", "lane": "reg", "col": 0, "type": "backend", "label": "构造工具集", "sublabel": "builtinTools" },
+    { "id": "n2", "lane": "reg", "col": 1, "type": "backend", "label": "注册+编译", "sublabel": "拒空名/重名，编译 Schema" },
+    { "id": "n4", "lane": "reg", "col": 3, "type": "database", "label": "存工具表", "sublabel": "tools+compiled" },
+    { "id": "n5", "lane": "batch", "col": 0, "type": "messagebus", "label": "收一批调用", "sublabel": "ExecuteToolCalls" },
+    { "id": "n7", "lane": "batch", "col": 1, "type": "backend", "label": "串行/并发", "sublabel": "for / goroutine" },
+    { "id": "n9", "lane": "percall", "col": 2, "type": "backend", "label": "单调用", "sublabel": "prepare→exec→finalize" },
+    { "id": "n10", "lane": "gate", "col": 3, "type": "security", "label": "五道闸门", "sublabel": "校验/拦截；runTool recover()" },
+    { "id": "n14", "lane": "percall", "col": 4, "type": "backend", "label": "收尾回填", "sublabel": "finalize + results[i] 保序" },
+    { "id": "n16", "lane": "batch", "col": 5, "type": "backend", "label": "整批终止?", "sublabel": "全 terminate 才终止" }
+  ],
+  "edges": [
+    { "id": "e1", "from": "n1", "to": "n2" },
+    { "id": "e2", "from": "n2", "to": "n4", "label": "Schema 非空存入", "variant": "dashed", "labelDy": -20 },
+    { "id": "e5", "from": "n5", "to": "n7", "variant": "emphasis" },
+    { "id": "e7", "from": "n7", "to": "n9", "fromSide": "bottom", "toSide": "top", "route": "drop" },
+    { "id": "e9", "from": "n9", "to": "n10", "label": "闸门+执行", "variant": "security", "fromSide": "bottom", "toSide": "top", "route": "drop" },
+    { "id": "e10", "from": "n10", "to": "n14", "label": "放行执行", "variant": "security", "fromSide": "top", "toSide": "bottom", "route": "drop" },
+    { "id": "e14", "from": "n14", "to": "n16", "label": "写回", "variant": "emphasis", "fromSide": "top", "toSide": "bottom", "route": "drop" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "注册即编译", "items": ["空名/重名拒绝，Schema 注册期就编译", "坏 Schema 在启动期报错，不拖到运行时"] },
+    { "dot": "emerald", "title": "串并取舍", "items": ["任一工具声明 Sequential → 整批串行", "否则每 call 一 goroutine，WaitGroup 等齐", "结果按索引回填，天然保序无锁"] },
+    { "dot": "rose", "title": "兜底", "items": ["prepareToolCall 五道闸门层层短路", "runTool 用 defer recover() 接住 panic", "只有全部 terminate 才让整批终止"] }
+  ]
+}

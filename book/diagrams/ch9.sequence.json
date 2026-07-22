@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "子 Agent：进程隔离下的一次委派",
+    "subtitle": "父进程 spawn pigo --subagent-rpc，stdio 上跑一轮 subagent/run",
+    "quality_profile": "standard",
+    "viewBox": [900, 680]
+  },
+  "participants": [
+    { "id": "parent", "type": "backend", "label": "父 Agent", "sublabel": "SubAgentTool" },
+    { "id": "client", "type": "messagebus", "label": "RPC Client", "sublabel": "defaultProcessCall" },
+    { "id": "child", "type": "external", "label": "子进程", "sublabel": "pigo --subagent-rpc" },
+    { "id": "childloop", "type": "backend", "label": "子 Agent 循环", "sublabel": "RunSubAgentOnce" }
+  ],
+  "segments": [
+    { "from": 150, "to": 250, "label": "spawn + 建连" },
+    { "from": 265, "to": 445, "label": "一轮 subagent/run" },
+    { "from": 460, "to": 600, "label": "回结果 + 收尾" }
+  ],
+  "messages": [
+    { "id": "spawn", "from": "parent", "to": "client", "y": 180, "label": "executeProcess(prompt)", "variant": "emphasis" },
+    { "id": "exec", "from": "client", "to": "child", "y": 225, "label": "os.Executable()+spawn，继承 Env", "variant": "default", "note": "启动 readLoop；pending 按 id 存响应" },
+    { "id": "call", "from": "client", "to": "child", "y": 295, "label": "写 {id,method:subagent/run,params}", "variant": "default", "note": "子进程 resolveProvider + filterBuiltinTools 重组 RunConfig" },
+    { "id": "run", "from": "child", "to": "childloop", "y": 355, "label": "RunSubAgentOnce (StartRun+DrainStream)", "variant": "emphasis" },
+    { "id": "final", "from": "childloop", "to": "child", "y": 405, "label": "最终 assistant 文本", "variant": "return" },
+    { "id": "result", "from": "child", "to": "client", "y": 475, "label": "写 {id,result:{text}} 到 stdout（单条无增量）", "variant": "return" },
+    { "id": "match", "from": "client", "to": "parent", "y": 520, "label": "Call 按 id 匹配 → res.Text", "variant": "return" },
+    { "id": "close", "from": "parent", "to": "child", "y": 575, "label": "defer Close：关 stdin，等 5s 后 kill", "variant": "default", "note": "stdin EOF → runSubAgentRPC 返回 0 干净退出" }
+  ],
+  "activations": [
+    { "participant": "client", "from": 215, "to": 525, "type": "messagebus" },
+    { "participant": "child", "from": 222, "to": 585, "type": "external" },
+    { "participant": "childloop", "from": 352, "to": 408, "type": "backend" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "进程隔离", "items": ["子任务在独立进程里跑，崩溃不波及父进程", "父子只通过 stdio 上的 JSON-RPC 交换结构化消息"] },
+    { "dot": "emerald", "title": "自己 spawn 自己", "items": ["os.Executable() 拿到自身路径", "带 --subagent-rpc 把同一个二进制再拉起一个进程"] },
+    { "dot": "rose", "title": "失败与中止", "items": ["stdout 关闭→readLoop 读 EOF→failAll 失败所有在途调用", "父被 Ctrl-C→Call 返回，Close 终结子进程"] }
+  ]
+}

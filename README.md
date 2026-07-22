@@ -9,6 +9,8 @@ pigo 可以读写文件、执行命令、检索代码、抓取网页，并借助
 
 > 模块路径：`github.com/smallnest/pigo` · Go 1.27+
 
+> 📖 配套电子书《用 Go 编写 pi Agent》：[write_pi_agent_in_go.pdf](https://github.com/smallnest/ebooks/blob/master/write_pi_agent_in_go.pdf)
+
 ---
 
 ## 目录
