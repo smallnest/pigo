@@ -6,6 +6,27 @@
 
 本章就沿着这两层循环走一遍。先钻到最里面，看单次流式回复 `streamAssistantResponse` 是怎么把上下文塑形成请求、又怎么把流式碎片回填成一条完整消息的；再退一步看内层循环怎么在"回复→执行工具→回填"之间转圈，直到某一轮不再点名任何工具而自然收尾；然后退到最外层，看 `getFollowUpMessages` 与 steering 消息如何让一个已经收尾的 run 又接着跑下去；最后把散落在各处的六个钩子和三种"非正常"停止原因收拢成一张全景图。锚定的源码是 `internal/runtime` 下的 `loop.go`、`stream_response.go`、`prompt.go` 与 `render.go` 四个文件。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 一次 run 其实是两个嵌套的循环
+Structure type: 概念隐喻
+Core idea: 内层循环管"这一轮回复要不要接着说/动手"，外层循环管"说完了还有没有下文"，两圈嵌套才构成一次 run
+Composition: 小土拨鼠站在中央踩着一台跑步机式的双层同心圆轨道，脚下踩着里面那圈小轨道让它飞快旋转（内层），同时整台机器又坐在一个更大的缓慢旋转圆盘上（外层）；小土拨鼠一只手扶着内圈、一只手指向外圈，表情认真又有点被两圈转晕的可爱感；两圈用不同粗细的圆环箭头表示旋转方向
+Suggested elements: 内层小圆环快速旋转箭头 / 外层大圆盘缓慢旋转箭头 / 小土拨鼠脚下的跑步机纹路 / 两圈之间的一个连接小齿轮
+Chinese handwritten labels: 内层：要不要接着说 / 外层：还有没有下文 / 一次run=两圈 / 嵌套
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图3-1 一次 run 是两圈嵌套](images/fig3-1.png){#fig:3-1 width=100%}
+
 ## 先看最里面：一次流式回复
 
 两层循环的最小单元不是"循环"，而是一次流式回复。`stream_response.go` 里的 `streamAssistantResponse` 就干这件事：把当前上下文塑形成一次 provider 请求，驱动流式响应，边流边把半成品回填进上下文，最后交出一条完整的 assistant 消息。它的函数签名把职责说得很清楚：
@@ -15,6 +36,27 @@ func streamAssistantResponse(ctx context.Context, agentCtx *agentcore.AgentConte
 ```
 
 值得先记住一个反直觉的约定：**它几乎从不为"请求失败"返回 error**。网络挂了、密钥缺了、上游 500 了，这些失败都会被折叠成一条 `stopReason` 为 `error`/`aborted` 的终态 assistant 消息返回，而返回值里的 `error` 只在一种情况下非空——`emit` 因 context 取消而中断。这个设计让上层循环永远拿到一条"形状统一"的 assistant 消息去记账，把"失败"降格成"一种回复"，而不是一条需要特殊 `if err != nil` 分支去打断控制流的异常。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 把"失败"降格成"一种回复"，而不是打断控制流的异常
+Structure type: 前后对比
+Core idea: 网络挂了/密钥缺了/上游500，本可以当成炸弹式的异常打断一切，但循环把它折叠成一条形状统一、stopReason=error 的普通消息塞进同一个信箱
+Composition: 画面分左右两半。左半（打叉否定）：一颗冒着火花的红色"异常炸弹"炸开一条流水线，小土拨鼠被吓得往后仰；右半（打勾肯定）：小土拨鼠淡定地把同一个失败裹成一个和其它消息一模一样的方形信封，投进一排整齐的"消息信箱"里，信封上盖着"error"小戳；中间一条竖直虚线分隔两种做法
+Suggested elements: 左侧红色异常炸弹 / 断裂的流水线 / 右侧统一形状的方形信封 / 一排整齐的消息信箱
+Chinese handwritten labels: 不是异常 / 而是一条回复 / 形状统一 / stopReason=error
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图3-2 失败被折叠成一封普通信](images/fig3-2.png){#fig:3-2 width=100%}
 
 函数体是一条严格有序的流水线，源码注释直接把它标成了七步。前五步是"塑形与发起"：
 
@@ -119,6 +161,27 @@ func finalizeMessage(agentCtx *agentcore.AgentContext, final agentcore.Assistant
 
 第 7 步是流的"意外结束"兜底：如果 `range stream.Events()` 循环跑完了却既没见到 done 也没见到 error，就去问 `stream.Result(ctx)` 要最终结果，结果出错则又是一条合成的终态错误消息。至此，无论走哪条路径，`streamAssistantResponse` 都保证：上下文末尾多了恰好一条 assistant 消息，且返回的就是它。这条不变量（invariant）是内层循环敢放心往下走的地基。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 回填只在上下文末尾维护同一条消息的最新版本
+Structure type: 系统局部
+Core idea: 流吐出一连串半成品增量，backfill 不是不断堆叠新纸，而是始终原地擦掉重写同一块小白板，末尾永远只有一条最新的 assistant 消息
+Composition: 小土拨鼠站在一块立式小白板前，一手拿笔一手拿板擦，正把白板上的半句话擦掉、写上更完整的新版本；一条从左边流进来的虚线箭头代表源源不断的流式碎片正砸向这块白板；旁边地上明确没有一堆废纸（画一个打叉的纸堆表示"不是堆叠"）；白板下方一个小托盘标着"末尾就这一条"
+Suggested elements: 立式小白板 / 板擦与笔 / 从左涌入的流式碎片箭头 / 打叉的废纸堆
+Chinese handwritten labels: 原地擦掉重写 / 不堆叠 / 末尾恰好一条 / 始终最新
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图3-3 回填：原地擦写同一块白板](images/fig3-3.png){#fig:3-3 width=100%}
+
 ## 内层循环：回复、执行工具、回填，直到收尾
 
 有了"一次流式回复"这块积木，内层循环就好懂了。它做的事一句话概括：**流式回复 → 执行这条回复点名的工具 → 把结果回填 → 再来一轮，直到某轮回复不点名任何工具**。这段逻辑在 `loop.go` 的 `runLoop` 里，是外层 `for` 里嵌的那个 `for`：
@@ -219,6 +282,27 @@ if afterTurn(ctx, agentCtx, &cfg, true, emit) {
 
 工具执行交给 `agenttool.ExecuteToolCalls`（第5章细讲），它返回两样东西：每个工具调用对应的结果消息，以及一个 `allTerminate` 标志。结果被逐条**回填**进上下文（`append` 到 `agentCtx.Messages`），然后发一个带 `ToolResults` 的 `TurnEndEvent`。这里的回填是内层循环得以转圈的关键：工具结果进了上下文，下一轮 `streamAssistantResponse` 塑形请求时就会带上它们，模型于是能"看到"工具跑出了什么、再决定下一步。这正是引言里"工具"那条边的闭环——模型点名、循环执行、结果回填、模型再看。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 内层循环的闭环：点名→执行→回填→再看，直到不点名工具才停
+Structure type: Workflow
+Core idea: 模型每轮点名工具，循环执行后把结果回填喂回，模型再看再决定；只有某一轮不点名任何工具，圈才自然停下
+Composition: 小土拨鼠沿着一条环形跑道快步跑圈，跑道上依次立着四个站牌"点名工具→执行→回填结果→再看"；跑道有一个明显的出口岔道，岔道口立着一块牌子"这轮没点名工具→出圈"，小土拨鼠正回头张望是继续绕圈还是走出口；环形跑道用橙色回环箭头串起来
+Suggested elements: 橙色环形回环箭头 / 四个站牌 / 一个岔道出口牌 / 小土拨鼠回头张望的动作
+Chinese handwritten labels: 点名工具 / 执行+回填 / 模型再看 / 不点名就出圈
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图3-4 内层循环转圈直到不点名工具](images/fig3-4.png){#fig:3-4 width=100%}
+
 `allTerminate` 是一个"逃生阀"：当**这一批工具调用全都**要求终止 run 时（比如某个显式的退出工具），循环直接 `finish()`。注意是"全都"——`ExecuteToolCalls` 的语义是只有每个结果都 `terminate=true` 才返回 `true`，与 pi 对齐。如果没终止，就走 `afterTurn` 收尾钩子（注意这次传的是 `true`，表示"这一轮跑了工具"），然后自然地进入下一轮 turn，把工具结果喂回去。
 
 ### 批量执行工具：全终止才终止
@@ -307,6 +391,27 @@ break
 - **follow-up**（`getFollowUpMessages`）：内层循环整个收尾之后注入。管的是"一轮对话结束后的自动续接"。
 
 两者都是往 `agentCtx.Messages` 里 append，但触发时机和语义层级不同，一个在内层的缝里，一个在外层的缝里。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: steering 与 follow-up 往同一条消息流塞消息，但塞进的"缝"不同
+Structure type: 前后对比
+Core idea: steering 是 turn 之间、且只在跑过工具后的中途插话；follow-up 是内层整个收尾后的自动续接，一个塞进内层的缝、一个塞进外层的缝
+Composition: 一条从左到右的消息传送带，小土拨鼠站在传送带旁手里抱着几张消息卡片准备投放。传送带上有两处明显的缝隙投递口：靠左一处小缝标"turn与turn之间(跑过工具后)"，小土拨鼠正把"steering卡片"从这条小缝塞进去；靠右一处更大的缝标"内层收尾之后"，另一叠"follow-up卡片"从这条大缝落入并让传送带重新启动
+Suggested elements: 左右贯通的消息传送带 / 靠内的小投递缝 / 靠外的大投递缝 / 两叠不同标签的消息卡片
+Chinese handwritten labels: steering:中途插话 / follow-up:自动续接 / 内层的缝 / 外层的缝
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图3-5 steering 与 follow-up 塞进不同的缝](images/fig3-5.png){#fig:3-5 width=100%}
 
 ### run 的事件骨架
 
@@ -407,6 +512,27 @@ const (
 - **`aborted`（被取消）**：同样是终态，处理路径和 `error` 合并在同一个 `case` 里。典型触发是用户在 REPL 里按 `Ctrl+C` 取消了当前 run 的 context，或上层主动取消。`RunHeadless` 对它单独返回 `&ErrRunFailed{Reason: "aborted"}`。
 
 三者的共性是都会让 run 停下，差异在于：`length` 停的是"这一轮"然后重试，`error`/`aborted` 停的是"整个 run"。而且这三种停止原因**从不逃逸成 Go 的 error**——它们都是 assistant 消息的一个字段，循环靠 `switch assistant.StopReason` 去读，而不是靠 `if err != nil` 去接。这与本章开头 `streamAssistantResponse` "把失败降格成一种回复"的设计一脉相承：整条控制流里，失败是数据，不是异常。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 三种非正常停止：length 能救回来，error/aborted 终结整个 run
+Structure type: 地图路线
+Core idea: 小土拨鼠开车走到一个路牌岔口读 stopReason，length 是可以掉头重试的回环弯道，error 和 aborted 是两条通往"run结束"的终点路
+Composition: 小土拨鼠开着一辆圆滚滚的小车停在一个三岔路口，路口立着一块牌子写着"读 stopReason"。左边一条路是弯回来的 U 形回环弯道，标"length：截断→缩短重发"，车头灯照向这条可以掉头的路；中间和右边两条路直通一个画着终点旗的路障，分别标"error"和"aborted：整个run停"；每条路牌旁都别一张小卡片强调"这只是消息里的一个字段，不是异常"
+Suggested elements: 圆滚滚的小车 / 三岔路口大路牌 / 左侧U形回环弯道 / 右侧带终点旗的路障
+Chinese handwritten labels: length:可救→重试 / error:终结 / aborted:终结 / 是字段不是异常
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图3-6 三种停止：一条能掉头，两条到终点](images/fig3-6.png){#fig:3-6 width=100%}
 
 ### 实验 3-1 ★：在 stream-json 里观察 run 的事件骨架 {.unnumbered}
 

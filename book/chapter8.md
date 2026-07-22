@@ -4,6 +4,27 @@
 
 问题的由来很实际。Agent 一旦长出手脚，它能读文件、能改代码、能跑任意 shell 命令——而驱动这些动作的，是一个可能被提示注入、也可能只是理解偏差的大模型。你在一个陌生仓库里随手 `pigo` 一下，模型读到某个文件里埋的"请执行 `rm -rf`"，然后就照做了，这不是科幻。pigo 给出的答案是**项目信任**：把"这个目录里的副作用操作可不可以放手跑"变成一个显式的、按目录记住的决策，在任何有副作用的工具真正落地之前先过一道闸门。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 项目信任闸门——副作用工具落地前的安全关卡
+Structure type: 概念隐喻
+Core idea: 一个可能被提示注入的模型想执行危险命令，必须先通过一道按目录设立的信任闸门才能放行
+Composition: 中央一道手绘的收费站 / 道闸横杆，小土拨鼠戴着门卫小帽站在闸门旁，一只手按住抬起一半的横杆；横杆左侧一张飘来的纸条写着危险命令 rm -rf 正被拦住，横杆右侧是通往一个文件夹图标的空旷道路；闸门柱子上挂一块"本目录"门牌
+Suggested elements: 抬起的道闸横杆 / 写着 rm -rf 的可疑纸条 / 文件夹图标 / 小土拨鼠的门卫小帽
+Chinese handwritten labels: 信任闸门 / 本目录 / 副作用工具 / 先问一句
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图8-1 副作用工具前的信任闸门](images/fig8-1.png){#fig:8-1 width=100%}
+
 这道闸门被切成两半。一半是纯粹的状态管理，收在 `internal/trust` 包里：决策怎么建模、怎么就近查找、怎么原子落盘，完全不碰 REPL 与工具执行。另一半是交互与集成，收在 `cmd/pigo/trust.go`：首次进入目录的信任对话、`/trust` 命令、以及挂在 `BeforeToolCall` 上的许可钩子。我们就按"先状态、后交互"的顺序解剖，最后回到第 5 章那个钩子，看它是怎么被填上的。
 
 ## 三态决策与就近查找
@@ -50,6 +71,27 @@ func (m *Manager) nearestLocked(cwd string) Result {
 
 返回的 `Result` 带三个字段：`Decision` 是就近命中的决策，`Path` 是命中记录所在的那个祖先目录，`Found` 报告整条链上到底有没有任何记录。`Found=false` 是关键信号——它告诉调用方"这目录从没被决策过"，该弹首次进入对话。注意 `walkUp` 是"近者优先"的顺序，所以子目录的显式决策会盖过祖先的：你可以整体信任 `~/work`，再单独把 `~/work/sketchy` 标成不信任。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 就近继承——从当前目录向上找最近的信任决策
+Structure type: 地图路线
+Core idea: walkUp 从子目录一路向上爬，命中第一个有记录的祖先就停下；近者优先，子目录可覆盖祖先
+Composition: 画面是一段从下往上的手绘台阶通道，小土拨鼠正沿着通道从最底层的子目录向上攀爬，头顶几级台阶分别贴着目录名牌，中间某一级台阶亮着一个信任印章（对勾），小土拨鼠伸爪碰到它就停住不再往上；更上方的根目录台阶是空白无记录
+Suggested elements: 向上的台阶通道 / 带对勾印章的祖先目录牌 / 攀爬的小土拨鼠 / 下方标着 sketchy 的叉号子目录
+Chinese handwritten labels: 向上找 / 最近命中 / 子目录覆盖 / 到根为止
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图8-2 向上攀爬找最近的信任决策](images/fig8-2.png){#fig:8-2 width=100%}
+
 对外的 `IsTrusted` 则是工具闸门直接要问的那个判断，它把 session 与持久两张表按优先级串起来：
 
 ```go
@@ -93,6 +135,27 @@ func (m *Manager) saveLocked() error {
 
 为什么不直接 `os.WriteFile` 覆盖原文件？因为写到一半崩溃会留下一个被截断的 `trust.json`，下次加载时解析失败——而这份文件恰恰是安全相关的，损坏了不能装没看见。`os.CreateTemp` 生成一个进程内唯一名字的临时文件，写完 `Close` 再 `Rename`；`rename` 在同一文件系统内是原子的，所以任一时刻磁盘上的 `trust.json` 要么是旧的完整内容、要么是新的完整内容，绝不会是半截。临时文件的进程唯一名还顺带解决了另一个问题：两个 pigo 进程同时写这份共享存储时，各写各的临时文件，不会互相踩到。`json.Marshal` 对 map 的键排序，输出因此稳定、diff 友好。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 原子落盘——写临时文件再 rename，避免半截写入
+Structure type: 前后对比
+Core idea: 直接覆盖原文件崩溃会留下半截损坏文件；先写完整临时文件再一步 rename 替换，磁盘上永远是完整内容
+Composition: 画面左右对照。左侧小土拨鼠正把内容直接倒进一个标着 trust.json 的碗里，倒到一半闪电劈下，碗里剩半截、边缘参差破损，打红叉；右侧小土拨鼠先在旁边一个临时小碗里稳稳写满完整内容，再抱起整只临时碗"啪"地一步换到 trust.json 的位置，动作用一条大弧形箭头表示，打对勾
+Suggested elements: 写满的临时碗 / 一步替换的弧形箭头 / 半截破损的文件 / 劈下的闪电（崩溃）
+Chinese handwritten labels: 直接覆盖 / 写一半崩了 / 先写临时 / 原子替换
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图8-3 写临时文件再原子替换](images/fig8-3.png){#fig:8-3 width=100%}
+
 加载侧的 `NewManager` 有一处呼应的谨慎：文件不存在**不是**错误（首次运行本就没有），但文件存在却解析失败**是**硬错误——宁可报错退出，也不静默地拿一个空表把用户之前的决策覆盖掉。目录默认路径由 `DefaultPath` 给出：优先 `$PIGO_HOME/trust.json`，否则 `~/.pigo/trust.json`；连 home 都解析不出来时返回空串，调用方据此把信任整个关掉，而不是瞎猜一个路径。
 
 会话信任是另一条线。`SetSessionTrust` 只往 `session` 表里塞一个标记，不落盘；`ClearSessionTrust` 反向清除。后者存在的理由有点绕但很实在：`IsTrusted` 先查 session 再查持久决策，所以如果你这次会话里先选了"always"（授予 session 信任），后来又想 `/trust off` 把目录标成不受信，光写持久决策是不够的——session 里那条旧的授予还压在上面，`off` 会形同虚设。`ClearSessionTrust` 就是为了让 `off` 立刻生效而先把 session 里的授予抹掉。
@@ -116,6 +179,27 @@ choice := readMenuChoice(out, in, "Enter choice [1-3]: ", 3, 2)
 三个选项对应三种归宿：选 1 持久写入 `Trusted`，选 3 持久写入 `Untrusted`，默认的 2 只授予 session 信任。默认落在"只此一次"是有讲究的：它让 REPL 立刻可用，又不会替用户把一个他没郑重确认过的信任授予写进磁盘。`readMenuChoice` 在空行或 EOF 时回落到默认值，所以哪怕输入被管道喂空，对话也不会卡死。
 
 选 1 或选 3 时还会追问一句 `chooseScope`：把决策存给当前目录，还是它的父目录？这正是前面"就近继承"的用武之地——你在 `~/work/proj-a` 里第一次跑 pigo，可以选择把整个 `~/work` 标成受信，往后 `~/work` 下的所有子项目都免问。当 cwd 已是文件系统根、无父可选时，`chooseScope` 直接返回 cwd，不给一个无意义的选项。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 首次进入目录的三选信任菜单
+Structure type: 角色状态
+Core idea: 第一次进入新目录时弹出三选一：永久信任 / 只此一次（默认）/ 拒绝，默认落在只此一次
+Composition: 小土拨鼠站在一扇刚推开的手绘小门前（门牌写"首次进入"），面前立着三块岔路指示牌：一块画对勾/图钉表示"永久信任"，中间一块画沙漏且被虚线高亮为默认选项表示"只此一次"，一块画叉表示"拒绝"；小土拨鼠一只爪子犹豫地伸向中间那块默认牌
+Suggested elements: 推开的小门 / 三块岔路指示牌 / 沙漏（只此一次）/ 高亮默认的虚线框
+Chinese handwritten labels: 首次进入 / 永久信任 / 只此一次 / 拒绝 / 默认
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图8-4 首次进入的三选信任菜单](images/fig8-4.png){#fig:8-4 width=100%}
 
 这段对话被有意安排在 REPL 回放历史**之前**发生（见 `cmd/pigo/interactive.go` 里 `establishTrust` 的调用点在 `replayTranscript` 之前），所以用户 `--resume` 一个会话时，先看到的是信任问题，而不是一屏旧对话把问题淹没。
 
@@ -167,6 +251,27 @@ var sideEffectTools = map[string]bool{
 
 `read`/`grep`/`find` 这类只读工具、`todo` 这类纯内存工具、`webfetch` 这类只读网络工具，全都不经过闸门——它们不会改动本地文件系统或跑进程，拦它们只会徒增打扰。第二道是**信任状态**：`IsTrusted` 为真直接放行（返回 nil，即"不干预")。只有当一个副作用工具落在一个未受信目录里，才轮到第三道——`confirmToolCall` 把问题抛给用户。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 闸门判断链层层收窄——范围、信任、确认三道筛
+Structure type: 方法分层
+Core idea: 工具调用依次过三道逐渐变窄的筛子：先筛是否副作用工具，再筛目录是否受信，最后未受信才逐次确认
+Composition: 从左到右一串三只口径依次缩小的漏斗（或三道由宽到窄的栅栏），小土拨鼠站在最右端把关。一堆工具小方块从左侧涌入第一只漏斗：read/grep 等只读方块被第一道直接漏到旁边"放行"小道；bash/write/edit 三个副作用方块继续进入第二道，受信目录的直接漏走；剩下未受信的一个方块卡在最窄的第三道口，小土拨鼠举牌向它发问
+Suggested elements: 三只口径递减的漏斗 / read与bash的工具方块 / 旁路的放行小道 / 小土拨鼠举的问号牌
+Chinese handwritten labels: 只筛副作用 / 受信放行 / 未受信要问 / 层层收窄
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图8-5 层层收窄的三道判断筛](images/fig8-5.png){#fig:8-5 width=100%}
+
 `confirmToolCall` 给出 y/n/a 三种回答，并在提问前先渲染一行操作预览：
 
 ```go
@@ -191,6 +296,27 @@ func confirmToolCall(out io.Writer, in *bufio.Reader, call agentcore.AgentToolCa
 `y` 放行这一次，`a`（always）放行且顺手授予 session 信任、让后续副作用调用不再逐个问，`n`/空行/EOF 一律当拒绝。那行预览由 `toolCallSummary` 生成：bash 显示要跑的命令，write/edit 显示要动的路径，参数解析不了就退回一段截断的原文。让用户在"允许"之前看清楚到底要干什么，是知情决策的前提。
 
 拒绝时，钩子返回一个 `Block=true` 的 `BeforeToolCallDecision`，并带上一句人类可读的说明。回到第 5 章的 `prepareToolCall`：这个 `Block` 会让准备阶段短路，`Execute` 根本不会被调用，而那句说明被包成一条工具结果消息回填给模型——于是模型看到的是"这次调用被用户挡了，因为目录未受信"，可以据此调整下一步，而不是撞上一个中断整轮对话的错误。这正是第 5 章反复强调的"失败即反馈，而非中断"约定在安全场景里的落地。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 失败即反馈——被拦的调用短路后把说明回填给模型
+Structure type: Workflow
+Core idea: 拒绝时 Block 短路，Execute 不执行，但一句"被拦：目录未受信"的说明作为工具结果回流给模型，让它调整下一步而非崩溃中断
+Composition: 中央小土拨鼠伸出手掌挡住一个正冲向"Execute 执行"齿轮的工具方块，方块前的路被打红叉、齿轮保持静止；小土拨鼠另一只爪子把一张写着"被拦：目录未受信"的便条折成纸飞机，沿一条弧形回流箭头飞回左侧的模型大脑图标；模型大脑上冒出一个思考气泡表示"那我换一步"
+Suggested elements: 挡住的手掌 / 停转的Execute齿轮 / 回流的便条纸飞机 / 模型大脑与思考气泡
+Chinese handwritten labels: 挡下这次 / 不执行 / 说明回填 / 模型改步
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图8-6 被拦不中断，说明回流给模型](images/fig8-6.png){#fig:8-6 width=100%}
 
 源码注释里还记了两处工程细节值得一提。其一是并发：bash/write/edit 都是 `ToolExecutionSequential`，整批串行执行，这个钩子只在循环的生产者 goroutine 上触发，本不会并发；那把 `mu` 是廉价的保险，防的是"万一将来某个副作用工具变成可并发"。其二是 `SIGINT`：Ctrl+C 若在提问阻塞读 stdin 时到达，会取消运行 context 但唤不醒这次读，所以中断要等用户答完才生效——这仍然安全，因为哪怕答了"yes"，取消后的 `executeToolCall` 在 emit `ToolExecutionStartEvent` 时就会撞上 `ctx.Err()`，工具依然不会真正跑起来。
 

@@ -4,6 +4,27 @@
 
 这就是子 Agent。pigo 把它设计成一件很朴素的事：**一个子 Agent 就是一次完整的 Agent 循环，有自己独立的 `AgentContext`（独立的系统提示、消息历史、工具集），由父 Agent 通过一次普通的工具调用启动。**子循环跑到收尾，它最后一条 assistant 文本作为工具结果回填给父循环——所以从父循环的视角看，子 Agent 跟 `read`、`bash` 没有本质区别，就是又一个工具。第 5 章讲的批量执行器已经会把并行的工具调用放进各自的 goroutine 里跑，因此多个子 Agent 天然可以并发。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 把一次调研任务委派给带独立上下文的"分身"子 Agent
+Structure type: 概念隐喻
+Core idea: 父 Agent 主对话被一堆调研原始材料塞满很浪费，于是派出一个分身带着独立上下文去啃资料，最后只把一句结论交回来，噪声留在分身那一摊
+Composition: 左侧一只大的小土拨鼠坐在一张已经堆满纸片和便签的书桌前，头顶冒汗；它伸手把一团乱纸推给右侧一只较小的分身小土拨鼠，分身站在一个单独的透明气泡/独立小房间里埋头翻资料；分身只从房间小窗递出一张写着"结论"的干净小卡片回到大土拨鼠手里，那团乱纸留在分身房间里
+Suggested elements: 堆满便签的主书桌 / 装着分身的独立气泡房间 / 一大团被丢进去的乱纸 / 递回来的一张干净结论卡片
+Chinese handwritten labels: 主对话 / 分身独立上下文 / 中间噪声留在这边 / 只交回结论
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图9-1 派出分身消化噪声](images/fig9-1.png){#fig:9-1 width=100%}
+
 本章的重点不在"子 Agent 是什么"，而在 pigo 给它准备的第二种活法：**进程隔离**。父进程可以不在自己体内跑子循环，而是 fork 出一个全新的 `pigo` 子进程，通过 stdio 上的 JSON-RPC 把这次运行委派出去。我们会顺着这条链走完：先看两种隔离模式如何在一个 `SubAgentSpec` 里选择（`internal/runtime/subagent.go`），再看父侧 `SubAgentTool` 怎么驱动子进程、子进程侧 `pigo --subagent-rpc` 怎么应答（`cmd/pigo/subagent_rpc.go`），最后拆开垫在两者之间的那层 JSON-RPC 2.0 传输（`internal/jsonrpc`）。
 
 ## 两种隔离：goroutine 与进程
@@ -22,6 +43,27 @@ const (
 零值是 `Goroutine`，所以什么都不设时，子 Agent 就在父进程内的一个 goroutine 里跑——它和父进程共享同一个地址空间，靠父循环传下来的 `ctx` 取消。这是最轻的方式，但也意味着子循环里的一次 panic、一处内存泄漏，都可能连累父进程。
 
 `Process` 模式换来的正是这道隔离。父进程 spawn 一个干净的 `pigo` 子进程，子循环跑在独立的进程里，它的崩溃、资源泄漏都困在自己那一侧。父进程只会从传输层察觉到"子进程没给出应答"，然后把它当成一次工具错误上报，父循环不受影响。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: goroutine 隔离与进程隔离的故障传染对比
+Structure type: 前后对比
+Core idea: goroutine 模式下子 Agent 与父共享同一间屋子，子的爆炸会连累父；进程模式把子关进一道防火墙后的独立房间，它炸了父只是收到一张"没应答"的错误条
+Composition: 画面左右对比。左半：两只小土拨鼠挤在同一个大气泡里，右边那只（子）冒烟起火，火苗顺势舔到左边父土拨鼠身上，父也被熏黑一脸惊恐。右半：父土拨鼠站在一道砖墙外安然无恙，墙内另一间独立房间里子土拨鼠同样起火冒烟但火被墙挡住，父只是从墙上一个小投递口收到一张写着"无应答=工具错误"的小纸条
+Suggested elements: 左侧共享的单一气泡 / 蔓延到父身上的火苗 / 右侧的隔离砖墙 / 从墙口递出的错误纸条
+Chinese handwritten labels: goroutine共享地址空间 / 一起遭殃 / 进程隔离 / 崩溃困在子侧
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图9-2 共享屋与防火墙](images/fig9-2.png){#fig:9-2 width=100%}
 
 两种模式共用一份声明——`SubAgentSpec`，它描述一个"可孵化的子 Agent"：
 
@@ -54,6 +96,27 @@ type SubAgentProcessConfig struct {
 ```
 
 注意 `ToolNames` 而不是工具对象本身。进程模式下，自定义/插件工具跨不过进程边界，所以父进程只转发工具的**名字**，由子进程按名重建对应的内置工具。一个"只读调研员"子 Agent 因此只能用内置工具的子集，这是进程隔离付出的代价之一。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 进程边界只能传工具的名字，子进程按名自建工具
+Structure type: 系统局部
+Core idea: 实体工具（握着 HTTP 客户端、凭据的活闭包）过不了进程的窄门，只有工具的名字这张纸条能塞过缝，子进程照着名字在自己那侧重新造出同名内置工具
+Composition: 中间一道有窄缝的墙。左侧父土拨鼠手里抱着几件带电线和插头的实体工具（画成小锤子/放大镜带缠绕的线缆），想塞过缝却被卡住；只有一张写着工具名字的小纸条能顺利穿过窄缝。右侧子土拨鼠接到纸条，照着名字用积木在自己脚边现搭出一个同名但更简的工具，旁边一件带插头的工具被红叉挡在门外
+Suggested elements: 带缝的进程边界墙 / 卡住过不去的带线缆实体工具 / 穿过缝的工具名字纸条 / 子侧照名重建的积木工具
+Chinese handwritten labels: 实体工具过不去 / 只传名字 / 按名重建 / 只读子集
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图9-3 只有名字能穿过窄缝](images/fig9-3.png){#fig:9-3 width=100%}
 
 ## SubAgentTool：把 spec 变成一件工具
 
@@ -102,6 +165,27 @@ func (t *SubAgentTool) Execute(ctx context.Context, id string, args json.RawMess
 ```
 
 这里有个容易忽略的细节：`onUpdate` 只传给了 `executeGoroutine`。goroutine 模式下子循环就在同一个进程里，可以把子 Agent 的流式文本实时转成工具更新事件吐回去；而进程模式的 JSON-RPC 协议只回传最终结果、不流式传增量，所以 `executeProcess` 干脆不接 `onUpdate`——调用方在这种模式下拿不到中间 delta，只能等子进程尘埃落定后一次性收到完整结果。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: goroutine 模式流式吐字 vs 进程模式一次性交付
+Structure type: 前后对比
+Core idea: 同一进程里的子 Agent 能一边想一边把半句话实时递出来（有 onUpdate），进程模式则闷头干完才把完整结果一次交出（不流式）
+Composition: 画面上下两条。上条：子土拨鼠一边工作一边把一个个小字气泡连续不断地顺着传送带递给父土拨鼠，父在旁边实时读，气泡首尾相连成一串。下条：另一只子土拨鼠躲在关着门的独立房间里，门上贴"请勿打扰"，父土拨鼠在门外空等；直到门开，子一次性递出一个封好的大包裹给父
+Suggested elements: 上条连续的小字气泡传送带 / 实时旁读的父 / 下条紧闭的独立房间门 / 最后交付的封口大包裹
+Chinese handwritten labels: goroutine实时delta / 边跑边吐 / 进程只回最终结果 / 等尘埃落定
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图9-4 边吐字与封口包裹](images/fig9-4.png){#fig:9-4 width=100%}
 
 goroutine 模式的实现值得对照第 3 章看：它拼一个子 `AgentContext`，用 `StartRun` 启动循环，再用 `DrainStream` 排干事件流。转发流式文本靠的正是第 3 章那个统一的 `StreamHandler`：
 
@@ -156,6 +240,27 @@ func runSubAgentRPC(ctx context.Context, in io.Reader, out, errOut io.Writer) in
 ```
 
 两处防御值得记住。一是 16 MiB 的行缓冲上限，和客户端那边严格对齐——子 Agent 的 prompt 可能很长，双方必须同意同一个上限，否则一方写得出、另一方读不进。二是错误码的用法：解析失败回一个 `-32700`（JSON-RPC 规范里的 parse error），但这条请求没有 id，响应 id 只能是 null，而客户端会丢弃 id 为 null 的响应（无法关联）——所以这种情况实际只在子进程的 stderr 上可见。区分"干净退出"和"异常退出"也很讲究：正常读到 stdin 关闭返回 0；只有 scanner 本身出错（比如某行超过 16 MiB 上限）才写 stderr 并返回非零，让父进程的传输层看到一个诊断而非一次静默的干净收场。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: pigo --subagent-rpc 逐行读请求、逐行应答的极简服务器循环
+Structure type: 系统局部
+Core idea: 子进程像个窗口小职员，从 stdin 传送带上一行行接过 JSON 请求，每行跑一次子 Agent，把结果或错误从 stdout 递出，直到传送带没了才关灯下班
+Composition: 中央一只小土拨鼠坐在一个开着小窗的柜台后。左边一条 stdin 传送带一行行送来写着 JSON 请求的纸条，柜台前立着一块限高杆写"16MiB"，一张过厚的纸条被限高杆卡住冒红光；小土拨鼠处理完一张就从右边 stdout 窗口递出一张结果纸条。传送带尽头空了，小土拨鼠伸手去关一盏灯
+Suggested elements: 左侧stdin请求传送带 / 16MiB限高杆卡住的超长纸条 / 右侧stdout结果出口 / 传送带到头后关灯的动作
+Chinese handwritten labels: 逐行读请求 / 16MiB上限对齐 / 每行跑一次 / stdin关了才退出
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图9-5 逐行接单的窗口职员](images/fig9-5.png){#fig:9-5 width=100%}
 
 单条请求的处理在 `handleSubAgentRequest` 里。它把"方法不对、参数非法、Provider 解析失败、子运行失败"统统变成 RPC 错误响应，只有成功跑完才回一个带子 Agent 文本的结果。中段是这次委派真正的装配：
 
@@ -235,6 +340,27 @@ func (c *Client) Call(ctx context.Context, method string, params any) (json.RawM
 ```
 
 `select` 的两条分支正好对应子 Agent 的两种收场：要么父 `ctx` 被取消（父运行被 Ctrl-C），`Call` 立刻摘掉自己的 pending 并返回；要么等到响应，按 `Error` 是否为空决定是回结果还是回一个服务器错误。而 `readLoop` 一旦读到 stdout 的 EOF（子进程崩了、退了），会 `failAll` 把所有未决调用统统以错误完结——这就是"子进程崩溃被父侧感知为一次工具错误"在传输层的真身：不是收到了错误响应，而是响应通道直接断了。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 按 id 关联的取号等待，子进程崩溃即通道断裂唤醒全部等待者
+Structure type: 概念隐喻
+Core idea: 每个并发调用像抽了一个号码牌坐在自己那格窗口前只等自己那号被叫；子进程崩溃不是叫错号，而是整条广播线路"啪"地断电，看守（readLoop）一把把所有还在等的号码牌全标记为失败
+Composition: 一排编了号(1/2/3)的小格子等待窗口，每格坐一只举着号码牌的小土拨鼠盯着自己头顶的号码灯。中央一只大一点的 readLoop 小土拨鼠守在一条通往右侧子进程房间的电缆前。右侧子进程房间冒烟塌了，电缆末端"啪"地断开火花四溅；readLoop 土拨鼠随即在每只等待者的号码牌上盖一个红"×"
+Suggested elements: 一排编号的等待窗口与号码牌 / 各自盯着的号码灯 / 通往子进程的电缆断口火花 / 挨个盖上的红叉
+Chinese handwritten labels: pending按id关联 / 各等各的号 / stdout断=EOF / failAll全部失败
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图9-6 断线唤醒所有等号者](images/fig9-6.png){#fig:9-6 width=100%}
 
 父侧把这套客户端串起来的是 `defaultProcessCall`（`internal/runtime/subagent.go`），它是生产环境的子进程传输：
 

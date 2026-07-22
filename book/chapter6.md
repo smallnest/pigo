@@ -21,6 +21,27 @@ const charsPerToken = 4
 
 "四个字符约等于一个 token"是英文文本的经验值，对中文偏保守（中文往往一两个字就是一个 token），但压缩场景里宁可高估也不能低估——高估只是压得早一点，低估却可能真的撞墙。图片没有字符，就按固定的 4800 字符折算，对应 pi 的 `ESTIMATED_IMAGE_CHARS`。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 用"4 字符≈1 token"的粗略启发式给上下文称重
+Structure type: 概念隐喻
+Core idea: 不用精确分词器，而是用一把粗刻度的尺子把文本和图片估算成 token，宁可高估也不低估
+Composition: 小土拨鼠站在中央，手里举着一把刻着"每 4 格 = 1"的木尺，正把一段流动的文字丝带塞进旁边的一个天平托盘；另一只托盘上放着一张小图片卡片，卡片上写着固定的"4800"；天平明显偏向高估的一侧，小土拨鼠满意地眯眼
+Suggested elements: 粗刻度木尺 / 文字丝带 / 天平两端的托盘 / 写着4800的图片卡片
+Chinese handwritten labels: 4字符≈1token / 宁可高估 / 图片记4800 / 不用分词器
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图6-1 用粗刻度尺给上下文称重](images/fig6-1.png){#fig:6-1 width=100%}
+
 单条消息的估算是 `EstimateTokens`。它按消息类型把内容的字符数加起来，再 `ceil(chars / 4)`：
 
 ```go
@@ -83,6 +104,27 @@ func EstimateContextTokens(msgs []agentcore.Message) ContextUsageEstimate {
 
 思路是"锚点 + 增量"：最近一次 Provider 回复报告的用量，已经精确涵盖了那条消息及其之前的全部上下文，所以拿它当锚点，只需再估算锚点之后新增的几条消息（`trailing`）。这比对整段历史逐条字符估算要准得多，也更省事。`assistantUsage` 会跳过 aborted/error 的回复和零用量，避免把一次失败请求的残缺用量当成锚点。只有当整段历史里一条可用的 `Usage` 都没有时，才退回到"逐条全估"。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 以 Provider 报告的真实用量为锚点，只估算锚点之后的增量
+Structure type: 系统局部
+Core idea: 不必从头逐条数，找到最近一个盖着"官方印章"的里程碑当基数，只测量它之后新走的几步
+Composition: 一条从左到右延伸的消息小路，路上有一串脚印；路中偏右立着一块盖了红色官方印章的里程碑石，写着一个大数字；小土拨鼠站在里程碑旁，背对着已经量过的左侧长路（左侧路上飘着"不必再数"的淡字），只用一把小卷尺量向右侧里程碑之后的三两个新脚印
+Suggested elements: 消息脚印小路 / 盖红印章的里程碑石 / 小卷尺 / 里程碑之后的新脚印
+Chinese handwritten labels: 真实用量做锚点 / 只估增量 / 之前不必再数 / 跳过失败请求
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图6-2 锚点之后只量增量](images/fig6-2.png){#fig:6-2 width=100%}
+
 ### 判定：越过可用窗口就该压
 
 有了当前 token 数，判定就一行逻辑（`ShouldCompact`）：
@@ -111,6 +153,27 @@ var DefaultCompactionSettings = CompactionSettings{
 
 还有两条短路值得记住：`Enabled` 为 false 时永不压缩；`contextWindow <= 0`（模型窗口未知）时也永不压缩——宁可不压，也不拿一个瞎猜的窗口去误伤上下文。这条"窗口未知即禁用"的约定在循环那头还会再出现一次。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 真正可用的窗口要在模型上限前预留一段余量
+Structure type: 前后对比
+Core idea: 触发线不是模型标称窗口本身，而是窗口减去为"压缩这件事"预留的空间，越过预留线就该压
+Composition: 画面右侧是一堵写着"模型上限"的砖墙；墙前用红色虚线圈出一段明显空着的缓冲带，上面挂着"预留"的牌子；小土拨鼠推着一车上下文积木从左往右堆放，积木刚顶到红色缓冲带的边缘，它伸出小爪按下一个写着"该压了"的开关；缓冲带保持空白不被积木占用
+Suggested elements: 模型上限砖墙 / 红色预留缓冲带 / 上下文积木小推车 / 该压了的开关
+Chinese handwritten labels: 模型上限 / 预留16384 / 越过就压 / 别撞墙
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图6-3 撞墙前先留一段缓冲带](images/fig6-3.png){#fig:6-3 width=100%}
+
 ## 选切点：在哪一条消息上下刀
 
 判定该压之后，第二个问题是"从哪里切"。压缩的本质是把一段较早的历史换成一句摘要，那就得先划一条线：线之前的被摘要吞掉，线之后的原样保留。这条线就是切点（cut point），由 `cutpoint.go` 负责选。
@@ -127,6 +190,27 @@ func isValidCutPoint(msg agentcore.Message) bool {
 	}
 }
 ```
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 切点绝不能把 toolCall 和它的 toolResult 拆开
+Structure type: 角色状态
+Core idea: 只能在 user/assistant 消息之间下刀，成对的工具调用与结果像连体一样必须一起留或一起压
+Composition: 一排横向排列的消息卡片串成链条，其中两张卡片被一根短链条紧紧拴成一对（一张写"调用"、一张写"结果"）；小土拨鼠举着一把大剪刀，正准备在两张普通卡片的缝隙间干净地剪一刀（那里画着绿色的合法虚线）；而在拴在一起的那对卡片中间，画着红色大叉，表示不能从这里剪；小土拨鼠眼神认真地避开那对连体卡片
+Suggested elements: 消息卡片链 / 拴在一起的调用+结果卡片对 / 大剪刀 / 合法切口虚线与红色禁剪叉
+Chinese handwritten labels: 只切user/assistant / 成对不可拆 / 这里可切 / 禁止拆开
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图6-4 剪刀绕开连体的调用与结果](images/fig6-4.png){#fig:6-4 width=100%}
 
 有了合法切点的判据，`FindCutPoint` 的策略是"尽量多留近期、但对齐到合法边界"。它从最新的消息往回累加 token，一旦累积量够了 `keepRecentTokens`（默认 20000），就把切点吸附到那个位置**或其之后**最近的一个合法切点上：
 
@@ -277,6 +361,27 @@ func (r *CompactionResult) RebuildContext(msgs []agentcore.Message, now int64) a
 
 逻辑很直白：被摘要的前缀整段丢掉，换成单独一条压缩检查点，后面接上保留的近期消息。上下文因此保持连续——检查点顶在最前面代替被压掉的历史，近期对话原封不动跟在后面。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 用一条检查点摘要顶替被压掉的长历史前缀
+Structure type: 前后对比
+Core idea: 一长串旧车厢被摘成一节短短的检查点车头挂在最前，近期车厢原样跟在后面，列车依然连贯
+Composition: 一列横向火车，右侧保留着几节写着"近期对话"的完整车厢；左侧原本一长串旧车厢被虚线框住淡化，小土拨鼠正把这一长串旧车厢折叠压成一节小小的、贴着便签摘要的车头，并把这节车头稳稳挂到近期车厢的最前面；车头与后面车厢用挂钩连成一条连续的列车
+Suggested elements: 保留的近期车厢 / 被淡化折叠的旧车厢群 / 贴着摘要便签的短车头 / 连接挂钩
+Chinese handwritten labels: 旧历史压成一节 / 检查点顶在最前 / 近期原样保留 / 上下文连续
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图6-5 摘要车头顶替旧车厢](images/fig6-5.png){#fig:6-5 width=100%}
+
 那么这条检查点消息回放给模型时长什么样？答案在 `agentcore.CompactionMessage.AsUserMessage`：它把摘要包进一段固定的 user 文本里。
 
 ```go
@@ -333,6 +438,27 @@ func maybeAutoCompact(ctx context.Context, agentCtx *agentcore.AgentContext, cfg
 这段代码把前面所有部件串成了一条完整链路：先 `EstimateContextTokens` 算账，`ShouldCompact` 判定，越线才 `runCompaction` 生成结果，`RebuildContext` 原地替换 `agentCtx.Messages`，最后发一个 `CompactionEvent` 汇报 前/后 token 数与 摘要/保留 的消息条数。整个过程发生在两次模型请求之间，对正在进行的对话是无感的。
 
 这里最值得琢磨的是**失败处理**。压缩要额外调一次模型来生成摘要，这次调用完全可能失败（网络抖动、摘要模型不可用、缺 Key）。pigo 的选择是：压缩失败绝不拖垮整轮对话。失败分支里，它保留原始上下文一字不动，只发一个带 `ErrorMessage` 的 `CompactionEvent`，`TokensAfter` 等于 `TokensBefore`（明示没变化），然后正常返回。`internal/runtime/compaction_test.go` 的 `TestAutoCompactionFailureIsNonFatal` 精确锁定了这个契约：即便摘要流构建失败，本轮 run 仍以 `agent_end` 正常收尾，且不会插入任何检查点。这与第 5 章工具系统"失败即反馈，而非中断"的哲学一脉相承——压缩是锦上添花的优化，不该成为新的失败点。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 压缩失败也绝不拖垮整轮对话
+Structure type: 概念隐喻
+Core idea: 压缩是主路旁的一条可选支线，支线塌了主路照样通行，原始上下文一字不动
+Composition: 画面横向一条宽阔的主路，上面几节对话车厢平稳向右行驶，主路完好无损；主路上方岔出一条细细的支线通往一台写着"压缩"的小机器，机器冒着一缕小烟、亮着红色故障灯，显然出故障了；小土拨鼠站在岔路口，一只手指着仍在正常通行的主路（旁边写"照常收尾"），对支线上的小故障只是轻松耸肩，没有惊慌；主路上没有出现任何新的检查点车厢
+Suggested elements: 完好的主路对话车厢 / 岔出的压缩支线小机器 / 红色故障灯与小烟 / 耸肩的小土拨鼠
+Chinese handwritten labels: 压缩失败 / 上下文不动 / 照常收尾 / 不插检查点
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图6-6 压缩支线塌了主路照走](images/fig6-6.png){#fig:6-6 width=100%}
 
 `runCompaction` 是循环与压缩包之间的适配层。它优先用专门的 `SummaryStream` / `SummaryModel`，未配置时回落到主对话的 `Stream` / `Model`，并且像正常回合一样解析 API Key（动态 Key 优先，静态 Key 兜底），确保摘要请求能对需要鉴权的 Provider 正常认证：
 

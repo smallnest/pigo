@@ -25,6 +25,27 @@ type AgentTool interface {
 
 `Execute` 的返回值 `(AgentToolResult, error)` 藏着一条贯穿全章的约定。通读全包你会发现，几乎所有工具都把失败编码进 `AgentToolResult`，而把 Go 的 `error` 返回 `nil`。这不是偷懒。模型需要看到"文件不存在"这样的反馈才能纠正下一步，所以失败得变成一条能喂回上下文的结果，而不是一个会中断循环的 Go 错误。先记住它。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 工具失败不该拉警报中断循环，而应被打包成一条能喂回模型的结果
+Structure type: 概念隐喻
+Core idea: 一个失败（如"文件不存在"）被小土拨鼠温柔地装进一个便当盒，递还给模型继续对话，而不是拉响红色的中断警报
+Composition: 画面中央小土拨鼠一只爪子把一个贴着"文件不存在"小标签的失败便当盒轻轻递向右侧一个代表模型的对话气泡；它另一只爪子按住左上角一个红色警报按钮不让它响起，头顶画一个被划掉的中断闪电。信息从便当盒流向对话气泡
+Suggested elements: 装着失败的便当盒 / 被按住不响的红色警报按钮 / 被划掉的中断闪电 / 接住便当盒的对话气泡
+Chinese handwritten labels: 失败也是反馈 / 不中断循环 / 装进结果 / 喂回模型
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图5-1 失败也要装进便当盒递回](images/fig5-1.png){#fig:5-1 width=100%}
+
 工具产出的结果类型是 `AgentToolResult`：
 
 ```go
@@ -79,6 +100,27 @@ func (r *ToolRegistry) Register(tool agentcore.AgentTool) error {
 ```
 
 三道关卡：空名字拒绝、重名拒绝、Schema 编译失败拒绝。"注册即编译"意味着一个写错了 Schema 的工具会在程序启动时就报错，而不是等模型第一次调用它时才炸。错误被左移到了最早能发现的时刻。而一个 `Schema()` 返回空（或 `null`）的工具会被登记为"无校验"，直接放行任意参数。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 注册即编译 Schema，把坏图纸挡在启动期的大门口而非运行时才炸
+Structure type: 前后对比
+Core idea: 小土拨鼠站在"启动期"大门口当门卫，逐个检验每个工具递上来的 Schema 图纸；一张画错的图纸被当场盖上红色拒绝章挡在门外，好图纸盖上绿章放进屋
+Composition: 画面用一道门把左右分开。门口小土拨鼠站着，正把一张画歪的"坏 Schema"图纸盖上红色 REJECT 章、挡在门外（左侧，标"启动期就报错"）；门内已经放行的好工具排排坐。右侧远处画一个小小的、被划掉的"运行时才爆炸"的对比场景。信息从图纸流向门内
+Suggested elements: 大门与门卫小土拨鼠 / 被盖红章拒绝的坏图纸 / 门内放行的好工具 / 远处被划掉的运行时爆炸
+Chinese handwritten labels: 注册即编译 / 坏Schema挡门外 / 启动期就报错 / 而非首次调用才炸
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图5-2 门卫在启动期就撕掉坏图纸](images/fig5-2.png){#fig:5-2 width=100%}
 
 编译用的是 `santhosh-tekuri/jsonschema/v6` 库。`compileSchema` 有个小技巧：它给每个工具的 Schema 造一个合成的内存 URL `mem:///<name>.json`，这样不同工具的 Schema 永远不会互相冲突。
 
@@ -233,6 +275,27 @@ func prepareToolCall(ctx context.Context, cfg ToolExecutorConfig, call agentcore
 
 五道闸门依次是：上下文已取消（用户按了 Ctrl-C）、未知工具、PrepareArguments 出错、Schema 校验失败、BeforeToolCall 拦截。前四道都直接短路，最后一道 `BeforeToolCall` 若返回 `Block=true`，还允许用钩子给出的 `Content`/`Details` 定制拦截消息（否则填一句默认的"blocked by beforeToolCall"）。这一整段的价值在于：等到工具的 `Execute` 真正跑起来时，参数一定是合法的、调用一定是被放行的。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 准备阶段的五道闸门，任一不过就短路退回，绝不进入执行
+Structure type: Workflow
+Core idea: 小土拨鼠推着一个工具调用小车依次穿过五道排成一列的检票闸机，任何一道亮红灯都会被弹回原地，只有全绿才通往最右侧的"执行"房间
+Composition: 从左到右画五道地铁式检票闸机横向排开，小土拨鼠推着一个贴着"工具调用"标签的小车正通过其中一道；每道闸机上方标一个检查名。其中一道亮红灯把车弹回（画一条折返的红色回退箭头），其余绿灯。最右侧是一个门口写着"执行"的小房间。信息从左向右流
+Suggested elements: 五道检票闸机 / 推着工具调用小车的小土拨鼠 / 一道红灯弹回的折返箭头 / 最右侧的执行房间
+Chinese handwritten labels: 已取消 / 未知工具 / 参数校验 / 拦截闸门 / 全绿才执行
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图5-3 五道闸机，任一红灯就弹回](images/fig5-3.png){#fig:5-3 width=100%}
+
 ### 执行阶段：连 panic 都要接住
 
 `runTool` 负责真正调 `tool.Execute`，它的第一行就是一个 `defer recover()`：
@@ -367,6 +430,27 @@ func batchRequiresSequential(reg *ToolRegistry, calls []agentcore.AgentToolCall)
 
 为什么"一个拖累一批"？因为并发执行时无法保证顺序，而写文件、跑命令这类有副作用的操作一旦和别的操作交错，就可能产生竞态。保守起见，只要批里混入一个有副作用的工具，就整批老实排队。而全是只读操作（读文件、搜索、抓网页）的批次则可以放心并发，把 IO 等待重叠起来。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 一批工具调用只要混入一个有副作用的写操作，整批就退化成串行排队
+Structure type: 前后对比
+Core idea: 几只只读小土拨鼠本可以并排冲刺，但队伍里只要挤进一只拎着油漆桶（写操作）的，为了不弄脏彼此，全队立刻收缩成一列纵队老实排队
+Composition: 画面上半部分：三只只读小土拨鼠（各举放大镜/书本，代表读、搜、抓）并排横向奔跑，标"全只读可并发"。画面下半部分：同样几只，但队伍里插进一只拎着油漆桶的小土拨鼠，于是所有鼠被迫排成一条单列纵队，标"混入写就串行"。上下用一个对比箭头连接
+Suggested elements: 上排并排奔跑的只读小土拨鼠 / 拎油漆桶的写操作小土拨鼠 / 下排被迫排成的单列纵队 / 上下之间的对比箭头
+Chinese handwritten labels: 全只读可并发 / 混入写就串行 / 副作用怕交错 / 一个拖累一批
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图5-4 一只拎油漆桶，全队排成单列](images/fig5-4.png){#fig:5-4 width=100%}
+
 **并发模式靠"按索引回填"保序**。注意并发分支里 goroutine 直接写 `results[i]` 和 `terminates[i]`：每个 goroutine 只碰自己那个下标，互不重叠，所以既不需要加锁，返回的结果切片又严格保持了调用的原始顺序。模型不会因为工具并发就收到乱序的结果。
 
 **中止时也要给每个调用一个交代**。串行分支里若中途发现 `ctx.Err() != nil`，它不是简单地 break，而是把剩下的每个调用都填成一条 "tool call aborted" 的错误结果。这呼应了那条铁律：每个工具调用都必须有一条对应的结果消息回填，否则模型的对话历史里就会出现"发起了调用却没有结果"的空洞。
@@ -407,6 +491,27 @@ func resolveWithin(root, p string) (string, error) {
 ```
 
 它把目标路径解析成绝对路径后，再算出它相对工作区根的相对路径——如果这个相对路径以 `..` 开头，说明它逃到了根之外，直接拒绝。`ReadTool`、`WriteTool`、`EditTool` 各自的 `resolvePath` 方法只是薄薄地转调它，所以"不能越界"这条规则只写了一遍、也只需在一处维护。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: resolveWithin 用一圈绳圈住工作区，任何指向界外(..)的路径都被拽回来
+Structure type: 系统局部
+Core idea: 小土拨鼠用一根绳子在地上圈出"工作区"地界，一条想沿着写着 ../.. 的小路溜到圈外的路径被它一把绳套拽了回来
+Composition: 画面中央一个用手绘绳圈围出的圆形"工作区"地界，圈内标"workspace root"，里面安放着几个文件图标。一条路径箭头贴着"../../etc"想冲出圈外，小土拨鼠站在边界上甩出绳套把这条越界箭头套住拽回，界外画一个红色禁止圈
+Suggested elements: 圈出工作区的绳圈 / 想逃到圈外的 ../.. 路径箭头 / 甩绳套拽回的小土拨鼠 / 界外的红色禁止圈
+Chinese handwritten labels: 工作区边界 / 越界即拒绝 / 只写一遍 / 一处维护
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图5-5 越界的路径被绳套拽回来](images/fig5-5.png){#fig:5-5 width=100%}
 
 ### 读：分页、行号与截断
 
@@ -477,6 +582,27 @@ if count > 1 && !a.ReplaceAll {
 ```
 
 如果 `old_string` 在文件里出现了多次而模型没有设 `replace_all`，编辑会被拒绝，并提示"要么给更多上下文让它唯一，要么显式 replace_all"。这一条防的是"本想改第 3 行、结果把长得一样的第 8 行也改了"的隐蔽 bug。执行前还有一道更早的检查：`old_string == new_string` 时直接拒绝（"什么都没改"）。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 编辑时 old_string 若不唯一就拒绝下手，逼调用方给更多上下文或显式 replace_all
+Structure type: 角色状态
+Core idea: 文件里有两句长得一模一样的双胞胎行，小土拨鼠举着放大镜停在半空，橡皮擦举着不敢落下，因为它分不清该改哪一句
+Composition: 画面右侧画一页文件，里面两行内容完全相同（画成一对双胞胎行，各挂一个"第3行""第8行"小标签）。左侧小土拨鼠一爪举放大镜端详、一爪举着橡皮擦悬在空中犹豫不下手，头顶一个大问号。一条被红叉划掉的"贸然全改"箭头指向两行
+Suggested elements: 两行完全相同的双胞胎行 / 举放大镜的小土拨鼠 / 悬空不敢落下的橡皮擦 / 头顶的问号
+Chinese handwritten labels: old_string不唯一 / 该改哪一个 / 拒绝下手 / 或replace_all
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图5-6 分不清双胞胎行，橡皮擦不敢落](images/fig5-6.png){#fig:5-6 width=100%}
 
 替换成功后，它返回一段 unified 风格的 diff 给 UI 渲染。diff 由 `diffLines` 用标准的最长公共子序列（LCS）动态规划算出：
 
@@ -589,6 +715,27 @@ CheckRedirect: func(req *http.Request, via []*http.Request) error {
 ```
 
 被拦下时，`Execute` 用 `errors.As` 把这个错误从 `http.Client` 包裹的 `*url.Error` 里解出来，把重定向目标作为结果返回给模型，由模型决定要不要显式再抓那个新地址，而不是工具自作主张跟过去。这是一条防 SSRF、防隐私泄露的谨慎默认。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 抓取遇到跨域重定向不自动跟随，而是停下把新地址交还给模型决定
+Structure type: 地图路线
+Core idea: 小土拨鼠沿着一条 URL 小路走，走到岔口发现路突然拐向另一个陌生小镇（跨域），它当机立断刹住脚，把写着新地址的路牌拔下来递回给模型，绝不擅自走过去
+Composition: 手绘地图风格：一条小路从左侧同一个小镇（标 same host）延伸，走到中间岔口，路牌指向右侧一个陌生小镇（标 other host），中间画一道跨域虚线边界。小土拨鼠在岔口急刹车、扬起尘土，一爪把新地址路牌拔下递回左侧的模型对话气泡；通往陌生小镇的路上画一个红色禁止圈
+Suggested elements: 从同源小镇延伸的URL小路 / 岔口急刹的小土拨鼠 / 被拔下递回的新地址路牌 / 通往陌生小镇被红圈拦住的路
+Chinese handwritten labels: 同源才跟随 / 跨域就停下 / 交还新地址 / 防SSRF
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图5-7 岔口急刹，把新地址交还给模型](images/fig5-7.png){#fig:5-7 width=100%}
 
 拿到响应体后，如果 Content-Type 含 html（或 `looksLikeHTML` 嗅探出是 HTML），就交给 `htmlToMarkdown` 转换。这个转换在 `htmlmarkdown.go` 里，包装了 `JohannesKaufmann/html-to-markdown/v2` 库：
 

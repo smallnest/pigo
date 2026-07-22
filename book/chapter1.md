@@ -69,7 +69,39 @@ os.Exit(dispatch(context.Background(), opts, os.Stdout, os.Stderr))
 3. **无提示词**（`opts.prompt == ""`）：若在终端上，或带 `--resume`，进入交互式 REPL；若 stdout 非终端（管道/CI）又无 resume，则报错退出——因为既没有要跑的东西，也没有可交互的对象。
 4. **有提示词**：进入无头模式，按 `--output-format` 决定 `text` 还是 `stream-json` 输出。
 
-这四条岔路里，第 3、4 条是本章的主角。它们共享同一套环境装配，却走向两种不同的驱动器。
+把这四条岔路对照到源码，`dispatch` 的骨架是一串按优先级排列的提前返回（early return）：
+
+```go
+func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
+    // 岔路一：子 Agent JSON-RPC 服务模式，说完协议就退出。
+    if opts.subagentRPC {
+        return runSubAgentRPC(ctx, os.Stdin, out, errOut)
+    }
+    // 岔路二：列会话，独立动作。
+    if opts.listSessions {
+        if err := printSessions(out); err != nil { /* ... */ return 1 }
+        return 0
+    }
+    // ... --continue 解析成最近一次会话 id ...
+
+    // 岔路三：无提示词 → 交互式 REPL（终端或带 --resume 时）。
+    if opts.prompt == "" {
+        if resumeID == "" && !stdoutIsTerminal() {
+            fmt.Fprintln(errOut, "pigo: no prompt (use -p \"...\" or positional args)")
+            return 2
+        }
+        env, err := setupAgentEnv(opts.model, opts.baseURL, /* ... */)
+        // ...
+        return 0
+    }
+
+    // 岔路四：有提示词 → 无头模式。
+    mode, err := parseOutputMode(opts.outputFmt)
+    // ... setupAgentEnv → openHeadlessSession → newRunConfig → RunHeadless ...
+}
+```
+
+这四条岔路里，第 3、4 条是本章的主角。它们共享同一套环境装配，却走向两种不同的驱动器。注意每条岔路都以一个整数退出码收尾——`dispatch` 把"该退出还是继续"和"退出码是多少"两件事捏在一起，`main()` 只负责把这个返回值透传给 `os.Exit`。
 
 ![图1-2 dispatch：一个进来，四条岔路出去](images/fig1-2.png){#fig:1-2 width=100%}
 
@@ -111,7 +143,37 @@ func setupAgentEnv(model, baseURL, protocol, providerName string, noTools bool,
 2. 显式 `--protocol`（`openai`/`anthropic`）次之，直接对 base URL 构造对应协议驱动。
 3. 都没有时，回落到模型 id 启发式：先查精选目录（`provider.LookupPreset`），再看 `ollama/`、`nvidia/` 前缀，最后默认落到 OpenRouter 这个参照级 OpenAI 兼容网关。
 
-这段解析的细节是第 4 章的主题，本章只需记住一点：`setupAgentEnv` 出来时，Provider 已经是一个可以直接发起流式请求的具体对象了。
+这条优先级链在源码里就是一串自上而下的判断：
+
+```go
+func resolveProvider(model, baseURL, protocol, providerName string) (provider.Provider, string, error) {
+    // 显式 --provider 最高：从注册表构造，压过 --protocol 与模型 id 启发式。
+    if strings.TrimSpace(providerName) != "" {
+        return resolveNamedProvider(providerName, model, baseURL, protocol)
+    }
+    // 0. 显式 --protocol 次之，直接对 base URL 构造对应协议驱动。
+    switch protocol {
+    case "openai":
+        // ... NewOpenAICompatibleProvider(baseURL, ...) ...
+    case "anthropic":
+        // ... NewAnthropicProvider(baseURL, ...) ...
+    case "":
+        // 落空，继续走启发式
+    default:
+        return nil, "", fmt.Errorf("unknown --protocol %q (want openai|anthropic)", protocol)
+    }
+    // 1. 精选目录命中：一个受管的 id 自己就知道该用哪个 Provider。
+    if p, ok := provider.LookupPreset(model); ok { /* nvidia / ollama / openrouter */ }
+    // 2. 本地 Ollama：按前缀或 11434 端口。
+    if strings.HasPrefix(model, "ollama/") || strings.Contains(baseURL, "11434") { /* ... */ }
+    // 3. NVIDIA NIM：按前缀。
+    if strings.HasPrefix(model, "nvidia/") { /* ... */ }
+    // 4. 兜底：OpenRouter。
+    return provider.NewOpenRouterProvider(baseURL, /* ... */), "openrouter", nil
+}
+```
+
+注意未知的 `--protocol` 值是一个错误（返回 `error` 而非静默兜底），交给调用方做退出码映射。这段解析的细节是第 4 章的主题，本章只需记住一点：`setupAgentEnv` 出来时，Provider 已经是一个可以直接发起流式请求的具体对象了。
 
 ### newRunConfig：把装配收敛成 RunConfig
 
@@ -158,7 +220,34 @@ func newRunConfig(model, providerName string, prov provider.Provider,
 3. **信任闸门**：加载项目信任存储；首次进入未决目录时（且无 `--approve`）先问用户信任到什么程度，再放行任何工具。
 4. **进入循环**：调用 `runREPL`（`cmd/pigo/repl.go`）。
 
-`runREPL` 是一个跑在主 goroutine 上的同步循环：读一行 → 解析斜杠命令 → 启动一次运行 → 把事件流打印到 stdout → 持久化会话 → 回到提示符。运行中的 `SIGINT` 只取消当前这次运行的 context 并返回提示符，空闲时读到 EOF 则干净退出。每一次真正的对话由 `streamRun` 驱动：它把提示词追加进共享上下文，调用 `runtime.StartRun` 启动循环，再用 `runtime.DrainStream` 把流式文本与工具活动实时渲染出来。注意 REPL 版的 `RunConfig` 额外挂了 `BeforeToolCall: trustBeforeToolCall(...)`，这是交互模式独有的逐次工具确认闸门。
+`runREPL` 是一个跑在主 goroutine 上的同步循环：读一行 → 解析斜杠命令 → 启动一次运行 → 把事件流打印到 stdout → 持久化会话 → 回到提示符。运行中的 `SIGINT` 只取消当前这次运行的 context 并返回提示符，空闲时读到 EOF 则干净退出。每一次真正的对话由 `streamRun` 驱动：它把提示词追加进共享上下文，自行拼一个 `RunConfig`，调用 `runtime.StartRun` 启动循环，再用 `runtime.DrainStream` 把流式文本与工具活动实时渲染出来。
+
+```go
+func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string) {
+    content, _ := buildUserContent(prompt)
+    deps.agentCtx.Messages = append(deps.agentCtx.Messages, agentcore.UserMessage{
+        RoleField: agentcore.RoleUser, Content: content,
+    })
+    cfg := runtime.RunConfig{
+        LoopConfig: runtime.LoopConfig{
+            Model:         deps.live.model,
+            Provider:      deps.live.providerName,
+            Stream:        provider.StreamFnFromProvider(deps.live.provider),
+            GetAPIKey:     deps.creds.GetAPIKey,
+            ContextWindow: deps.live.contextWindow,          // REPL 独有
+            Compaction:    compaction.DefaultCompactionSettings, // REPL 独有
+        },
+        Batch: agenttool.BatchConfig{ToolExecutorConfig: agenttool.ToolExecutorConfig{
+            Registry:       deps.reg,
+            BeforeToolCall: trustBeforeToolCall(...), // REPL 独有：逐次工具确认闸门
+        }},
+    }
+    stream := runtime.StartRun(ctx, deps.agentCtx, cfg)
+    runtime.DrainStream(ctx, stream, runtime.StreamHandler{OnEvent, OnText, OnTurnEnd})
+}
+```
+
+对照 `newRunConfig`，REPL 版多出三个字段：`ContextWindow` 与 `Compaction` 让长对话在逼近 token 上限时能压缩（第 6 章），`BeforeToolCall: trustBeforeToolCall(...)` 是交互模式独有的逐次工具确认闸门（第 8 章）。它们只属于"人坐在终端前反复交互"这一场景——无头模式一次性跑完，既不需要中途压缩多轮历史，也不会停下来问用户"这个工具能不能跑"。
 
 ### 无头模式：-p 与 stream-json
 
@@ -175,11 +264,55 @@ func newRunConfig(model, providerName string, prov provider.Provider,
 - **PrintMode**：跑到收尾，只把最终一条 assistant 文本写到输出。
 - **StreamJSONMode**：每个 `AgentEvent` 被 `writeEventJSON` 序列化成一行 JSON（行分隔），父进程可增量消费。序列化只挑对外安全有用的字段（assistant 文本、工具 id/名、停止原因），**从不输出密钥**。
 
-运行结束后，无论成败都会 `hs.persist(agentCtx)` 把这次产生的消息回写会话（部分运行也可 resume）；若运行以 `StopReasonError`/`StopReasonAborted` 收尾，`RunHeadless` 返回 `*ErrRunFailed`，`dispatch` 据此把退出码映射为 1。
+这个模式分支与收尾错误映射在源码里连成一段：
+
+```go
+lastAssistant, resErr := DrainStream(ctx, stream, h)
+// ... 处理 writeErr / resErr ...
+
+if cfg.Mode == PrintMode {
+    text := ""
+    if lastAssistant != nil {
+        text = agentcore.ContentToText(lastAssistant.Content)
+    }
+    io.WriteString(cfg.Out, text) // 只写最终一条 assistant 文本
+    // ... 补一个换行 ...
+}
+
+if lastAssistant != nil {
+    switch lastAssistant.StopReason {
+    case agentcore.StopReasonError:
+        return &ErrRunFailed{Reason: lastAssistant.ErrorMessage}
+    case agentcore.StopReasonAborted:
+        return &ErrRunFailed{Reason: "aborted"}
+    }
+}
+return nil
+```
+
+（`StreamJSONMode` 的逐行输出发生在 `DrainStream` 的事件处理器 `h` 里，故这里的 `if cfg.Mode == PrintMode` 只补最终文本。）运行结束后，无论成败都会 `hs.persist(agentCtx)` 把这次产生的消息回写会话（部分运行也可 resume）；若运行以 `StopReasonError`/`StopReasonAborted` 收尾，`RunHeadless` 返回 `*ErrRunFailed`，`dispatch` 据此把退出码映射为 1。
 
 ### 会话回填与 session_id 的诞生
 
-无头运行也被一个会话文件"托底"，这正是 `session_id` 的来源。`openHeadlessSession` 在 `--resume` 时从磁盘 `LoadEntries` 重建 prior messages 并重新锚定分支叶子，否则用 `session.NewID` 造一个新会话头。这个 id 被写进 `runCfg.SessionID`，而循环在最开始就会发出一个 `agentcore.AgentStartEvent{SessionID: cfg.SessionID}`（`internal/runtime/loop.go` 的 `runLoop`）。在 stream-json 模式下，`eventEnvelope` 会把它序列化成第一行 JSON 里的 `sessionId` 字段（事件 `type` 为 `agent_start`）。
+无头运行也被一个会话文件"托底"，这正是 `session_id` 的来源。`openHeadlessSession` 在 `--resume` 时从磁盘 `LoadEntries` 重建 prior messages 并重新锚定分支叶子，否则用 `session.NewID` 造一个新会话头。这个 id 被写进 `runCfg.SessionID`，而循环在最开始就会发出一个 `agentcore.AgentStartEvent{SessionID: cfg.SessionID}`（`internal/runtime/loop.go` 的 `runLoop`）。在 stream-json 模式下，`eventEnvelope` 会把它序列化成第一行 JSON 里的 `sessionId` 字段（事件 `type` 为 `agent_start`）：
+
+```go
+func eventEnvelope(ev agentcore.AgentEvent) map[string]any {
+    env := map[string]any{"type": ev.EventType()}
+    switch e := ev.(type) {
+    case agentcore.AgentStartEvent:
+        // 首个事件带上背书会话 id（对标 pi/Claude Code），消费方据此
+        // 关联本次输出并日后 --resume；无会话时省略，视作"不可续跑"。
+        if e.SessionID != "" {
+            env["sessionId"] = e.SessionID
+        }
+    case agentcore.AgentEndEvent:
+        env["messageCount"] = len(e.Messages)
+    // ... TurnEndEvent 填 stopReason/text 等 ...
+    }
+    return env
+}
+```
 
 这一点很关键：**`agent_start` 事件在任何网络请求之前就被发出**。所以哪怕后续 Provider 调用因缺少密钥而失败，你依然能在第一行看到本次运行的会话 id，它可以被 `--resume`/`--continue` 用来续跑，对齐了 pi / Claude Code 的行为。下面的实验就来亲眼看一看这第一行事件。
 

@@ -16,6 +16,27 @@
 
 一条线索贯穿始终：**pigo 不为扩展另造发现机制，而是让每种扩展落到一个它本来就会扫描的目录里**。技能落到技能目录（`LoadSkillsDir` 会扫），提示词落到 `commands` 目录（`LoadUserCommandsDir` 会扫），扩展落到 `plugins` 目录（`plugin.Discover` 会扫）。包管理器的"分发"本质上就是把包里的东西摆到正确的位置，剩下的交给既有的加载逻辑。下面就从最轻的一层说起。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: pigo 不为扩展另造发现机制，只把三类扩展丢进它本来就会巡查的三个洞
+Structure type: 概念隐喻
+Core idea: 扩展的"发现"不是新盖的机制，而是复用既有的目录巡查——小土拨鼠只需把不同扩展投进对应的现成洞口
+Composition: 小土拨鼠站在地面中央，手里拎着三个大小不同的包裹（一小张纸片、一个方盒子、一个大麻袋），面前地上有三个已经挖好、标着牌子的圆洞；小土拨鼠正把每个包裹分别投进对应的洞，洞口上方有它日常巡逻的脚印箭头绕圈，表示"本来就会扫这些洞"
+Suggested elements: 一张带YAML角标的小纸片(skill) / 一个方盒插件(plugin) / 一个npm大麻袋(package) / 三个标了目录名的现成洞口
+Chinese handwritten labels: skills目录 / plugins目录 / commands目录 / 复用既有巡查 / 不另造机制
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图10-1 三种扩展投进现成的洞](images/fig10-1.png){#fig:10-1 width=100%}
+
 ## Skills 与斜杠命令：把领域能力挂载进来
 
 一个 skill 是什么？看 `internal/runtime/skills.go` 的定义，它朴素得近乎寒酸——就是一个带 YAML frontmatter 的 Markdown 文件（对标 Claude Code 的 `SKILL.md`）：头部声明元数据，正文是这项能力的系统提示。
@@ -65,6 +86,27 @@ func (s *Skill) SubAgentSpec(tools []agentcore.AgentTool, newRunConfig func(tool
 
 注意它复用的正是第 9 章的 `SubAgentSpec`——`SkillTool` 再把它包成一个 `*SubAgentTool`。也就是说，调用一个技能，本质上是启动一个带着"技能正文当系统提示"的子 Agent 循环。pigo 没有为技能新造第二条执行路径，而是让它搭上子 Agent 那趟车：一个技能就是一个"预置了专门指令的分身"。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 一个技能就是一个"预置了专门指令的分身"——技能正文当系统提示，启动一个子 Agent 分身
+Structure type: 角色状态
+Core idea: 调用技能不是新造执行路径，而是把技能正文当系统提示塞给一个子 Agent 分身，让分身带着专门指令另跑一轮
+Composition: 左边一只正常的小土拨鼠(主 Agent)，手里拿着一张写满指令的卡片(SKILL.md正文)，正把卡片贴到右边一只半透明、气泡框里的小土拨鼠分身的额头上；分身额头被贴上卡片后眼神变得专注，脚下有一条箭头表示它要独立跑开一轮、只带结论回来
+Suggested elements: 一张写着指令的SKILL卡片 / 主小土拨鼠 / 气泡框里的分身小土拨鼠 / 分身独立跑出去的回环箭头
+Chinese handwritten labels: 技能正文=系统提示 / 分身另起一轮 / 复用子Agent那趟车 / 只回结论
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图10-2 技能=贴上指令卡的分身](images/fig10-2.png){#fig:10-2 width=100%}
+
 第二种是**变成斜杠命令**。`SlashCommand` 把技能暴露成 REPL 里的一条 `/name`，调用时把技能正文（连同参数）作为下一轮用户输入喂给当前对话：
 
 ```go
@@ -106,6 +148,27 @@ type SlashCommand struct {
 ```
 
 设 `Expand` 的是**提示命令**（prompt command）：它把参数转成喂给 Agent 的提示文本，是斜杠命令最初的形态。设 `Action` 的是**动作命令**（action command）：它执行一个副作用——比如 `/model` 切换运行时模型——并返回一行状态给用户看，**不启动任何 Agent 运行**。区别在于 `Action` 是一个任意的 Go 闭包，能捕获并改动活的运行时状态，而 `Expand`（一个纯粹的提示生产者）做不到。这个分家是让 `/model` 这类控制命令得以存在的前提——旧设计只能产出提示文本，改不了运行时状态。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 一条斜杠命令的两种性格——Expand 生产提示文本喂给 Agent，Action 直接扳动运行时状态开关
+Structure type: 前后对比
+Core idea: 同一条命令由设 Expand 还是 Action 决定性格：Expand 只吐出喂给 Agent 的话，Action 是能改活状态的闭包（如 /model）却不启动运行
+Composition: 画面中央一只小土拨鼠站在一台带两个出口的分岔装置前；左出口(Expand)吐出一张写着提示文本的纸条，飘向一个 Agent 小人；右出口(Action)是一只手扳动一个物理拨杆开关(标 /model)，开关连到一个"运行时状态"的小仪表盘，但没有任何 Agent 被启动
+Suggested elements: 左侧吐出的提示纸条 / 右侧的拨杆开关 / 运行时状态小仪表盘 / 中间的分岔装置
+Chinese handwritten labels: Expand=喂提示 / Action=改状态 / 不启动运行 / 如/model
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图10-3 提示纸条与状态拨杆](images/fig10-3.png){#fig:10-3 width=100%}
 
 `ResolveOutcome` 是解析一行输入的统一入口。它区分三种结局：不是斜杠命令，原样返回让调用方直接运行；是已知的提示命令，返回展开后的提示文本；是已知的动作命令，**当场执行动作**并返回状态消息、不启动运行。未知的 `/name` 则报错。这三态被打包进 `SlashOutcome`，REPL 据此决定"跑一轮"还是"只显示一行"。
 
@@ -156,6 +219,27 @@ func (t *pluginTool) Execute(ctx context.Context, id string, args json.RawMessag
 
 注意它对传输错误（比如插件进程崩了）的处理：**降级成一个错误结果、而不是返回 Go error**。这样一来，一个死掉的插件顶多让模型收到一句"plugin call failed"，绝不会把 Agent 主循环带崩。`ExecutionMode` 声明为 `ToolExecutionSequential`——插件调用跨进程、副作用未知，保守起见串行执行，不参与第 5 章那套并发批量。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 插件进程崩溃被隔离在防火墙另一侧，主循环只收到一张"plugin call failed"的降级字条
+Structure type: 系统局部
+Core idea: 插件跨进程执行，崩溃被降级成一个错误结果而非抛出 error——主循环安然无恙，一个死插件不连累全体
+Composition: 画面用一道竖直的砖墙分成两半：左侧小土拨鼠稳稳站在主循环圆环旁边毫发无损；右侧墙那边一个方盒子插件正在冒火冒烟(崩溃)；墙上开一个小传递口，从火场那侧递出一张写着"plugin call failed"的红字小纸条，小土拨鼠淡定地接过纸条继续转圈，火焰被墙完全挡在右侧
+Suggested elements: 中间的隔离砖墙 / 冒火的方盒插件 / 递出的红字错误纸条 / 淡定转圈的主循环小土拨鼠
+Chinese handwritten labels: 插件崩了 / 降级成错误结果 / 主循环不受连累 / 跨进程隔离
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图10-4 防火墙挡住崩溃的插件](images/fig10-4.png){#fig:10-4 width=100%}
+
 发现与管理归 `manager.go` 的 `Manager`。`Discover` 扫描目录里**直接的可执行普通文件**（跳过子目录和非可执行文件），逐个 `Load`；某个插件启动或握手失败会写进 `warnLog` 并跳过，其余照常加载——又一次"一个坏的不连累全体"。目录不存在不算错，返回一个空 `Manager`。这个函数正是第 1 章 `setupAgentEnv` 里那行 `plugin.Discover(pluginsDir(), ...)` 的落点：非 `--no-tools` 时，发现到的插件工具被追加进工具集。
 
 ### 事件系统：把循环的心跳广播给插件
@@ -179,6 +263,27 @@ func eventPayload(ev agentcore.AgentEvent) map[string]any {
 这套"只给可观察字段、绝不外泄密钥"的纪律，跟第 1 章 stream-json 信封的字段筛选是同一套原则——无论是给外部消费者看的 JSON，还是推给插件的事件，pigo 对"什么能出边界"的判断是一致的。
 
 投递本身是"发后不理"且有界的。`Plugin.SendEvent` 把底层写操作放到自己的 goroutine 上，用 `eventTimeout`（2 秒）兜底：一个读得慢或者卡死的插件，最多给每个事件添 2 秒的有界延迟，超时就丢弃这次投递，绝不阻塞 Agent 循环。`Manager.DispatchEvent` 逐个插件投递，一个插件失败（超时、进程死了）写进 warnLog、不影响给其他插件投递。`EventNotifier` 则是外层的便利封装：没有插件时 `NewEventNotifier` 直接返回 nil，`Handle` 在 nil 上是安全空操作，调用方可以无条件接线；有插件但没人订阅某事件时，它连载荷都不构造。绝大多数情况下根本没装插件，这份"没人听就别费劲"的克制让事件系统在这种常态下几乎零开销。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 推给插件的事件载荷只放可观察字段，密钥在关口被没收，绝不外泄
+Structure type: 概念隐喻
+Core idea: 事件系统像海关安检：id/名字/计数这类可观察明信片放行，密钥被拦在边界之外，绝不出边界
+Composition: 小土拨鼠戴着安检员帽子站在一个边界关口的检查台后，面前传送带上流过一串事件包裹；它挥手放行几张写着"id/名字/计数"的敞开明信片，同时用爪子按住并没收一把标着密钥符号(钥匙图案)的东西，把钥匙丢进旁边的"禁止出境"箱子；关口另一侧站着一个等着接收的插件小人只收到明信片
+Suggested elements: 边界检查台 / 放行的明信片(id·名字·计数) / 被没收的钥匙(密钥) / 关口另一侧的插件小人
+Chinese handwritten labels: 只放可观察字段 / 密钥不出边界 / 发后不理 / 没人听就不费劲
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图10-5 事件安检：放行明信片、没收密钥](images/fig10-5.png){#fig:10-5 width=100%}
 
 ## 包管理器：让扩展可安装可复用
 
@@ -211,6 +316,27 @@ cmd := exec.Command(npmExecutable, "pack", spec,
 ```
 
 选 `npm pack` 而非 `npm install` 是有深意的：它只把包下载成 `.tgz`，**不装依赖、不跑生命周期脚本**，所以"下载一个包"这个动作本身不会执行包里的代码。`--ignore-scripts` 更是把打包期脚本执行也堵死。下载后 `extractTarGz` 解压——`safeJoin` 一路守着路径穿越（`../` 逃逸），只解普通文件和目录，符号链接、设备节点一律跳过。这是"拉取一个不受信任的第三方包"该有的谨慎。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 用 npm pack --ignore-scripts 只取包不跑脚本，像拆弹一样剪断生命周期脚本引信
+Structure type: 概念隐喻
+Core idea: 拉取不受信任的第三方包时，只下载 .tgz 不执行代码——剪断"生命周期脚本"引信，解压时还挡住路径穿越
+Composition: 小土拨鼠戴着护目镜像拆弹专家，面前是一个绑着引信的 npm 包裹(.tgz)；它用剪刀正剪断一根标着"生命周期脚本"的引信，让包裹安全打开；打开后只有普通文件和文件夹倒出来，旁边一只手举着挡板拦住一个想溜进"../"上级目录的符号链接箭头
+Suggested elements: 绑引信的.tgz包裹 / 被剪断的"脚本"引信 / 倒出的普通文件 / 被挡住的../路径穿越箭头
+Chinese handwritten labels: 只下载不执行 / 剪断脚本引信 / 挡住../穿越 / 不受信任的包
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图10-6 剪断脚本引信的拆包术](images/fig10-6.png){#fig:10-6 width=100%}
 
 **分类**（`classify.go`）。同一个包可能同时是好几种类型——npm 目录里就有 `extensionskill` 这样的组合条目——所以 `Classify` 返回的是一个类型**集合**。它先读 `package.json` 里的 `pi` 元数据块（显式声明的 `type`/`types` 或按能力分的键），再叠加**结构性回落**：有 `bin` 入口就当扩展，有 `SKILL.md` 就当技能，有 `commands/` 目录就当提示词。
 

@@ -36,6 +36,27 @@ type Entry struct {
 
 `ID` 是这条 entry 的稳定标识，`ParentID` 指向它所派生的那条 entry。这两个字段把一串消息织成了一棵树。注释里点破了它的退化形态：一个线性会话，就是"每条 entry 的 ParentID 都指向上一条 entry"的树，第一条 entry 的 ParentID 为空（根）。为什么要费这个劲上一棵树？因为有了 ParentID 链，一个会话才能从中途某条消息分叉出真正的支线（fork/clone），而不是只能线性地往后追加。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 一个会话不是一条链，而是一棵消息树；线性对话只是它退化的一根主干
+Structure type: 概念隐喻
+Core idea: 每条消息 entry 靠 ParentID 指向父节点，串成一棵可以分叉的树，线性会话是最退化的形态
+Composition: 小土拨鼠像园丁一样蹲在一棵手绘小树旁边，正踮脚往一根树枝上挂新的方形消息卡片；树干从底部一个空心圆根节点长上来，主干是一串卡片首尾用箭头(ParentID)相连，中途某个节点分叉出一根侧枝也挂着卡片；每张卡片上写着 role: user / assistant；小土拨鼠一只爪子握着刚要挂上去的新卡片
+Suggested elements: 空心圆根节点 / 方形消息卡片 / 卡片间指向父节点的小箭头 / 一根分叉出去的侧枝
+Chinese handwritten labels: 根(ParentID为空) / 消息entry / 指向父节点 / 分叉支线
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图7-1 会话是一棵消息树](images/fig7-1.png){#fig:7-1 width=100%}
+
 这里有个第 2 章埋下的伏笔要收一下。`agentcore.Message` 是一个密封接口（sealed interface），没有默认的反序列化器——JSON 反序列化时无法知道一行 `{"role":"user",...}` 该解成哪个具体类型。`Entry` 的 `UnmarshalJSON` 用了一个巧妙的转调：把消息对象包进一个单元素数组，再交给 `agentcore.MessageList` 那套按 `role` 判别的解码逻辑：
 
 ```go
@@ -92,6 +113,27 @@ func PathToLeaf(entries []Entry, leafID string) []Entry {
 
 它从 `leafID` 出发沿 ParentID 逐级上溯到根，再把收集到的 leaf→root 序列反转成 root→leaf。两个防御细节值得留意：`seen` map 挡住了环（万一文件被写坏成一个循环引用），而遇到缺失的父节点时它选择**停在最后一个能解析到的祖先**而不是报错——一个部分损坏的文件，仍能捞回可恢复的前缀。这种"尽量少失败"的姿态，在整个会话包里反复出现。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: PathToLeaf 从一片叶子沿 ParentID 一路上溯回根，重建喂给它的那条线性对话
+Structure type: 地图路线
+Core idea: 从叶子节点顺着父指针逐级往上爬到根，遇到断链就停在最后一个能走到的祖先，绝不整个失败
+Composition: 小土拨鼠戴着探险头灯，正沿着一条从底部叶子卡片向上蜿蜒的虚线小径往上攀爬，手里牵着一根线；小径经过几个圆形节点，最上方是根节点；路径中途有一处断裂的缺口(缺失父节点)，缺口边小土拨鼠停下脚步立了一面小旗；旁边一个打叉的自我循环箭头被挡住表示环被拦截
+Suggested elements: 探险头灯 / 从叶到根的上溯虚线小径 / 断裂缺口处的小旗 / 被打叉拦截的循环箭头
+Chinese handwritten labels: 从叶子出发 / 沿ParentID上溯 / 断链就停 / 拦住环
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图7-2 沿父指针上溯重建对话](images/fig7-2.png){#fig:7-2 width=100%}
+
 ## 存与取：Store 的读写原语
 
 数据模型之上是 `Store`，它把会话作为 JSONL 文件持久化到一个目录（通常是 `~/.pigo/sessions`）。它对外暴露的写原语分两档：`Save` 是整份写入，`Append`/`AppendBranch` 是增量追加。所有写入都经过同一段管道 `atomicWrite`：
@@ -111,6 +153,27 @@ func (s *Store) atomicWrite(id string, write func(w io.Writer) error) error {
 ```
 
 先写临时文件、再原子 `rename` 就位。这道设计防的是并发读：REPL 一边追加会话、另一个 `pigo --list-sessions` 一边扫目录，靠 `rename` 的原子性，读者要么看到旧文件、要么看到新文件，永远不会撞见一个写了一半的残缺文件。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: atomicWrite 先写临时文件再原子改名就位，让并发的读者永远看不到写了一半的残缺文件
+Structure type: 系统局部
+Core idea: 新内容先偷偷写进 .tmp 草稿，写完一瞬间用 rename 把招牌一次性换上，读者要么看到旧的要么看到新的，绝无半成品
+Composition: 小土拨鼠站在一块菜单招牌前，正一把把写满字的新木牌(标 .tmp)整块盖换到旧招牌的位置，动作是"一瞬间替换";旁边另一只更小的读者小土拨鼠正抬头看招牌,它眼里要么完整旧牌要么完整新牌;地上散落着一张被划掉的"写一半的残牌"表示被这套机制杜绝
+Suggested elements: 写满字的新招牌(.tmp) / 一次性替换的大箭头(rename) / 抬头看牌的读者小土拨鼠 / 被打叉丢弃的半成品残牌
+Chinese handwritten labels: 先写临时文件 / 原子改名就位 / 读者只见完整版 / 没有半成品
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图7-3 临时文件加原子改名](images/fig7-3.png){#fig:7-3 width=100%}
 
 写有两种语义，对应两个内部函数。`writeSession`（被 `Save` 调用）从一个 `agentcore.MessageList` 出发，**现生成一串全新的 id、把 ParentID 依次链成线性链**——它把一个线性会话持久化成一棵线性树。而 `writeSessionEntries`（被 `SaveEntries` 调用）则**原样写入已有的 entries，保留它们的 id/parentId**。区别很关键：前者用于"我有一堆消息，存成新会话"，后者用于"我已经有一棵树，照搬到新文件"——后者正是 fork 需要的。
 
@@ -154,6 +217,27 @@ func (s *Store) AppendBranch(header SessionHeader, parentLeafID string, messages
 
 它把新消息作为一条链挂在 `parentLeafID` 之下，保留文件里所有既有 entry（也就保住了其他分支），返回新叶子的 id 供调用方追踪当前活动分支。无论是无头运行收尾时的 `headlessSession.persist`（`cmd/pigo/headless_session.go`），还是 REPL 每轮结束时的 `persistTurn`（`cmd/pigo/repl.go`），走的都是这条路——它们各自维护一个 `curLeaf` 游标和一个 `persisted` 计数，每轮只把 `Messages[persisted:]` 这段新消息作为一条分支追加下去。这就是为什么在 REPL 里切回一条历史消息再继续，长出来的是一条真正的兄弟支线，而不是把后面的历史截断覆盖。
 
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: AppendBranch 把每轮新消息作为一条支线挂在当前叶子下，切回历史再续会长出兄弟枝而非覆盖
+Structure type: 前后对比
+Core idea: 从中途一个旧节点续接时不是砍掉后面重写，而是并排长出一条新的兄弟支线，两条枝共存
+Composition: 画面用一根竖直分割虚线分左右;左边小土拨鼠拿着剪刀作势要剪掉一根枝上半段再覆盖(被一个红叉否定,表示错误做法);右边小土拨鼠开心地从枝干中途的同一个分叉节点上,新嫁接出一根并排的兄弟枝并挂上新卡片,原来那根老枝完好保留;分叉节点标 curLeaf 游标
+Suggested elements: 中间竖直分割虚线 / 左侧被红叉否定的剪枝覆盖 / 右侧新长出的兄弟支线 / 分叉节点上的curLeaf游标标记
+Chinese handwritten labels: 不覆盖历史 / 挂在当前叶子下 / 长出兄弟支线 / curLeaf
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图7-4 续接历史长出兄弟支线](images/fig7-4.png){#fig:7-4 width=100%}
+
 顺带一提，`persistTurn` 在无新消息时会**刻意什么都不做**，而不是重写文件——因为 `Save` 会重新生成 entry id 并拍平树，那会让 `curLeaf` 失效、丢掉其他分支。这个"没变化就别乱动"的克制，是树形结构能稳住的前提。
 
 `List` 是列会话的读方法，它只读每个文件的头一行（`loadHeader`，列表场景下很便宜），按 `UpdatedAt` 降序排、最近用的排在前面。它对损坏文件的处理同样是"跳过而非失败"：一个解析不了的会话被略过，不会连累整个列表都列不出来。
@@ -186,6 +270,27 @@ func (s *Store) Fork(sourceID, leafID string, now time.Time) (SessionHeader, []E
 ```
 
 它用 `PathToLeaf` 取出从根到 `leafID` 的那条线性路径，原样（保留 id/parentId）写进一个全新的会话文件，并在新 header 里记下 `ParentSession = sourceID`。两个命令的差别只在传入的 `leafID` 不同：`/clone` 传当前叶子 id，于是整段当前对话被复制成一个独立会话；`/fork` 传某条历史用户消息的**父** id，于是新会话只含到那条消息之前的内容，用户可以从那个点重新提问、走一条新支线。因为复制落进全新文件，往源会话或分叉会话任何一方追加，都不会碰到另一方——两条支线彻底隔离。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: Fork 把一段从根到某叶子的路径原样誊到一个全新文件，两条会话从此彻底隔离互不干扰
+Structure type: 前后对比
+Core idea: 分叉不是共用同一份，而是把选中的一段路径复印进一个独立新文件，新文件记住它的来源，之后两边各写各的互不波及
+Composition: 小土拨鼠站在一台手摇复印机前,把左边源文件里从根到某个叶子的一段消息卡片路径复印出来,右边吐出一份一模一样的全新文件;两份文件放在两张不同的桌上,中间用一道竖直隔离墙分开;新文件顶部贴着一张便签写 ParentSession 指回源文件;每边各有一只小手正往自己那份上追加新卡片,箭头彼此不相交
+Suggested elements: 手摇复印机 / 从根到叶的被复印路径 / 中间的隔离墙 / 新文件上指回源头的ParentSession便签
+Chinese handwritten labels: 复制到全新文件 / 记下来源 / 两边各写各的 / 彻底隔离
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图7-5 分叉复制成隔离的新会话](images/fig7-5.png){#fig:7-5 width=100%}
 
 树本身要给人看时，`RenderTreeLines` 把 entry 森林渲染成带 `├─`/`└─` 连接线的纯文本行（`/tree` 命令用它），并给 id 等于当前叶子的那条打上 `← current` 标记。它是为纯行式 REPL 设计的——没有 TUI、没有光标控制，一行一条，子节点按时间戳再按 id 排序以保证输出稳定。返回的切片顺序即打印顺序，所以第 `n` 行对应下标 `n-1`，用户敲一个 1-based 序号就能选中对应 entry。
 
@@ -259,6 +364,27 @@ func renderEntryHTML(e Entry) string {
 助手消息会额外把它发起的工具调用渲染成一个个 `.toolcall` 块，标出工具名与参数；工具结果带上 `ToolName` 标签；`CompactionMessage`（第 6 章那个压缩检查点）渲染成一个独立的 compaction 块。这样一份 HTML 回放，把整轮对话的"说了什么、调了什么工具、压缩过没有"都摊在一页里。
 
 真正值得停下来看的是**转义**。每一处来自会话的文本——用户输入、助手回复、工具名、工具参数、工具结果——都先过一遍 `html.EscapeString` 才写进文档。为什么这么较真？因为会话内容是不可信的：模型可能吐出一段 `</script><script>...` 的文本，用户可能粘贴过带尖括号的代码。如果不转义，这些内容就能突破它所在的容器、甚至注入可执行脚本。`msgBlock` 的文档注释把这条契约写得很死：调用方**必须**传入已转义的 text/label，只有 `extra` 参数是这里用已转义的碎片拼出来的可信 HTML。转义、无脚本、无外部资源，这三条一起，挡住的是"一份可能被塞了恶意标记的会话"。这和第 8 章项目信任的出发点是一样的：pigo 对流经自己的外部内容，默认不信任。
+
+<!--
+生图prompt：
+Generate one standalone 16:9 horizontal Chinese article illustration.
+
+Visual DNA:
+Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
+
+Recurring IP character required:
+小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
+
+Theme: 导出 HTML 前把每处会话文本经 html.EscapeString 转义，让藏在会话里的恶意 script 标签只能当文字显示
+Structure type: 系统局部
+Core idea: 一段危险的 <script> 文本进入渲染前先被转义成 &lt;script&gt;，尖牙(尖括号)被拔掉，浏览器只当纯文字看不会执行
+Composition: 小土拨鼠站在一道安检闸门旁,一段写着 <script>alert 的凶恶纸条(带小尖牙表示尖括号)想混进右侧那份 HTML 文档;小土拨鼠用一把 EscapeString 印章重重盖下,纸条上的尖括号 < > 被替换成 &lt; &gt; ,凶相立刻变成一张老实的纯文字便签,乖乖贴进文档;闸门上还挂着两块牌子:禁止script、禁止外链
+Suggested elements: 安检闸门 / 带尖牙的危险<script>纸条 / EscapeString印章把<>变成&lt;&gt; / 禁止script与禁止外链的牌子
+Chinese handwritten labels: 会话内容不可信 / 转义后当文字 / 无脚本 / 无外部资源
+Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
+Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
+-->
+![图7-6 转义让恶意标记只当文字](images/fig7-6.png){#fig:7-6 width=100%}
 
 ## 实验 7-1 ★：导出一份会话，验证 HTML 回放的自足与转义 {.unnumbered}
 
