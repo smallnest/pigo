@@ -12,25 +12,6 @@
 
 被所有人依赖、又不依赖任何人，这是分层里很舒服的一个位置。本章就把这块地基逐块撬开：先看消息与内容如何建模一次多模态对话，再看 `AgentEvent` 这个密封接口下的十种事件如何描述循环的每一次心跳，接着拆开承载事件的 `EventStream`，最后落到工具抽象与那一组贯穿循环各阶段的钩子契约上。读完你会发现，后面几章讲的循环、Provider、工具，其实都是在往这批契约的插槽里填实现。
 
-<!--
-生图prompt：
-Generate one standalone 16:9 horizontal Chinese article illustration.
-
-Visual DNA:
-Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
-
-Recurring IP character required:
-小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
-
-Theme: agentcore 是被所有人依赖、却不依赖任何人的叶子地基包
-Structure type: 概念隐喻
-Core idea: agentcore 蹲在最底层，用后背稳稳托起 CLI、循环、Provider、工具四座小楼，而它自己脚下不踩任何别的包
-Composition: 小土拨鼠蹲坐在画面下方正中，弓着背用双手和后背同时顶起头顶一摞四块标着不同名字的方形积木小楼；它自己脚下是一条干净的地面线，线下方空空如也没有任何支撑物；一根向上的箭头从它身上分出四路分别指向四座小楼，表示"所有人都往下依赖它"
-Suggested elements: 被托起的四块积木小楼(CLI/循环/Provider/工具) / 小土拨鼠拱起的后背 / 向上分叉的依赖箭头 / 脚下空无一物的地面线
-Chinese handwritten labels: 被所有人依赖 / 不依赖任何人 / 地基叶子包 / 谁都往下踩它
-Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
-Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
--->
 ![图2-1 托起所有人的地基包](images/fig2-1.png){#fig:2-1 width=100%}
 
 ## 一个反复出现的手法：密封接口 + 判别式解码
@@ -52,25 +33,6 @@ type Content interface {
 
 密封接口解决了"表达"问题，却留下一个"序列化"问题：Go 的 `encoding/json` 不认识判别字段，反序列化到接口类型时它不知道该造哪个具体结构。pigo 的解法是给每个装着接口切片的容器写自定义 `UnmarshalJSON`：先只解出判别字段（peek），再据此解到具体类型。这个"peek 判别字段 → 分派到具体 struct"的两步解码，就是本章会反复见到的第二个模子。把这两个手法记在脑子里，下面的类型都是它们的实例。
 
-<!--
-生图prompt：
-Generate one standalone 16:9 horizontal Chinese article illustration.
-
-Visual DNA:
-Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
-
-Recurring IP character required:
-小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
-
-Theme: 密封接口用未导出标记封住变体，解码时先 peek 判别字段再分派到具体 struct
-Structure type: Workflow
-Core idea: 左手小土拨鼠往一只透明罐子里盖上蜡封"isContent()"锁住变体集合，包外的类型被挡在罐外进不去；右手它拆一封信先偷看信角的小"type"标签，再把信投进对应的分格盒子
-Composition: 画面分左右两幕。左幕：小土拨鼠踮脚给一只装着几块内容变体积木的透明玻璃罐口盖上一枚写着 isContent() 的蜡封，罐外一块新积木被一道小栅栏挡住投不进来。右幕：同一只小土拨鼠拿着一封信，用放大镜先看信角一个小小的"type"标签，一条橙色箭头从信引向下方三个分别标着 text/image/toolCall 的分格投递盒
-Suggested elements: 盖蜡封的透明变体罐 / 被栅栏挡在外面的新积木 / 信角的 type 小标签与放大镜 / 下方三个具体 struct 分格盒
-Chinese handwritten labels: 未导出标记封口 / 包外进不来 / 先peek判别字段 / 分派到具体struct
-Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
-Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
--->
 ![图2-2 封口的变体罐与两步拆信](images/fig2-2.png){#fig:2-2 width=100%}
 
 ## 消息模型：四种角色的密封接口
@@ -197,25 +159,6 @@ type CompactionMessage struct {
 
 `Details` 这里用 `json.RawMessage` 而非 `any`，用意很讲究：它的真正形状归 `compaction` 包所有，如果 `agentcore` 直接引入那个类型，就会反向依赖上层包，破坏"地基不依赖任何人"的原则。存成原始 JSON，`agentcore` 就对压缩包的内部结构一无所知，依赖方向保持单向。这是"叶子包"自律的一个微观样本，第6章讲压缩时会从另一头接上这根线。
 
-<!--
-生图prompt：
-Generate one standalone 16:9 horizontal Chinese article illustration.
-
-Visual DNA:
-Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
-
-Recurring IP character required:
-小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
-
-Theme: Details 存成原始 JSON，agentcore 对压缩包内部结构一无所知，依赖方向保持单向
-Structure type: 概念隐喻
-Core idea: 小土拨鼠收下一个贴着"Details 原始JSON"封条的不透明包裹，坚决不拆封原样收好；一块"禁止掉头"的路牌拦住了它反向去依赖上层 compaction 包的路
-Composition: 小土拨鼠站在画面左侧，双手捧着一个用封条封死、写着 Details(raw JSON) 的不透明棕色包裹，脸上一副乖乖不拆的表情；它上方有一个标着 compaction 包的方框，一条被红色叉掉的向上箭头从小土拨鼠指向那个方框，箭头处立着一块"禁止掉头"的圆形路牌；另一条橙色箭头顺畅地从上层单向流下来给它，表示依赖只朝一个方向
-Suggested elements: 封条封死的 Details 不透明包裹 / 上方 compaction 包方框 / 被红叉禁止的反向箭头与禁止掉头路牌 / 单向流下的橙色依赖箭头
-Chinese handwritten labels: 原始JSON不拆封 / 不反向依赖上层 / 依赖单向 / 叶子包自律
-Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
-Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
--->
 ![图2-3 不拆封的包裹与单向依赖](images/fig2-3.png){#fig:2-3 width=100%}
 
 压缩消息不会原样发给模型，而是在构建 LLM 请求时被渲染成一条用户文本消息：
@@ -407,25 +350,6 @@ const (
 
 前十个是 pi 的事件全集，对应"agent 起止 / turn 起止 / message 起止与更新 / tool 执行起止与更新"这三组生命周期；`compaction` 是 pigo 为上下文压缩额外补上的一种（对应第6章），因此严格说是"pi 的 10 种 + pigo 的 1 种"。这些事件按嵌套层级可以这样理解：一次 run 由 `agent_start`/`agent_end` 包住，中间是若干个 turn（`turn_start`/`turn_end`），每个 turn 里有一条流式消息（`message_start` → 若干 `message_update` → `message_end`）和随后的工具执行（`tool_execution_start` → `tool_execution_update` → `tool_execution_end`）。
 
-<!--
-生图prompt：
-Generate one standalone 16:9 horizontal Chinese article illustration.
-
-Visual DNA:
-Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
-
-Recurring IP character required:
-小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
-
-Theme: 事件按嵌套层级：agent 包住 turn，turn 里包住流式 message 与 tool 执行
-Structure type: 方法分层
-Core idea: 小土拨鼠像拆俄罗斯套娃一样把事件一层层套开：最外层 agent 起止的大盒里装着若干 turn 中盒，每个 turn 盒里又装着 message 小串珠和 tool 执行小串珠
-Composition: 画面中央小土拨鼠双手捧着并拆开一组同心嵌套的方盒。最外一圈大盒两端标 agent_start / agent_end；里面一个 turn 中盒两端标 turn_start / turn_end；turn 盒内并排两串小串珠，一串是 message_start→update→end，另一串是 tool_execution_start→update→end；一枚小小的 compaction 标签作为外挂补丁贴在大盒边角
-Suggested elements: 最外层 agent 大盒 / 中间 turn 套盒 / turn 内两串生命周期小串珠(message与tool) / 边角外挂的 compaction 补丁标签
-Chinese handwritten labels: agent起止包最外 / 若干turn / message流式串 / tool执行串 / +compaction补1种
-Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
-Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
--->
 ![图2-4 层层相套的事件套盒](images/fig2-4.png){#fig:2-4 width=100%}
 
 几个关键事件的结构值得看。**起始事件** 带会话 id，这正是第1章实验 1-1 里那第一行 JSON 的来源：
@@ -528,25 +452,6 @@ func (s *EventStream[T, R]) Emit(ctx context.Context, event T) error {
 
 结果的写入用 `sync.Once` 保证"只认第一次"——无论是正常的 `SetResult`、失败的 `SetError`，还是生产者忘了设结果时 `Close` 兜底写入的 `ErrStreamIncomplete`，三者竞争，谁先谁赢，`Result` 永远返回同一个确定的结局。`NewEventStream(buffer)` 的缓冲大小也有讲究：传 0 就是完全同步的背压（每次 `Emit` 都阻塞到有人接收），刻意对齐 pi 里 `await emit(...)` 那种一次一个、顺序处理的语义。第3章讲循环如何被驱动时，会从生产者一侧把 `runLoop` → `emit` → `finish` 这条链完整走一遍，那时再回看这里的消费者接口会格外清楚。
 
-<!--
-生图prompt：
-Generate one standalone 16:9 horizontal Chinese article illustration.
-
-Visual DNA:
-Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
-
-Recurring IP character required:
-小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
-
-Theme: EventStream 事件走传送带、最终结果走独立气动管，消费者中途不看也能拿到结果
-Structure type: 系统局部
-Core idea: 小土拨鼠一边把一个个事件小箱放上传送带送给消费者，一边把最终结果封进另一条独立的气动管直送出口；就算消费者不再看传送带，结果照样送达，旁边还留着一道 ctx.Done() 逃生门防止它卡死
-Composition: 小土拨鼠站在中间当分拣员。它左手把标着"事件"的小箱放上一条橙色传送带(ch)通向右侧一个看着别处的消费者；右手把一个标着"结果R"的胶囊塞进一条独立的蓝色气动管(resultCh)直通右下出口，不经过传送带。传送带旁画一扇小小的、写着 ctx.Done() 的逃生门。结果胶囊上盖着一枚 sync.Once 的小圆戳
-Suggested elements: 送事件的橙色传送带ch / 送结果的独立蓝色气动管resultCh / 看着别处仍收到结果的消费者 / ctx.Done() 逃生门与 sync.Once 圆戳
-Chinese handwritten labels: 事件走传送带ch / 结果走独立resultCh / 不看事件也能拿结果 / ctx.Done()防泄漏 / 只认第一次
-Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
-Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
--->
 ![图2-5 事件传送带与独立结果管](images/fig2-5.png){#fig:2-5 width=100%}
 
 ## 工具抽象：AgentTool 契约
@@ -656,25 +561,6 @@ type ToolExecutorConfig struct {
 
 执行一次工具调用就是"prepare → 校验 → before → execute → after"这条流水线，每个钩子都是可选的（nil 即默认行为）。全部为 nil 时，工具就是裸执行；挂上钩子，就能在不改工具本身的前提下叠加权限、审计、结果改写等横切能力。
 
-<!--
-生图prompt：
-Generate one standalone 16:9 horizontal Chinese article illustration.
-
-Visual DNA:
-Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
-
-Recurring IP character required:
-小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
-
-Theme: 工具执行是 prepare→校验→before→execute→after 的流水线，每个钩子槽可选
-Structure type: Workflow
-Core idea: 小土拨鼠推着一次工具调用沿流水线走过五个插槽，往 prepare/before/after 三个空槽里可插可不插钩子卡带，其中 before 槽能把调用拦下
-Composition: 一条横贯画面的流水线，小土拨鼠推着一辆载着"工具调用"小球的小推车从左向右经过五个方形插槽，依次标 prepare、校验、before、execute、after；prepare 和 after 槽上小土拨鼠正往里插一张钩子卡带，before 槽伸出一只小挡杆做出拦停手势(红色)，其余空槽用虚线表示可留空=裸执行；末端小球变成"结果"从 after 槽滚出
-Suggested elements: 载着工具调用的小推车 / 五个依次排列的流水线插槽 / 可插拔的钩子卡带 / before 槽的红色拦停挡杆
-Chinese handwritten labels: prepare改参 / 校验Schema / before可拦截 / execute执行 / after改结果 / 槽空=裸执行
-Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
-Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
--->
 ![图2-6 五槽工具执行流水线](images/fig2-6.png){#fig:2-6 width=100%}
 
 另一组钩子贴着循环的每一轮，类型定义在 `hooks.go`。**下一轮准备** 钩子能在两轮之间换掉上下文、模型或思考等级：
@@ -710,25 +596,6 @@ type ThinkingLevelMap map[ThinkingLevel]*string
 
 这个 `*string` 值同样是"指针区分三态"的实例，注释讲得很细：nil 值表示"这一档支持但在此关闭"，而键根本不存在表示"这个模型不支持这一档"——正因要区分这两种情况，值必须是 `*string` 而非 `string`。第4章讲 Provider 时，会看到每个模型带着自己的 `ThinkingLevelMap` 把统一枚举落到 OpenAI/Anthropic 各自的字段上。
 
-<!--
-生图prompt：
-Generate one standalone 16:9 horizontal Chinese article illustration.
-
-Visual DNA:
-Pure white background. Minimalist editorial doodle with black hand-drawn pen line art and light colored pen wash, researcher-sketchbook / whiteboard feeling. Slightly wobbly pen lines. Lots of empty white space. Sparse red/orange/blue handwritten Chinese annotations. Clean curious product-sketch feeling. No gradients, no shadows, no paper texture, no complex background, no commercial vector style, no PPT infographic look, no anime style, no children's picture book, no commercial mascot, no realistic UI.
-
-Recurring IP character required:
-小土拨鼠 (Little Gopher), an original IP: a round, chubby, warm brown-yellow gopher inspired by the Go language Gopher, but cuter, cleaner and more soothing. Round head with a pair of small round ears; two small round curious eyes; a tiny nose and two small signature front teeth; short little limbs and soft paws; warm brown-yellow fur with a lighter belly; plump rounded proportions, earnest yet gently funny. 小土拨鼠 must perform the core conceptual action, not decorate the scene. Keep it a clean round soothing cartoon gopher, not a realistic rat/hamster, not the stiff original Go Gopher, not anime, not a mascot.
-
-Theme: 指针三态：nil=保持不变 / 指向零值=显式设零 / 指向某值=替换，一个 bool 表达不了
-Structure type: 前后对比
-Core idea: 小土拨鼠面对一个三档拨杆，指针能停在三个位置(不变/显式设零/替换)，而旁边那个只有开关两态的普通 bool 明显不够用
-Composition: 画面右侧小土拨鼠伸手扳动一个竖直三档拨杆：最上档写 nil=不变(空手)，中档写 &零值=显式设零，下档写 &值=替换成新值，每档旁画一个小信封示意指针指向；画面左侧对照画一个只有 开/关 两个位置的普通小开关，上面打一个红色问号表示"两态不够用"。中间一条橙色箭头从三档拨杆指向一个被正确设置的字段
-Suggested elements: 三档指针拨杆(nil/零值/值) / 每档旁的指向小信封 / 左侧只有两态的普通bool开关+红问号 / 被正确落定的字段
-Chinese handwritten labels: nil=保持不变 / &零值=显式设零 / &值=替换 / bool只有两态不够
-Color use: Black for main line art and 小土拨鼠's eyes/nose/teeth/paw outlines. 小土拨鼠 body warm brown-yellow with lighter belly. Orange for main flow/arrows. Red only for key warnings/results. Blue only for secondary notes/system state.
-Constraints: One image explains only one core structure. Main subject 40%-60% of canvas. At least 35% blank white space. At most 5-8 short handwritten Chinese labels. No title in top-left corner. Do not write the structure type on the image. Not a formal diagram/slide. Invent a fresh visual metaphor for this specific content.
--->
 ![图2-7 区分三态的指针拨杆](images/fig2-7.png){#fig:2-7 width=100%}
 
 值得点明的是：`hooks.go` 里定义的这些是**类型契约**，真正把钩子接到循环里的字段（`GetFollowUpMessages`、`PrepareNextTurn`、`ShouldStopAfterTurn` 等）挂在第3章的 `runtime.RunConfig` 上。地基这层只负责"约定形状"，接线是上层的事——这条边界，正是"叶子包不依赖任何人"的又一次贯彻。
