@@ -181,6 +181,8 @@ PANDOC_COMMON=(
     -V classoption=lang=cn
     -V classoption=cyan
     -V classoption=device=normal
+    -V classoption=twoside
+    -V classoption=openright
     -V author="pigo"
     --metadata title-meta="用 Go 从零构建 Pi Agent"
     --metadata author-meta="pigo"
