@@ -117,6 +117,10 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 		cfg.TransformContext = cfg.Reminders.wrapTransform(cfg.TransformContext)
 	}
 	startIdx := len(agentCtx.Messages)
+	// tel accumulates structured telemetry (turn count, per-tool durations,
+	// truncation count, compaction count, latest context-utilization ratio) from
+	// the events emitted below, surfaced as a TelemetryEvent at run end.
+	tel := newTelemetry()
 	// newMessages returns the messages appended since the run began.
 	newMessages := func() []agentcore.AgentMessage {
 		if len(agentCtx.Messages) <= startIdx {
@@ -126,11 +130,24 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 		copy(out, agentCtx.Messages[startIdx:])
 		return out
 	}
-	emit := func(ev agentcore.AgentEvent) error { return stream.Emit(ctx, ev) }
+	emit := func(ev agentcore.AgentEvent) error {
+		tel.observe(ev)
+		return stream.Emit(ctx, ev)
+	}
+	// emitFrom wraps the raw stream.Emit callback handed to streamAssistantResponse
+	// and ExecuteToolCalls so telemetry observes those events (message_* and
+	// tool_execution_*) too, without changing their signatures.
+	emitFrom := func(c context.Context, ev agentcore.AgentEvent) error {
+		tel.observe(ev)
+		return stream.Emit(c, ev)
+	}
 
-	// finish emits agent_end (unless suppressed by a prior emit error), records
-	// the run result, and closes the stream exactly once.
+	// finish emits the telemetry summary then agent_end (unless suppressed by a
+	// prior emit error), records the run result, and closes the stream exactly
+	// once. Telemetry is emitted first so a consumer sees the run's structured
+	// metrics immediately before the terminal event.
 	finish := func() {
+		_ = emit(tel.summary())
 		msgs := newMessages()
 		_ = emit(agentcore.AgentEndEvent{Messages: msgs})
 		stream.SetResult(msgs)
@@ -149,9 +166,7 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 				return
 			}
 
-			assistant, err := streamAssistantResponse(ctx, agentCtx, cfg.LoopConfig, func(c context.Context, ev agentcore.AgentEvent) error {
-				return stream.Emit(c, ev)
-			})
+			assistant, err := streamAssistantResponse(ctx, agentCtx, cfg.LoopConfig, emitFrom)
 			if err != nil {
 				// emit was cancelled mid-stream; end the run.
 				finish()
@@ -167,7 +182,7 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 					finish()
 					return
 				}
-				if afterTurn(ctx, agentCtx, &cfg, true, emit) {
+				if afterTurn(ctx, agentCtx, &cfg, true, emit, tel) {
 					finish()
 					return
 				}
@@ -186,16 +201,14 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 					finish()
 					return
 				}
-				if afterTurn(ctx, agentCtx, &cfg, false, emit) {
+				if afterTurn(ctx, agentCtx, &cfg, false, emit, tel) {
 					finish()
 					return
 				}
 				break // exit inner loop → consult follow-up messages
 			}
 
-			toolResults, allTerminate := agenttool.ExecuteToolCalls(ctx, cfg.Batch, calls, func(c context.Context, ev agentcore.AgentEvent) error {
-				return stream.Emit(c, ev)
-			})
+			toolResults, allTerminate := agenttool.ExecuteToolCalls(ctx, cfg.Batch, calls, emitFrom)
 			for _, tr := range toolResults {
 				agentCtx.Messages = append(agentCtx.Messages, tr)
 			}
@@ -208,7 +221,7 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 				finish()
 				return
 			}
-			if afterTurn(ctx, agentCtx, &cfg, true, emit) {
+			if afterTurn(ctx, agentCtx, &cfg, true, emit, tel) {
 				finish()
 				return
 			}
@@ -233,7 +246,7 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 // (pi per-turn semantics). It then applies prepareNextTurn, runs auto-compaction
 // when the context has outgrown its window, and finally consults
 // shouldStopAfterTurn, returning true when the run should end.
-func afterTurn(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunConfig, hadToolExecution bool, emit func(agentcore.AgentEvent) error) (stop bool) {
+func afterTurn(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunConfig, hadToolExecution bool, emit func(agentcore.AgentEvent) error, tel *telemetry) (stop bool) {
 	if hadToolExecution && cfg.GetSteeringMessages != nil {
 		if steer := cfg.GetSteeringMessages(ctx); len(steer) > 0 {
 			agentCtx.Messages = append(agentCtx.Messages, steer...)
@@ -244,7 +257,15 @@ func afterTurn(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunCo
 			applyTurnUpdate(agentCtx, cfg, upd)
 		}
 	}
-	maybeAutoCompact(ctx, agentCtx, cfg, emit)
+	maybeAutoCompact(ctx, agentCtx, cfg, emit, tel)
+	// Record the latest context-utilization ratio once the turn has settled (after
+	// any compaction), so the telemetry summary reports the current used/window
+	// figure. This runs even when auto-compaction is disabled so utilization is
+	// still observable whenever the context window is known.
+	if tel != nil && cfg.ContextWindow > 0 {
+		tokens := compaction.EstimateContextTokens(agentCtx.Messages).Tokens
+		tel.recordContext(tokens, cfg.ContextWindow)
+	}
 	if cfg.ShouldStopAfterTurn != nil {
 		return cfg.ShouldStopAfterTurn(ctx, agentCtx)
 	}
@@ -257,11 +278,17 @@ func afterTurn(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunCo
 // under threshold. A compaction failure is non-fatal: the original context is
 // preserved and a CompactionEvent carrying ErrorMessage is emitted so the failure
 // is observable without aborting the run (US-004).
-func maybeAutoCompact(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunConfig, emit func(agentcore.AgentEvent) error) {
+func maybeAutoCompact(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunConfig, emit func(agentcore.AgentEvent) error, tel *telemetry) {
 	if !cfg.Compaction.Enabled || cfg.ContextWindow <= 0 {
 		return
 	}
 	before := compaction.EstimateContextTokens(agentCtx.Messages).Tokens
+	// Record pre-compaction utilization so the ratio reflects the peak that
+	// triggered (or nearly triggered) compaction even when the summary is read
+	// mid-run. afterTurn overwrites it with the post-settle figure.
+	if tel != nil {
+		tel.recordContext(before, cfg.ContextWindow)
+	}
 	if !compaction.ShouldCompact(before, cfg.ContextWindow, cfg.Compaction) {
 		return
 	}

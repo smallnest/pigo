@@ -202,6 +202,22 @@ func eventEnvelope(ev agentcore.AgentEvent) map[string]any {
 		if e.ErrorMessage != "" {
 			env["error"] = e.ErrorMessage
 		}
+	case agentcore.TelemetryEvent:
+		// The run-end telemetry summary: structured metrics a script can read
+		// directly from the stream-json output (可观测性——结构化遥测采集). Per-tool
+		// timings are flattened into a name→{count,totalMs} object so a JSON
+		// consumer can index by tool name.
+		env["turns"] = e.Turns
+		env["truncationCount"] = e.TruncationCount
+		env["compactionCount"] = e.CompactionCount
+		env["contextUtilization"] = e.ContextUtilization
+		env["contextTokens"] = e.ContextTokens
+		env["contextWindow"] = e.ContextWindow
+		tools := make(map[string]map[string]any, len(e.ToolDurationsMs))
+		for name, t := range e.ToolDurationsMs {
+			tools[name] = map[string]any{"count": t.Count, "totalMs": t.TotalMs}
+		}
+		env["toolDurationsMs"] = tools
 	}
 	return env
 }

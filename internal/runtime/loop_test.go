@@ -74,7 +74,7 @@ func TestAgentLoopNoToolCallsSingleTurn(t *testing.T) {
 
 	kinds, msgs := collectStream(t, agentLoop(context.Background(), agentCtx, cfg))
 
-	want := []string{agentcore.EventAgentStart, agentcore.EventTurnStart, agentcore.EventMessageEnd, agentcore.EventTurnEnd, agentcore.EventAgentEnd}
+	want := []string{agentcore.EventAgentStart, agentcore.EventTurnStart, agentcore.EventMessageEnd, agentcore.EventTurnEnd, agentcore.EventTelemetry, agentcore.EventAgentEnd}
 	assertEventKinds(t, kinds, want)
 	if len(msgs) != 1 {
 		t.Fatalf("run produced %d messages, want 1: %+v", len(msgs), msgs)
