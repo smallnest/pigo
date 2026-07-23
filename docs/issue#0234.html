@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0234</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/234">#234</a> &mdash; Add model-name → provider inference table &mdash; 2026-07-23</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Ordered prefix table instead of a map</h3>
+      <p><strong>Ambiguity:</strong> The issue lists name→provider pairs but not the data structure.</p>
+      <p><strong>Choice:</strong> A top-to-bottom ordered slice <code>modelPrefixProvider</code>, first-match-wins.</p>
+      <p><strong>Rationale:</strong> Prefix matching is inherently order-sensitive (a longer prefix must be tried before a shorter overlapping one). A slice makes that ordering explicit and reviewable; a map would hide it.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Routed <code>provider/model</code> ids are not inferred</h3>
+      <p><strong>Ambiguity:</strong> The issue only names bare model families; it is silent on OpenRouter-style routed ids like <code>openai/gpt-4o</code> or <code>ollama/llama3.3</code>.</p>
+      <p><strong>Choice:</strong> Any id containing <code>/</code> returns <code>ok=false</code>.</p>
+      <p><strong>Rationale:</strong> Those ids are already handled by the preset catalog and the <code>ollama/</code> / <code>nvidia/</code> prefix paths in <code>resolveProvider</code>. Inferring from the leading segment would wrongly route <code>openai/gpt-4o</code> to the direct OpenAI provider instead of OpenRouter, silently changing behavior.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>qwen-*</code> → dashscope, <code>glm-*</code> → zai</h3>
+      <p><strong>Ambiguity:</strong> Qwen and GLM are served by multiple built-ins (dashscope/together/openrouter; zai/zai-coding-cn/cerebras).</p>
+      <p><strong>Choice:</strong> Map to the model family's first-party direct provider (Alibaba DashScope, Z.AI) per the issue table.</p>
+      <p><strong>Rationale:</strong> The issue explicitly names these targets; the first-party provider is the least surprising default for a bare family name.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Added <code>o4-*</code> to the OpenAI patterns</h3>
+      <p><strong>Spec:</strong> Listed <code>gpt-*</code> / <code>o1-*</code> / <code>o3-*</code> → openai.</p>
+      <p><strong>Implemented:</strong> Also mapped <code>o4-*</code> → openai.</p>
+      <p><strong>Why:</strong> The o-series naming is sequential; omitting <code>o4</code> would be an obvious gap and matches the issue's clear intent. Low risk — the prefix is unambiguously OpenAI.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Conservative prefix matching over broad heuristics</h3>
+      <p><strong>Alternatives:</strong> (a) substring/regex matching to catch more names; (b) strict prefix-only for names that map to exactly one provider.</p>
+      <p><strong>Chosen:</strong> (b). Ambiguous families (<code>llama-*</code>, <code>qwq-*</code>, <code>gemma-*</code>, <code>mixtral-*</code>) deliberately return <code>ok=false</code>.</p>
+      <p><strong>Why it won:</strong> A false inference silently sends traffic to the wrong gateway with the wrong API key — worse than falling through to the existing OpenRouter default. Precision beats recall here.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Qwen/GLM provider choice</h3>
+      <p><strong>Assumption:</strong> A bare <code>qwen-*</code> should reach DashScope and <code>glm-*</code> should reach Z.AI (international), not their CN-specific siblings.</p>
+      <p><strong>Verify:</strong> Confirm this matches the intended default audience; CN users can still pass <code>--provider dashscope-cn</code>-style flags explicitly (wired in #235).</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
