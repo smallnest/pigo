@@ -190,6 +190,7 @@ func runInteractive(opts interactiveOptions) error {
 		agentCtx:  agentCtx,
 		live:      live,
 		reg:       reg,
+		reminders: todoReminders(opts.tools),
 		slash:     slash,
 		creds:     creds,
 		trust:     mgr,

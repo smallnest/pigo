@@ -188,7 +188,7 @@ func resolveThinkingLevel(cliLevel string) (agentcore.ThinkingLevel, error) {
 // provider stream, the dynamic API-key resolver, and the tool registry. It is
 // the single definition of "how a run is wired", so the REPL (streamRun) and the
 // headless driver cannot drift apart.
-func newRunConfig(model, providerName string, thinking agentcore.ThinkingLevel, prov provider.Provider, creds *provider.CredentialStore, reg *agenttool.ToolRegistry) runtime.RunConfig {
+func newRunConfig(model, providerName string, thinking agentcore.ThinkingLevel, prov provider.Provider, creds *provider.CredentialStore, reg *agenttool.ToolRegistry, reminders *runtime.ReminderRegistry) runtime.RunConfig {
 	return runtime.RunConfig{
 		LoopConfig: runtime.LoopConfig{
 			Model:         model,
@@ -200,6 +200,7 @@ func newRunConfig(model, providerName string, thinking agentcore.ThinkingLevel, 
 		Batch: agenttool.BatchConfig{
 			ToolExecutorConfig: agenttool.ToolExecutorConfig{Registry: reg},
 		},
+		Reminders: reminders,
 	}
 }
 
@@ -378,7 +379,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 	// An explicit --api-key overrides env/config for the resolved provider.
 	creds := provider.NewCredentialStore(nil)
 	creds.SetOverride(env.providerName, opts.apiKey)
-	runCfg := newRunConfig(opts.model, env.providerName, thinking, env.provider, creds, toolRegistry(env.tools))
+	runCfg := newRunConfig(opts.model, env.providerName, thinking, env.provider, creds, toolRegistry(env.tools), todoReminders(env.tools))
 	runCfg.SessionID = hs.header.ID
 	cfg := runtime.HeadlessConfig{
 		Mode: mode,

@@ -68,6 +68,12 @@ type RunConfig struct {
 	// agent_end event (FR-7).
 	ShouldStopAfterTurn func(ctx context.Context, agentCtx *agentcore.AgentContext) bool
 
+	// Reminders holds the per-turn system-reminder providers (US-002, FR-1/FR-2).
+	// When non-empty, ephemeral <system-reminder> messages are injected into each
+	// turn's LLM request through the existing TransformContext seam, so they never
+	// enter the persisted history. nil / empty = no injection.
+	Reminders *ReminderRegistry
+
 	// EventBuffer is the buffer size of the emitted EventStream. 0 gives fully
 	// synchronous back-pressure (matching pi's awaited emit).
 	EventBuffer int
@@ -103,6 +109,13 @@ func StartRun(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConf
 // runLoop is the producer: it drives the two-layer loop, emitting events onto
 // stream and setting the stream result to the messages produced during the run.
 func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfig, stream *LoopEventStream) {
+	// Wire per-turn system-reminder injection (US-002) onto the TransformContext
+	// seam. Reminders are appended to the request-shaped copy only, so they stay
+	// ephemeral: never written back to agentCtx.Messages, never persisted, never
+	// swept into a compaction summary.
+	if !cfg.Reminders.Empty() {
+		cfg.TransformContext = cfg.Reminders.wrapTransform(cfg.TransformContext)
+	}
 	startIdx := len(agentCtx.Messages)
 	// newMessages returns the messages appended since the run began.
 	newMessages := func() []agentcore.AgentMessage {
