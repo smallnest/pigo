@@ -3,6 +3,7 @@ package agenttool
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"runtime"
 	"strings"
 	"sync"
@@ -153,3 +154,78 @@ func TestBashToolMode(t *testing.T) {
 		t.Errorf("schema not valid JSON: %v", err)
 	}
 }
+
+func TestBashToolSmallOutputNotTruncated(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("bash not available on windows")
+	}
+	tool := &BashTool{}
+	res, gerr := runBash(t, tool, map[string]any{"command": "echo hello world"}, nil)
+	if gerr != nil {
+		t.Fatalf("unexpected go error: %v", gerr)
+	}
+	out := resultText(res)
+	if strings.Contains(out, "truncated") {
+		t.Errorf("small output should not be truncated, got %q", out)
+	}
+	if strings.TrimSpace(out) != "hello world" {
+		t.Errorf("output = %q, want %q", out, "hello world")
+	}
+}
+
+func TestBashToolLargeOutputTruncatedHeadTail(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("bash not available on windows")
+	}
+	tool := &BashTool{}
+	// Emit a marker at the very start and very end, with a large filler between,
+	// so we can prove both the head and the tail survive truncation.
+	total := bashMaxOutputBytes * 3
+	filler := bashMaxOutputBytes // bytes of 'x' between the two markers
+	cmd := fmt.Sprintf("printf 'HEADMARK'; head -c %d /dev/zero | tr '\\0' 'x'; printf 'TAILMARK'", filler)
+	_ = total
+	res, gerr := runBash(t, tool, map[string]any{"command": cmd}, nil)
+	if gerr != nil {
+		t.Fatalf("unexpected go error: %v", gerr)
+	}
+	out := resultText(res)
+	if len(out) > bashMaxOutputBytes+128 {
+		t.Errorf("truncated output too long: %d bytes (cap %d)", len(out), bashMaxOutputBytes)
+	}
+	if !strings.HasPrefix(out, "HEADMARK") {
+		t.Errorf("head not preserved; output starts with %q", out[:min(16, len(out))])
+	}
+	if !strings.HasSuffix(out, "TAILMARK") {
+		t.Errorf("tail not preserved; output ends with %q", out[max(0, len(out)-16):])
+	}
+	if !strings.Contains(out, "[truncated ") || !strings.Contains(out, " bytes]") {
+		t.Errorf("missing truncation marker in %q", out)
+	}
+}
+
+func TestTruncateBashOutputByteCount(t *testing.T) {
+	// A pure-ASCII input of a known size: the marker's N must equal the exact
+	// number of middle bytes dropped, i.e. total - head - tail.
+	total := bashMaxOutputBytes * 2
+	in := strings.Repeat("z", total)
+	out := truncateBashOutput(in)
+
+	half := bashMaxOutputBytes / 2
+	// For all-ASCII input no rune-boundary trimming happens, so head/tail are
+	// each exactly half and N = total - 2*half.
+	wantRemoved := total - 2*half
+	wantMarker := fmt.Sprintf("[truncated %d bytes]", wantRemoved)
+	if !strings.Contains(out, wantMarker) {
+		t.Errorf("marker = ...%q..., want to contain %q", out, wantMarker)
+	}
+	if got := strings.Count(out, "z"); got != 2*half {
+		t.Errorf("preserved %d content bytes, want %d (head+tail)", got, 2*half)
+	}
+
+	// Input at or below the cap is returned verbatim.
+	small := strings.Repeat("b", bashMaxOutputBytes)
+	if got := truncateBashOutput(small); got != small {
+		t.Errorf("input at cap should be unchanged")
+	}
+}
+
