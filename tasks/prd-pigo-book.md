@@ -1,4 +1,4 @@
-# PRD：《庖丁解牛 pigo》技术书（全书大纲 + 样章）
+# PRD：《Write Pi Agent in Go》技术书（全书大纲 + 样章）
 
 ## 引言 / Overview
 
@@ -103,7 +103,7 @@
 
 - 体例对齐参考书：H1=章、H2=节、H3=小节；「实验 N-M ★/★★/★★★」框标注难度；章末「本章小结」+「思考题」。
 - 配图优先复用已有的 `docs/pigo-runtime.*`（archify 生成）导出为 SVG，风格统一。
-- 书名暂定《庖丁解牛 pigo：用 Go 从零构建命令行 AI Agent》，可在评审时调整。
+- 书名暂定《Write Pi Agent in Go》，可在评审时调整。
 
 ## Technical Considerations
 

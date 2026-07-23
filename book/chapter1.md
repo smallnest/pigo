@@ -1,8 +1,10 @@
 # 全景与骨架：从 main() 到一次对话
 
+> **主线坐标｜第 ①–② 站**：这里是那条河的源头。《主线导读》里"进程启动、解析意图"与"装配一次运行"两步就发生在本章——一条命令如何被解析成一个 `RunConfig`，控制权又如何沿 `StartRun` 交给下一站的 Agent 循环。
+
 引言里我们把 Agent 抽象成一个朴素的公式——**LLM + 上下文 + 工具**，再用一个循环把三者串起来。但公式落到工程上，第一个要回答的问题不是"循环怎么转"，而是"程序怎么搭起来"。一条命令行敲下去，参数怎么被解析成一次运行的意图？Provider、工具、系统提示这些零件，在什么时候、由谁装配？装配完成后，程序又是沿哪条路径把控制权交给 Agent 循环的？
 
-本章是全书的第一刀，落在结构最外层的关节处：`cmd/pigo` 这一层 CLI 装配代码。我们先鸟瞰 pigo 的运行架构，看清各个组件的位置与连线；然后顺着 `main()` → `dispatch()` 一路向内，拆解"一次运行"是怎么被装配出来的；最后分头走完两条驱动路径，交互式 REPL 和无头（headless）模式，看同一套装配如何服务于两种截然不同的场景。读完本章，你会对"pigo 是个什么形状的程序"有一张清晰的地图，后面每一章都是在这张地图的某个区域里深挖。
+本章是全书的第一刀，落在结构最外层：`cmd/pigo` 这一层 CLI 装配代码。这一层薄得出人意料——`main()` 只解析参数、处理几个一次性动作，就把活儿全交给了 `dispatch()`。我们就顺着这个"短入口"往里走：先看清 pigo 的运行架构长什么样，再拆开"一次运行"如何被一层层装配，最后会发现交互式 REPL 和无头（headless）模式共用同一套装配、只是入口不同。这张形状图立起来，后面每一章都是在图上的某个区域深挖。
 
 ## 鸟瞰运行架构
 
@@ -200,7 +202,7 @@ func newRunConfig(model, providerName string, prov provider.Provider,
 
 - **Provider 流函数**：`provider.StreamFnFromProvider(prov)`（`internal/provider/provider_interface.go`）把 Provider 适配成循环需要的流式回调。
 - **动态 API Key 解析器**：`creds.GetAPIKey`，运行期按 Provider 名从环境/覆盖里惰性取密钥，且从不写入可能被日志打印的结构体（对齐 US-012 的密钥安全约束）。
-- **工具注册表**：`agenttool.BatchConfig`，承载批量执行工具调用所需的注册表。
+- **工具注册表**：`agenttool.BatchConfig`，批量执行工具调用时要用的那张注册表。
 
 `RunConfig` 内嵌的 `LoopConfig` 与四个循环钩子（`GetFollowUpMessages` 等）是第 3 章两层循环的主题；这里只需看到一点：无头驱动直接调用 `newRunConfig`（`run.go` 的 `dispatch` 里），而 REPL 的 `streamRun` 因为要挂 `BeforeToolCall` 信任钩子等，自行拼了一个结构相同的 `RunConfig`——两者的公共骨架是一致的。
 

@@ -59,8 +59,8 @@ bash build_pdf.sh
 ### 验证产物
 
 ```bash
-pdfinfo "用Go从零构建Pi Agent.pdf"              # 页数、页面尺寸
-pdftotext "用Go从零构建Pi Agent.pdf" - | grep -n '庖丁解牛\|引言\|CLI 装配\|图1-1'
+pdfinfo "write-pi-agent-in-go.pdf"              # 页数、页面尺寸
+pdftotext "write-pi-agent-in-go.pdf" - | grep -n '庖丁解牛\|引言\|CLI 装配\|图1-1'
 ```
 
 正常产出应包含：封面 + 目录（TOC）+ 引言 + 第 1 章（含图 1-1）。

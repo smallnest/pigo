@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build 《庖丁解牛 pigo：用 Go 从零构建命令行 AI Agent》 as a single PDF.
+# Build 《Write Pi Agent in Go》 as a single PDF.
 #
 # Pipeline: Markdown chapters -> pandoc -> (tectonic | xelatex) -> ElegantBook.
 #
@@ -38,6 +38,7 @@ OUT="用Go从零构建Pi Agent.pdf"
 #    book can be built incrementally as downstream nodes add chapters. ──
 CANDIDATES=(
     introduction.md
+    reading-guide.md
     chapter1.md
     chapter2.md
     chapter3.md

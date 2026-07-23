@@ -1,5 +1,7 @@
 # 两层循环：一次 run 是怎么转起来的
 
+> **主线坐标｜第 ③–④、⑥、⑨–⑫ 站（全书的心脏）**：《主线导读》里那句"循环反复地『让 Provider 流式回复 → 执行工具 → 回填』直到某轮不再点名工具"，整根主干都在本章。它向下把请求托付给第4章的 Provider，把工具执行托付给第5章，逐轮之间还夹着第6章的压缩钩子，收尾后落盘给第7章。
+
 第1章把 pigo 从 `main()` 到 `dispatch()` 的装配骨架拆了一遍，第2章又把 `agentcore` 里那套贯穿全局的类型契约——消息、内容、事件、工具、钩子——摆到了台面上。装配就绪、契约在手，接下来该问最核心的一个问题了：一次对话到底是怎么"转"起来的？
 
 引言里那个朴素公式——LLM + 上下文 + 工具，靠一个循环串起来——在这一章要落到真正的代码上。但真读进 `internal/runtime/loop.go`，你会发现它不是一个循环，而是**两个嵌套的循环**：内层管"一轮回复到底要不要接着说"，外层管"这一轮说完了还有没有下文"。这两层各自回答一个问题，合起来才构成 pigo 所谓的一次 run。
@@ -224,7 +226,7 @@ if afterTurn(ctx, agentCtx, &cfg, true, emit) {
 // Feed the tool results back into the next turn.
 ```
 
-工具执行交给 `agenttool.ExecuteToolCalls`（第5章细讲），它返回两样东西：每个工具调用对应的结果消息，以及一个 `allTerminate` 标志。结果被逐条**回填**进上下文（`append` 到 `agentCtx.Messages`），然后发一个带 `ToolResults` 的 `TurnEndEvent`。这里的回填是内层循环得以转圈的关键：工具结果进了上下文，下一轮 `streamAssistantResponse` 塑形请求时就会带上它们，模型于是能"看到"工具跑出了什么、再决定下一步。这正是引言里"工具"那条边的闭环——模型点名、循环执行、结果回填、模型再看。
+工具执行交给 `agenttool.ExecuteToolCalls`（第5章细讲），它返回两样东西：每个工具调用对应的结果消息，以及一个 `allTerminate` 标志。结果被逐条**回填**进上下文（`append` 到 `agentCtx.Messages`），然后发一个带 `ToolResults` 的 `TurnEndEvent`。这里的回填是内层循环能一圈圈转下去的关键：工具结果进了上下文，下一轮 `streamAssistantResponse` 塑形请求时就会带上它们，模型于是能"看到"工具跑出了什么、再决定下一步。这正是引言里"工具"那条边的闭环——模型点名、循环执行、结果回填、模型再看。
 
 ![图3-4 内层循环转圈直到不点名工具](images/fig3-4.png){#fig:3-4 width=100%}
 
@@ -361,7 +363,7 @@ finish := func() {
 | `BeforeToolCall` | `ToolExecutorConfig` | 工具校验后、执行前 | 拦截工具调用（权限/沙箱闸门） |
 | `AfterToolCall` | `ToolExecutorConfig` | 工具执行后 | 逐字段覆盖工具结果（不深合并） |
 
-前四个是**循环层**钩子，挂在 `RunConfig` 上，管一个 turn 收尾后的"续跑→注入→换装→停止"；后两个是**工具层**钩子，挂在 `agenttool` 的执行器上，管一个工具调用的"执行前拦截→执行后改结果"。工具层其实还有第三个 `PrepareArguments`（执行前、校验前改写原始参数，比如注入默认值），但它不在 pigo 循环注释所说的"六个钩子"之列，算是执行器自己的准备相扩展点。这些钩子的类型签名散在 `agentcore/helpers.go` 和 `runtime/loop.go` 里，例如：
+前四个是**循环层**钩子，挂在 `RunConfig` 上，管一个 turn 收尾后的"续跑→注入→换装→停止"；后两个是**工具层**钩子，挂在 `agenttool` 的执行器上，管一个工具调用的"执行前拦截→执行后改结果"。工具层其实还有第三个 `PrepareArguments`（在执行前、校验前改写原始参数，比如注入默认值），但它不算在 pigo 循环注释所说的"六个钩子"里，是执行器自己在准备阶段留的一个扩展点。这些钩子的类型签名散在 `agentcore/helpers.go` 和 `runtime/loop.go` 里，例如：
 
 ```go
 // 循环层：turn 收尾后决定是否停止
@@ -468,7 +470,7 @@ go run ./cmd/pigo -p "你好" --output-format stream-json --no-tools 2>/dev/null
 - **内层循环**（`loop.go` 的 `runLoop` 内层 `for`）：流式回复 → 执行工具 → 回填结果 → 再来一轮，以"一轮不点名任何工具"为**自然收尾条件**。工具批次通过 `ExecuteToolCalls` 执行，"全终止才终止"。
 - **外层循环**（`runLoop` 外层 `for`）：内层收尾后调 `getFollowUpMessages`，有 follow-up 就 append 并 `continue` 续跑，没有则 `finish()` 结束 run。
 - **turn 收尾钩子**（`afterTurn`）：按序跑 steering 注入、`prepareNextTurn` 换装、自动压缩、`shouldStopAfterTurn` 优雅停止。
-- **六个钩子**：四个循环层（`getFollowUpMessages`/`getSteeringMessages`/`prepareNextTurn`/`shouldStopAfterTurn`）+ 两个工具层（`beforeToolCall`/`afterToolCall`），另有执行器自带的 `prepareArguments` 准备相钩子。它们是能力储备，REPL 只用了信任闸门那一个。
+- **六个钩子**：四个循环层（`getFollowUpMessages`/`getSteeringMessages`/`prepareNextTurn`/`shouldStopAfterTurn`）+ 两个工具层（`beforeToolCall`/`afterToolCall`），另有执行器自带的 `prepareArguments`，在准备阶段改写参数。它们是能力储备，REPL 只用了信任闸门那一个。
 - **三种停止原因**：`length` 拦下并让模型重发（唯一可救），`error`/`aborted` 终结 run；三者都是 assistant 消息的字段，循环靠 `switch stopReason` 读它，失败始终是数据而非异常。
 
 有了这台"发动机"，下一步该看它烧的是什么"油"了：第4章走进 Provider 层，看统一接口之下 OpenAI 兼容与 Anthropic-Messages 两套协议、SSE 传输与鉴权是怎么把 `streamAssistantResponse` 递下来的 `LlmContext` 翻译成线上请求、又把线上响应翻译回一条条流事件的。

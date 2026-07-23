@@ -1,6 +1,8 @@
 # 上下文压缩：在 token 上限前腾出窗口
 
-第 5 章结尾留了个尾巴：工具让 Agent 长出了手脚，可一轮轮读文件、跑命令、抓网页，消息只增不减，上下文迟早会撞上模型的 token 上限。撞上之后会怎样？轻则请求被 Provider 拒绝（`length` 停止原因），重则更早的关键信息被挤出窗口，模型"忘了"最初要干什么。第 1 章的架构图里，"会话与压缩"被画成两条支撑边——它们不在请求的关键路径上，却决定了 Agent 能不能"记得住、跑得久"。这一章就来拆其中的压缩边。
+> **主线坐标｜第 ⑩ 站的一个逐轮钩子**：《主线导读》里，每轮对话收尾进入 `afterTurn` 时挂着 `maybeAutoCompact`——本章拆的就是这个钩子。它不在请求主干上，却在上下文顶到 token 上限时被唤醒，选切点、做摘要、`RebuildContext`，为主线腾出继续跑下去的窗口。
+
+第5章结尾留了个尾巴：工具让 Agent 长出了手脚，可一轮轮读文件、跑命令、抓网页，消息只增不减，上下文迟早会撞上模型的 token 上限。撞上之后会怎样？轻则请求被 Provider 拒绝（`length` 停止原因），重则更早的关键信息被挤出窗口，模型"忘了"最初要干什么。第 1 章的架构图里，"会话与压缩"被画成两条支撑边——它们不在请求的关键路径上，却决定了 Agent 能不能"记得住、跑得久"。这一章就来拆其中的压缩边。
 
 pigo 把这件事收进了 `internal/compaction` 包，四个文件各管一段：`tokens.go` 算账（估 token、判断是否该压），`cutpoint.go` 选切点（在哪一条消息上下刀），`summary.go` 做摘要（把待压缩的历史交给模型总结成一段结构化文本），`compact.go` 把前三者拧成一次完整压缩。最后由 `internal/runtime/loop.go` 把整套机制挂进 Agent 循环，在每一轮对话收尾时顺手检查、按需触发。这套实现对齐 pi 的 `harness/compaction`，只是把 pi 基于 entry id 的做法改写成了 pigo 扁平消息列表上的索引操作。我们就按 算账 → 选切点 → 做摘要 → 组装 → 嵌入循环 的顺序解剖它。
 
@@ -244,7 +246,7 @@ func FindCutPoint(msgs []agentcore.Message, keepRecentTokens int) CutPointResult
 
 这里有两个边界要留意。一是"预算从没被填满"——如果整段历史加起来都不到 `keepRecentTokens`，循环走完也没触发吸附，`cutIndex` 就停在初始值 `cutPoints[0]`（最早的合法切点），意味着"能留则尽量留"。二是"一条合法切点都没有"——比如整段历史全是 toolResult（极端情况），那就返回 `FirstKeptIndex: 0`，等于什么都不切、全部保留。宁可不压，也不做出会破坏上下文结构的切割，这和 `ShouldCompact` 那两条短路是同一套保守思路。
 
-`CutPointResult` 还带了 `TurnStartIndex` 与 `IsSplitTurn` 两个字段。当切点落在 assistant 消息上（而非干净的 user 回合边界）时，`findTurnStartIndex` 会往回找到这一回合起始的那条 user 消息，并标记 `IsSplitTurn = true`，表示这次切割把一个进行中的回合从中间劈开了。这两个字段是给上层做更细的呈现/诊断用的信息，切割本身仍以 `FirstKeptIndex` 为准。
+`CutPointResult` 还带了 `TurnStartIndex` 与 `IsSplitTurn` 两个字段。当切点落在 assistant 消息上（而非干净的 user 回合边界）时，`findTurnStartIndex` 会往回找到这一回合起始的那条 user 消息，并标记 `IsSplitTurn = true`，表示这次切割把一个进行中的回合从中间劈开了。这两个字段是给上层做更细的展示或诊断用的，切割本身仍以 `FirstKeptIndex` 为准。
 
 ## 做摘要：让模型总结被压缩的历史
 
@@ -435,7 +437,7 @@ func maybeAutoCompact(ctx context.Context, agentCtx *agentcore.AgentContext, cfg
 }
 ```
 
-这段代码把前面所有部件串成了一条完整链路：先 `EstimateContextTokens` 算账，`ShouldCompact` 判定，越线才 `runCompaction` 生成结果，`RebuildContext` 原地替换 `agentCtx.Messages`，最后发一个 `CompactionEvent` 汇报 前/后 token 数与 摘要/保留 的消息条数。整个过程发生在两次模型请求之间，对正在进行的对话是无感的。
+这段代码把前面所有部件串成了一条完整链路：先 `EstimateContextTokens` 算账，`ShouldCompact` 判定，越线才 `runCompaction` 生成结果，`RebuildContext` 原地替换 `agentCtx.Messages`，最后发一个 `CompactionEvent` 汇报 前/后 token 数与 摘要/保留 的消息条数。整个过程发生在两次模型请求之间，正在进行的对话对它毫无察觉。
 
 这里最值得琢磨的是**失败处理**。压缩要额外调一次模型来生成摘要，这次调用完全可能失败（网络抖动、摘要模型不可用、缺 Key）。pigo 的选择是：压缩失败绝不拖垮整轮对话。失败分支里，它保留原始上下文一字不动，只发一个带 `ErrorMessage` 的 `CompactionEvent`，`TokensAfter` 等于 `TokensBefore`（明示没变化），然后正常返回。`internal/runtime/compaction_test.go` 的 `TestAutoCompactionFailureIsNonFatal` 精确锁定了这个契约：即便摘要流构建失败，本轮 run 仍以 `agent_end` 正常收尾，且不会插入任何检查点。这与第 5 章工具系统"失败即反馈，而非中断"的哲学一脉相承——压缩是锦上添花的优化，不该成为新的失败点。
 
@@ -517,7 +519,7 @@ if len(agentCtx.Messages) == 0 || agentCtx.Messages[0].Role() != agentcore.RoleC
 - **组装**（`compact.go`）：`Compact` 定切点、划摘要范围（支持从上一压缩点之后增量）、生成摘要、拼文件元数据，产出 `CompactionResult`；`RebuildContext` 用"检查点 + 保留尾部"重建上下文；检查点经 `AsUserMessage` 以摘要 user 消息形式回放给模型。
 - **嵌入循环**（`loop.go`）：`maybeAutoCompact` 在每回合收尾时算账、判定、按需原地压缩并发 `CompactionEvent`；压缩失败非致命（保留原上下文、只报错、run 照常收尾）；REPL 的 `/compact` 提供手动入口，共用同一套 `Compact`。
 
-压缩让 Agent 能在有限的窗口里跑得更久，但它压掉的历史去了哪里、又怎么被完整保存下来供 `--resume` 复用？这就要看第 7 章的会话持久化——压缩检查点作为一条特殊消息，正是靠会话存储才得以落盘与回放。
+压缩让 Agent 能在有限的窗口里跑得更久，但它压掉的历史去了哪里、又怎么被完整保存下来供 `--resume` 复用？这就要看第 7 章的会话持久化——压缩检查点是一条特殊消息，全靠会话存储才能落盘、才能回放。
 
 ## 思考题
 

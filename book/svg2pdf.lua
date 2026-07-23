@@ -1,4 +1,4 @@
--- svg2pdf.lua — pandoc Lua filter for the 《庖丁解牛 pigo》 book build.
+-- svg2pdf.lua — pandoc Lua filter for the 《Write Pi Agent in Go》 book build.
 --
 -- Purpose: when producing PDF via xelatex, rewrite image references that point
 -- at an `.svg` file to the sibling `.pdf` that `build_pdf.sh` pre-generates with

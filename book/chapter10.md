@@ -1,8 +1,10 @@
 # 可扩展性生态：Skills、Plugins 与包管理
 
+> **主线坐标｜第 ② 站的"货源"**：主线第 ② 站装配一次运行时，工具集和命令从哪来？除了编译进二进制的内置工具，还能由本章的 Skills、Plugins、包管理器在不改源码的前提下挂载进来。这是主线之外、决定主线"配置"的一层。
+
 前面九章拆到的都是 pigo 的"内脏"：循环、Provider、工具、压缩、会话、信任，再到把一次委派关进独立进程的子 Agent。这些东西一旦编译进二进制就定死了——想加一个新工具、换一套提示词，得改源码、重新构建。可真正好用的命令行 Agent 不该是这样：它应该能在不碰源码的前提下长出新能力，就像编辑器装插件、Shell 加别名一样。
 
-这一章走向最外层，看 pigo 怎么把"可扩展"这件事拆成三层由轻到重的挂载点：最轻的是 **Skills 与斜杠命令**，一个带 YAML 头的 Markdown 文件就能声明一项能力；中间是 **Plugin**，一个用任意语言写的可执行文件，通过 JSON-RPC 把自定义工具注册进来；最重的是 **包管理器**，把前两者连同提示词、主题打包成 npm 包，一条 `pigo install` 就能拉取、分类、分发、落盘。三层各有各的适用场景，却共享同一套地基——尤其是第 9 章那套 `internal/jsonrpc` 传输，Plugin 复用的正是它。读完本章，你会明白 pigo 是怎么从一个"编译期定死"的程序，变成一台"可插拔地生长"的 Agent。
+这一章走向最外层，看 pigo 怎么把"可扩展"这件事拆成三层由轻到重的挂载点：最轻的是 **Skills 与斜杠命令**，一个带 YAML 头的 Markdown 文件就能声明一项能力；中间是 **Plugin**，一个用任意语言写的可执行文件，通过 JSON-RPC 把自定义工具注册进来；最重的是 **包管理器**，把前两者连同提示词、主题打包成 npm 包，一条 `pigo install` 就能拉取、分类、分发、落盘。三层由轻到重，适用场景各不相同，却共享同一套地基——尤其是第 9 章那套 `internal/jsonrpc` 传输，Plugin 复用的正是它。看完这一层，"改源码、重新编译才能加能力"这句话在 pigo 身上就不再成立了。
 
 ## 三层扩展点：由轻到重
 
@@ -147,7 +149,7 @@ type SlashCommand struct {
 }
 ```
 
-设 `Expand` 的是**提示命令**（prompt command）：它把参数转成喂给 Agent 的提示文本，是斜杠命令最初的形态。设 `Action` 的是**动作命令**（action command）：它执行一个副作用——比如 `/model` 切换运行时模型——并返回一行状态给用户看，**不启动任何 Agent 运行**。区别在于 `Action` 是一个任意的 Go 闭包，能捕获并改动活的运行时状态，而 `Expand`（一个纯粹的提示生产者）做不到。这个分家是让 `/model` 这类控制命令得以存在的前提——旧设计只能产出提示文本，改不了运行时状态。
+设 `Expand` 的是**提示命令**（prompt command）：它把参数转成喂给 Agent 的提示文本，是斜杠命令最初的形态。设 `Action` 的是**动作命令**（action command）：它执行一个副作用——比如 `/model` 切换运行时模型——并返回一行状态给用户看，**不启动任何 Agent 运行**。区别在于 `Action` 是一个任意的 Go 闭包，能捕获并改动活的运行时状态，而 `Expand`（一个纯粹的提示生产者）做不到。这个分家，正是 `/model` 这类控制命令能存在的前提——旧设计只能产出提示文本，改不了运行时状态。
 
 <!--
 生图prompt：
@@ -338,7 +340,7 @@ Constraints: One image explains only one core structure. Main subject 40%-60% of
 -->
 ![图10-6 剪断脚本引信的拆包术](images/fig10-6.png){#fig:10-6 width=100%}
 
-**分类**（`classify.go`）。同一个包可能同时是好几种类型——npm 目录里就有 `extensionskill` 这样的组合条目——所以 `Classify` 返回的是一个类型**集合**。它先读 `package.json` 里的 `pi` 元数据块（显式声明的 `type`/`types` 或按能力分的键），再叠加**结构性回落**：有 `bin` 入口就当扩展，有 `SKILL.md` 就当技能，有 `commands/` 目录就当提示词。
+**分类**（`classify.go`）。同一个包可能同时是好几种类型——npm 目录里就有 `extensionskill` 这样的组合条目——所以 `Classify` 返回的是一个类型**集合**。它先读 `package.json` 里的 `pi` 元数据块（显式声明的 `type`/`types` 或按能力分的键），再叠加一层**靠结构兜底**的判断：有 `bin` 入口就当扩展，有 `SKILL.md` 就当技能，有 `commands/` 目录就当提示词。
 
 ```go
 // 2. Structural fallbacks for packages that under-declare.
@@ -353,7 +355,7 @@ if dirExists(filepath.Join(pkgDir, "commands")) {
 }
 ```
 
-这份结构性回落让一个"没好好声明元数据、但明摆着是某类型"的包也能被认出来；什么都匹配不上时它宁可报错也不瞎猜，好让 `pigo install` 在一个根本不是 pi 包的东西上清清楚楚地失败。
+这套靠结构兜底的判断，让一个"没好好声明元数据、但明摆着是某类型"的包也能被认出来；什么都匹配不上时它宁可报错也不瞎猜，好让 `pigo install` 在一个根本不是 pi 包的东西上清清楚楚地失败。
 
 **分发**（`distribute.go` 及同族文件）。这是包管理器最能体现全章那条线索的地方——分发不是别的，就是**把包里的东西摆到 pigo 本来就会扫描的目录**。`install.go` 的 `distribute` 按类型路由到四个分发器，各自的目标目录由 `layout.go` 定义：扩展进 `$PIGO_HOME/plugins`（`plugin.Discover` 扫）、提示词进 `$PIGO_HOME/commands`（`LoadUserCommandsDir` 扫）、技能进 `~/.agents/skills`（`LoadSkillsDir` 扫）、主题进 `$PIGO_HOME/themes`（暂无运行时消费者，只是先存着）。
 
@@ -428,7 +430,7 @@ EOF
 本章走到 pigo 的最外层，拆解了让它"可插拔生长"的三层扩展生态：
 
 - **三层由轻到重**：Skills/斜杠命令（声明式 Markdown，无进程）→ Plugin（独立进程，JSON-RPC）→ 包管理器（分发与版本化）。一条贯穿始终的线索是：pigo 不为扩展另造发现机制，而是让每种扩展落到一个它本来就会扫描的目录里。
-- **Skills 与斜杠命令**：`internal/runtime/skills.go` 把带 YAML 头的 Markdown 解析成 `Skill`，容错加载（`stringList` 兼容标量、`LoadSkillsDir` 跳过坏文件）；一个技能既能经 `SubAgentSpec` 变成子 Agent 工具（复用第 9 章抽象），也能经 `SlashCommand` 就地展开进对话。`slashcommand.go` 的注册表区分内置/用户来源（内置优先）与提示/动作命令（`Expand` vs `Action`），后者让 `/model` 这类控制命令得以改动运行时状态。
+- **Skills 与斜杠命令**：`internal/runtime/skills.go` 把带 YAML 头的 Markdown 解析成 `Skill`，容错加载（`stringList` 兼容标量、`LoadSkillsDir` 跳过坏文件）；一个技能既能经 `SubAgentSpec` 变成子 Agent 工具（复用第 9 章抽象），也能经 `SlashCommand` 就地展开进对话。`slashcommand.go` 的注册表区分内置/用户来源（内置优先）与提示/动作命令（`Expand` vs `Action`），后者让 `/model` 这类控制命令能改动运行时状态。
 - **Plugin 系统**：`internal/plugin` 把插件当作独立进程，用第 9 章那套 `internal/jsonrpc` 说 `initialize`/`tools/call`/`event`/`shutdown` 四方法协议。`Load` 握手取回 `Manifest`，`pluginTool` 把插件工具适配成 `AgentTool` 并把传输错误降级成错误结果（崩溃隔离）；`Manager.Discover` 容错发现；`EventNotifier` 把循环事件以"只给可观察字段、绝不外泄密钥"的载荷发后不理地推给订阅插件。
 - **包管理器**：`internal/pkgmgr` 用 `npm pack --ignore-scripts` 无副作用地拉取，`Classify` 按 pi 元数据加结构信号判定类型集合，`distribute` 把各类型摆进对应目录（`layout.go`），锁文件（`lockfile.go`）精确记账每个落盘文件以供 list/uninstall/update。CLI 外壳 `pkgcmd.go` 被 `main()` 在 flag 解析前剥离。
 
@@ -439,5 +441,5 @@ EOF
 1. 一个 skill 既可以经 `SubAgentSpec`/`SkillTool` 变成子 Agent 工具，也可以经 `SlashCommand` 就地展开进当前对话。这两种挂法在"上下文隔离"与"结果回填"上有什么本质区别？pigo 的 REPL 为什么选了后者（对照 `loadSkillCommands`）？
 2. `AllowedTools` 用自定义的 `stringList` 而非普通 `[]string`。如果换成严格的 `[]string`，一个把 `allowed-tools` 写成标量字符串的技能会发生什么？结合 `LoadSkillsDir` 的错误累积逻辑，说说为什么这个健壮性对"上百个来源不一的技能"尤其重要。
 3. `pluginTool.Execute` 遇到传输错误（插件崩溃）时返回的是"一个错误结果 + nil error"，而不是把 error 抛出去。对照第 5 章工具执行器对 error 的处理，说说这个选择如何实现了"一个死插件不连累主循环"。
-4. `Classify` 既读 `package.json` 的显式 `pi` 元数据，又叠加"有 bin/SKILL.md/commands 就是某类型"的结构性回落。这两条判据同时命中时会怎样？为什么一个包被判成多种类型（如 `extension`+`skill`）是合理的，而不是一种需要消歧的冲突？
+4. `Classify` 既读 `package.json` 的显式 `pi` 元数据，又叠加"有 bin/SKILL.md/commands 就是某类型"的结构兜底。这两条判据同时命中时会怎样？为什么一个包被判成多种类型（如 `extension`+`skill`）是合理的，而不是一种需要消歧的冲突？
 5. 包管理器用 `npm pack` 而不是 `npm install` 来拉取，还加了 `--ignore-scripts`。从"安装一个不受信任的第三方包"的安全角度，解释这两个选择各挡掉了什么风险。再对照 `ParsePackageRef` 里 `validateNPMName` 拒绝的那些字符，说说包名校验防的又是哪一类攻击。
