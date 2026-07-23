@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>agenttool 类图</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Geist', sans-serif;
+      background: #faf6f0;
+      min-height: 100vh;
+      padding: 2.5rem 2rem;
+      color: #1c1917;
+    }
+    .container { max-width: 1240px; margin: 0 auto; }
+    .header { margin-bottom: 2rem; }
+    .eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #78716c;
+      margin-bottom: 0.375rem;
+    }
+    h1 {
+      font-family: 'Instrument Serif', serif;
+      font-size: 1.75rem;
+      font-weight: 400;
+      color: #1c1917;
+    }
+    .subtitle { color: #78716c; font-size: 0.8125rem; margin-top: 0.375rem; }
+    .diagram-desc {
+      color: #a8a29e;
+      font-size: 0.6875rem;
+      margin-top: 0.5rem;
+      line-height: 1.5;
+      font-style: italic;
+    }
+    .diagram-container {
+      background: #f0ebe3;
+      border: 1px solid rgba(28,25,23,0.12);
+      border-radius: 8px;
+      padding: 1.5rem;
+      overflow-x: auto;
+    }
+    svg { width: 100%; min-width: 1000px; display: block; }
+    .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.5rem; }
+    .card { background: #ffffff; border: 1px solid rgba(28,25,23,0.12); border-radius: 6px; padding: 1.25rem; }
+    .card-eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #a8a29e;
+      margin-bottom: 0.5rem;
+    }
+    .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+    .card-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .card-dot.ink { background: #1c1917; }
+    .card-dot.accent { background: #d97706; }
+    .card h3 { font-size: 0.8125rem; font-weight: 600; color: #1c1917; }
+    .card ul { list-style: none; color: #78716c; font-size: 0.75rem; line-height: 1.6; }
+    .card li { margin-bottom: 0.25rem; }
+    .footer {
+      margin-top: 1.5rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(28,25,23,0.08);
+      text-align: center;
+      font-family: 'Geist Mono', monospace;
+      color: #a8a29e;
+      font-size: 0.625rem;
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <p class="eyebrow">Class Diagram</p>
+      <h1>internal/agenttool 类图</h1>
+      <p class="subtitle">9 个内置工具实现 agentcore.AgentTool，经 ToolRegistry 注册/校验，由 ToolExecutor 三阶段执行</p>
+      <p class="diagram-desc"><b>类图 (Class Diagram)</b> — 结构性图形。展现工具层静态结构：接口实现、注册表聚合、执行配置与 Todo 数据簇。</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1300 1000">
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#78716c"/>
+          </marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#d97706"/>
+          </marker>
+          <marker id="tri" markerWidth="14" markerHeight="12" refX="12" refY="6" orient="auto">
+            <polygon points="0 0, 12 6, 0 12" fill="#faf6f0" stroke="#78716c" stroke-width="1"/>
+          </marker>
+          <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.9" fill="rgba(28,25,23,0.10)"/>
+          </pattern>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#faf6f0"/>
+        <rect width="100%" height="100%" fill="url(#dots)" opacity="0.6"/>
+
+        <!-- ============================================================
+             RELATIONSHIP LINES (drawn first — z-order behind boxes)
+             ============================================================ -->
+
+        <!-- 9 tools ..|> AgentTool (realization) — converge to interface bottom edge (620,148) -->
+        <line x1="115" y1="196" x2="620" y2="148" stroke="#78716c" stroke-width="0.9" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+        <line x1="280" y1="196" x2="620" y2="148" stroke="#78716c" stroke-width="0.9" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+        <line x1="445" y1="196" x2="620" y2="148" stroke="#78716c" stroke-width="0.9" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+        <line x1="115" y1="282" x2="620" y2="148" stroke="#78716c" stroke-width="0.9" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+        <line x1="280" y1="282" x2="620" y2="148" stroke="#78716c" stroke-width="0.9" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+        <line x1="445" y1="282" x2="620" y2="148" stroke="#78716c" stroke-width="0.9" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+        <line x1="115" y1="368" x2="620" y2="148" stroke="#78716c" stroke-width="0.9" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+        <line x1="280" y1="368" x2="620" y2="148" stroke="#78716c" stroke-width="0.9" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+        <line x1="445" y1="368" x2="620" y2="148" stroke="#78716c" stroke-width="0.9" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+
+        <!-- ToolRegistry o-- AgentTool (aggregation: map[string]AgentTool) -->
+        <line x1="740" y1="230" x2="740" y2="148" stroke="#d97706" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+        <polygon points="740,230 732,222 724,230 732,238" fill="#faf6f0" stroke="#d97706" stroke-width="1"/>
+        <rect x="746" y="176" width="94" height="12" rx="2" fill="#faf6f0"/>
+        <text x="793" y="186" fill="#d97706" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">tools 0..*</text>
+
+        <!-- ToolRegistry ..> FieldError (produces via Validate) -->
+        <line x1="990" y1="275" x2="1040" y2="275" stroke="#78716c" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+        <rect x="990" y="253" width="52" height="12" rx="2" fill="#faf6f0"/>
+        <text x="1016" y="263" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">yields</text>
+
+        <!-- ToolExecutorConfig --> ToolRegistry (Registry field) -->
+        <line x1="850" y1="565" x2="850" y2="360" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="856" y="450" width="70" height="12" rx="2" fill="#faf6f0"/>
+        <text x="891" y="460" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">Registry</text>
+
+        <!-- BatchConfig *-- ToolExecutorConfig (embeds) -->
+        <line x1="1040" y1="620" x2="1000" y2="620" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <polygon points="1040,620 1031,613 1022,620 1031,627" fill="#78716c"/>
+        <rect x="1002" y="598" width="42" height="12" rx="2" fill="#faf6f0"/>
+        <text x="1023" y="608" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">embed</text>
+
+        <!-- Executor(three-phase) ..> ToolExecutorConfig (uses cfg) -->
+        <line x1="700" y1="825" x2="700" y2="710" stroke="#78716c" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+        <rect x="640" y="758" width="54" height="12" rx="2" fill="#faf6f0"/>
+        <text x="667" y="768" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">uses cfg</text>
+
+        <!-- BatchExecutor ..> Executor(single) — ExecuteToolCalls calls executeToolCall -->
+        <line x1="1040" y1="880" x2="1000" y2="880" stroke="#78716c" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+        <rect x="1002" y="858" width="42" height="12" rx="2" fill="#faf6f0"/>
+        <text x="1023" y="868" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">calls</text>
+
+        <!-- TodoTool o-- TodoStore (aggregation) -->
+        <line x1="115" y1="438" x2="115" y2="500" stroke="#d97706" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+        <polygon points="115,438 107,447 115,456 123,447" fill="#faf6f0" stroke="#d97706" stroke-width="1"/>
+        <rect x="122" y="462" width="46" height="12" rx="2" fill="#faf6f0"/>
+        <text x="145" y="472" fill="#d97706" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">Store</text>
+
+        <!-- TodoStore *-- TodoItem (composition) -->
+        <line x1="220" y1="540" x2="300" y2="540" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <polygon points="220,540 211,533 202,540 211,547" fill="#78716c"/>
+        <rect x="232" y="518" width="48" height="12" rx="2" fill="#faf6f0"/>
+        <text x="256" y="528" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">items</text>
+
+        <!-- TodoItem ..> TodoStatus (dependency) -->
+        <line x1="390" y1="596" x2="390" y2="628" stroke="#78716c" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+
+        <!-- BOXES_PLACEHOLDER -->
+
+        <!-- ===== AgentTool interface (center top) ===== -->
+        <rect x="620" y="40" width="240" height="108" rx="6" fill="rgba(217,119,6,0.06)"/>
+        <rect x="620" y="40" width="240" height="24" rx="6" fill="rgba(217,119,6,0.10)"/>
+        <rect x="620" y="60" width="240" height="4" fill="rgba(217,119,6,0.10)"/>
+        <rect x="620" y="40" width="240" height="108" rx="6" fill="none" stroke="#d97706" stroke-width="1.2"/>
+        <line x1="620" y1="64" x2="860" y2="64" stroke="rgba(217,119,6,0.25)" stroke-width="0.8"/>
+        <rect x="628" y="44" width="112" height="12" rx="2" fill="transparent" stroke="rgba(217,119,6,0.40)" stroke-width="0.8"/>
+        <text x="684" y="53" fill="rgba(217,119,6,0.85)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">agentcore.INTERFACE</text>
+        <text x="812" y="53" fill="#1c1917" font-size="11" font-weight="600" text-anchor="middle">AgentTool</text>
+        <text x="630" y="82" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">+ Name() / Description() string</text>
+        <text x="630" y="98" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">+ Schema() json.RawMessage</text>
+        <text x="630" y="114" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">+ ExecutionMode() ToolExecutionMode</text>
+        <text x="630" y="130" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">+ Execute(ctx,id,args,onUpdate)</text>
+        <text x="630" y="144" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">→ (AgentToolResult, error)</text>
+
+        <!-- ===== 9 tool implementations (3x3 grid, LEFT) ===== -->
+        <!-- Row 1 -->
+        <rect x="30" y="196" width="170" height="86" rx="6" fill="#faf6f0"/>
+        <rect x="30" y="196" width="170" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="30" y="214" width="170" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="30" y="196" width="170" height="86" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="30" y1="218" x2="200" y2="218" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="115" y="211" fill="#1c1917" font-size="10" font-weight="600" text-anchor="middle">ReadTool</text>
+        <text x="40" y="234" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Root string</text>
+        <text x="40" y="250" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">name "read"</text>
+        <text x="40" y="266" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">mode parallel · 越界拒绝</text>
+
+        <rect x="215" y="196" width="170" height="86" rx="6" fill="#faf6f0"/>
+        <rect x="215" y="196" width="170" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="215" y="214" width="170" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="215" y="196" width="170" height="86" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="215" y1="218" x2="385" y2="218" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="300" y="211" fill="#1c1917" font-size="10" font-weight="600" text-anchor="middle">WriteTool</text>
+        <text x="225" y="234" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Root string</text>
+        <text x="225" y="250" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">name "write"</text>
+        <text x="225" y="266" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">mode sequential</text>
+
+        <rect x="400" y="196" width="170" height="86" rx="6" fill="#faf6f0"/>
+        <rect x="400" y="196" width="170" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="400" y="214" width="170" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="400" y="196" width="170" height="86" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="400" y1="218" x2="570" y2="218" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="485" y="211" fill="#1c1917" font-size="10" font-weight="600" text-anchor="middle">EditTool</text>
+        <text x="410" y="234" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Root string</text>
+        <text x="410" y="250" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">name "edit"</text>
+        <text x="410" y="266" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">mode sequential · diff</text>
+
+        <!-- Row 2 -->
+        <rect x="30" y="298" width="170" height="72" rx="6" fill="#faf6f0"/>
+        <rect x="30" y="298" width="170" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="30" y="316" width="170" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="30" y="298" width="170" height="72" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="30" y1="320" x2="200" y2="320" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="115" y="313" fill="#1c1917" font-size="10" font-weight="600" text-anchor="middle">BashTool</text>
+        <text x="40" y="336" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Dir / Shell string</text>
+        <text x="40" y="352" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">mode sequential · 流式</text>
+
+        <rect x="215" y="298" width="170" height="72" rx="6" fill="#faf6f0"/>
+        <rect x="215" y="298" width="170" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="215" y="316" width="170" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="215" y="298" width="170" height="72" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="215" y1="320" x2="385" y2="320" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="300" y="313" fill="#1c1917" font-size="10" font-weight="600" text-anchor="middle">GrepTool</text>
+        <text x="225" y="336" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">name "grep"</text>
+        <text x="225" y="352" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">mode parallel · gitignore</text>
+
+        <rect x="400" y="298" width="170" height="72" rx="6" fill="#faf6f0"/>
+        <rect x="400" y="298" width="170" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="400" y="316" width="170" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="400" y="298" width="170" height="72" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="400" y1="320" x2="570" y2="320" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="485" y="313" fill="#1c1917" font-size="10" font-weight="600" text-anchor="middle">FindTool</text>
+        <text x="410" y="336" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">name "find"</text>
+        <text x="410" y="352" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">mode parallel</text>
+
+        <!-- Row 3 : LsTool / WebFetchTool  (TodoTool separate below) -->
+        <rect x="215" y="384" width="170" height="54" rx="6" fill="#faf6f0"/>
+        <rect x="215" y="384" width="170" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="215" y="402" width="170" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="215" y="384" width="170" height="54" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="215" y1="406" x2="385" y2="406" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="300" y="399" fill="#1c1917" font-size="10" font-weight="600" text-anchor="middle">LsTool</text>
+        <text x="225" y="424" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">name "ls" · mode parallel</text>
+
+        <rect x="400" y="384" width="170" height="54" rx="6" fill="#faf6f0"/>
+        <rect x="400" y="384" width="170" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="400" y="402" width="170" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="400" y="384" width="170" height="54" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="400" y1="406" x2="570" y2="406" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="485" y="399" fill="#1c1917" font-size="10" font-weight="600" text-anchor="middle">WebFetchTool</text>
+        <text x="410" y="424" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">Client *http · html→md</text>
+
+        <!-- TodoTool (row3 left, anchors aggregation) -->
+        <rect x="30" y="384" width="170" height="54" rx="6" fill="#faf6f0"/>
+        <rect x="30" y="384" width="170" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="30" y="402" width="170" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="30" y="384" width="170" height="54" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="30" y1="406" x2="200" y2="406" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="115" y="399" fill="#1c1917" font-size="10" font-weight="600" text-anchor="middle">TodoTool</text>
+        <text x="40" y="424" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Store *TodoStore</text>
+
+        <!-- ===== Todo data cluster ===== -->
+        <!-- TodoStore -->
+        <rect x="30" y="500" width="170" height="80" rx="6" fill="rgba(28,25,23,0.05)"/>
+        <rect x="30" y="500" width="170" height="22" rx="6" fill="rgba(28,25,23,0.05)"/>
+        <rect x="30" y="518" width="170" height="4" fill="rgba(28,25,23,0.05)"/>
+        <rect x="30" y="500" width="170" height="80" rx="6" fill="none" stroke="#78716c" stroke-width="1"/>
+        <line x1="30" y1="522" x2="200" y2="522" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="115" y="515" fill="#1c1917" font-size="10" font-weight="600" text-anchor="middle">TodoStore</text>
+        <text x="40" y="538" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">mu sync.RWMutex</text>
+        <text x="40" y="552" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">items []TodoItem</text>
+        <line x1="30" y1="558" x2="200" y2="558" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="40" y="574" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">+ NewTodoStore()</text>
+
+        <!-- TodoItem -->
+        <rect x="300" y="500" width="180" height="96" rx="6" fill="rgba(28,25,23,0.05)"/>
+        <rect x="300" y="500" width="180" height="22" rx="6" fill="rgba(28,25,23,0.05)"/>
+        <rect x="300" y="518" width="180" height="4" fill="rgba(28,25,23,0.05)"/>
+        <rect x="300" y="500" width="180" height="96" rx="6" fill="none" stroke="#78716c" stroke-width="1"/>
+        <line x1="300" y1="522" x2="480" y2="522" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="390" y="515" fill="#1c1917" font-size="10" font-weight="600" text-anchor="middle">TodoItem</text>
+        <text x="310" y="538" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Content string</text>
+        <text x="310" y="554" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Status TodoStatus</text>
+        <text x="310" y="574" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">JSON: content / status</text>
+        <text x="310" y="588" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">validTodoStatus() 校验</text>
+
+        <!-- TodoStatus (enum) -->
+        <rect x="300" y="628" width="180" height="82" rx="6" fill="rgba(28,25,23,0.05)"/>
+        <rect x="300" y="628" width="180" height="22" rx="6" fill="rgba(28,25,23,0.05)"/>
+        <rect x="300" y="646" width="180" height="4" fill="rgba(28,25,23,0.05)"/>
+        <rect x="300" y="628" width="180" height="82" rx="6" fill="none" stroke="#78716c" stroke-width="1"/>
+        <line x1="300" y1="650" x2="480" y2="650" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <rect x="308" y="632" width="34" height="12" rx="2" fill="transparent" stroke="rgba(120,113,108,0.40)" stroke-width="0.8"/>
+        <text x="325" y="641" fill="rgba(120,113,108,0.85)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle">ENUM</text>
+        <text x="410" y="641" fill="#1c1917" font-size="10" font-weight="600" text-anchor="middle">TodoStatus</text>
+        <text x="310" y="666" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">pending</text>
+        <text x="310" y="682" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">in_progress</text>
+        <text x="310" y="698" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">completed</text>
+
+        <!-- ===== ToolRegistry (right of interface) ===== -->
+        <rect x="740" y="230" width="250" height="130" rx="6" fill="rgba(217,119,6,0.06)"/>
+        <rect x="740" y="230" width="250" height="24" rx="6" fill="rgba(217,119,6,0.10)"/>
+        <rect x="740" y="250" width="250" height="4" fill="rgba(217,119,6,0.10)"/>
+        <rect x="740" y="230" width="250" height="130" rx="6" fill="none" stroke="#d97706" stroke-width="1.2"/>
+        <line x1="740" y1="254" x2="990" y2="254" stroke="rgba(217,119,6,0.25)" stroke-width="0.8"/>
+        <rect x="748" y="234" width="34" height="12" rx="2" fill="transparent" stroke="rgba(217,119,6,0.40)" stroke-width="0.8"/>
+        <text x="765" y="243" fill="rgba(217,119,6,0.85)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle">CORE</text>
+        <text x="878" y="243" fill="#1c1917" font-size="11" font-weight="600" text-anchor="middle">ToolRegistry</text>
+        <text x="750" y="270" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">mu sync.RWMutex</text>
+        <text x="750" y="284" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">tools map[string]AgentTool</text>
+        <text x="750" y="298" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">compiled map[string]*jsonschema.Schema</text>
+        <line x1="740" y1="306" x2="990" y2="306" stroke="rgba(217,119,6,0.20)" stroke-width="0.8"/>
+        <text x="750" y="322" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">+ Register / Get / List</text>
+        <text x="750" y="336" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">+ Validate(name,args) []FieldError</text>
+        <text x="750" y="350" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">santhosh-tekuri/jsonschema v6</text>
+
+        <!-- ===== FieldError ===== -->
+        <rect x="1040" y="230" width="180" height="76" rx="6" fill="rgba(28,25,23,0.05)"/>
+        <rect x="1040" y="230" width="180" height="22" rx="6" fill="rgba(28,25,23,0.05)"/>
+        <rect x="1040" y="248" width="180" height="4" fill="rgba(28,25,23,0.05)"/>
+        <rect x="1040" y="230" width="180" height="76" rx="6" fill="none" stroke="#78716c" stroke-width="1"/>
+        <line x1="1040" y1="252" x2="1220" y2="252" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="1130" y="245" fill="#1c1917" font-size="10" font-weight="600" text-anchor="middle">FieldError</text>
+        <text x="1050" y="268" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Field string (JSON ptr)</text>
+        <text x="1050" y="284" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Message string</text>
+        <text x="1050" y="300" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">→ ValidationErrorResult</text>
+
+        <!-- ===== ToolExecutorConfig ===== -->
+        <rect x="700" y="565" width="300" height="145" rx="6" fill="rgba(217,119,6,0.06)"/>
+        <rect x="700" y="565" width="300" height="24" rx="6" fill="rgba(217,119,6,0.10)"/>
+        <rect x="700" y="585" width="300" height="4" fill="rgba(217,119,6,0.10)"/>
+        <rect x="700" y="565" width="300" height="145" rx="6" fill="none" stroke="#d97706" stroke-width="1.2"/>
+        <line x1="700" y1="589" x2="1000" y2="589" stroke="rgba(217,119,6,0.25)" stroke-width="0.8"/>
+        <rect x="708" y="569" width="34" height="12" rx="2" fill="transparent" stroke="rgba(217,119,6,0.40)" stroke-width="0.8"/>
+        <text x="725" y="578" fill="rgba(217,119,6,0.85)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle">CORE</text>
+        <text x="855" y="578" fill="#1c1917" font-size="11" font-weight="600" text-anchor="middle">ToolExecutorConfig</text>
+        <text x="710" y="605" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Registry *ToolRegistry</text>
+        <text x="710" y="620" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">PrepareArguments  PrepareArgumentsFunc</text>
+        <text x="710" y="635" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">BeforeToolCall    BeforeToolCallFunc</text>
+        <text x="710" y="650" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">AfterToolCall     AfterToolCallFunc</text>
+        <line x1="700" y1="658" x2="1000" y2="658" stroke="rgba(217,119,6,0.20)" stroke-width="0.8"/>
+        <text x="710" y="674" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">3 个 hook 均可选 (nil = 默认)</text>
+        <text x="710" y="690" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">prepare → execute → finalize 阶段共享</text>
+        <text x="710" y="704" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">afterToolCall 逐字段覆盖 (无深合并)</text>
+
+        <!-- ===== BatchConfig ===== -->
+        <rect x="1040" y="575" width="190" height="110" rx="6" fill="#faf6f0"/>
+        <rect x="1040" y="575" width="190" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="1040" y="593" width="190" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="1040" y="575" width="190" height="110" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="1040" y1="597" x2="1230" y2="597" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="1135" y="590" fill="#1c1917" font-size="10" font-weight="600" text-anchor="middle">BatchConfig</text>
+        <text x="1050" y="613" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">ToolExecutorConfig</text>
+        <text x="1058" y="626" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">(embedded)</text>
+        <text x="1050" y="642" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">ForceSequential bool</text>
+        <line x1="1040" y1="650" x2="1230" y2="650" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="1050" y="666" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">批内含 sequential 工具</text>
+        <text x="1050" y="678" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">→ 整批串行</text>
+
+        <!-- ===== executeToolCall (three-phase, conceptual) ===== -->
+        <rect x="700" y="825" width="300" height="115" rx="6" fill="#faf6f0"/>
+        <rect x="700" y="825" width="300" height="24" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="700" y="845" width="300" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="700" y="825" width="300" height="115" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="700" y1="849" x2="1000" y2="849" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <rect x="708" y="829" width="52" height="12" rx="2" fill="transparent" stroke="rgba(28,25,23,0.30)" stroke-width="0.8"/>
+        <text x="734" y="838" fill="#78716c" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle">FUNC</text>
+        <text x="862" y="838" fill="#1c1917" font-size="10.5" font-weight="600" text-anchor="middle">executeToolCall</text>
+        <text x="710" y="866" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">① prepareToolCall — lookup / prepareArgs</text>
+        <text x="722" y="879" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">Validate / beforeToolCall block</text>
+        <text x="710" y="895" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">② runTool — recover panic → errorResult</text>
+        <text x="710" y="911" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">③ finalizeToolCall — afterToolCall / emit end</text>
+        <text x="710" y="927" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">失败一律编码为 IsError 结果, 不 panic</text>
+
+        <!-- ===== ExecuteToolCalls (batch, conceptual) ===== -->
+        <rect x="1040" y="828" width="190" height="112" rx="6" fill="#faf6f0"/>
+        <rect x="1040" y="828" width="190" height="24" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="1040" y="848" width="190" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="1040" y="828" width="190" height="112" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="1040" y1="852" x2="1230" y2="852" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <rect x="1048" y="832" width="52" height="12" rx="2" fill="transparent" stroke="rgba(28,25,23,0.30)" stroke-width="0.8"/>
+        <text x="1074" y="841" fill="#78716c" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle">FUNC</text>
+        <text x="1170" y="841" fill="#1c1917" font-size="10" font-weight="600" text-anchor="middle">ExecuteToolCalls</text>
+        <text x="1050" y="869" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">串行 / 并行 (goroutine</text>
+        <text x="1058" y="881" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">+ 索引回填)</text>
+        <text x="1050" y="897" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">batchRequiresSequential()</text>
+        <text x="1050" y="913" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">全部结果 terminate</text>
+        <text x="1050" y="925" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">→ 整批终止</text>
+
+        <!-- ===== Legend ===== -->
+        <line x1="705" y1="405" x2="745" y2="405" stroke="#78716c" stroke-width="0.9" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+        <text x="752" y="408" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">realization 实现</text>
+        <line x1="705" y1="425" x2="745" y2="425" stroke="#d97706" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+        <polygon points="705,425 697,418 689,425 697,432" fill="#faf6f0" stroke="#d97706" stroke-width="1"/>
+        <text x="752" y="428" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">aggregation 聚合</text>
+        <line x1="705" y1="445" x2="745" y2="445" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <polygon points="705,445 696,438 687,445 696,452" fill="#78716c"/>
+        <text x="752" y="448" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">composition 组合 / 内嵌</text>
+        <line x1="900" y1="405" x2="940" y2="405" stroke="#78716c" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+        <text x="947" y="408" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">dependency 依赖 / 使用</text>
+        <text x="900" y="428" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">accent = 核心类型 (CORE)</text>
+        <text x="900" y="446" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">灰底框 = 值 / 枚举类型</text>
+      </svg>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-header"><span class="card-dot accent"></span><h3>注册与校验</h3></div>
+        <p class="card-eyebrow">Registry · JSON Schema</p>
+        <ul>
+          <li>9 个内置工具实现 <b>agentcore.AgentTool</b>，各自声明 name / schema / 执行模式。</li>
+          <li><b>ToolRegistry</b> 以 <code>map[string]AgentTool</code> 聚合工具，并预编译 jsonschema v6 校验器。</li>
+          <li><b>Validate</b> 返回 <code>[]FieldError</code>，经 <code>ValidationErrorResult</code> 转为错误结果。</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-dot ink"></span><h3>三阶段执行与批处理</h3></div>
+        <p class="card-eyebrow">Executor · Batch</p>
+        <ul>
+          <li><b>executeToolCall</b>：prepare → execute → finalize，任何失败都编码为 IsError 结果而非 panic。</li>
+          <li><b>ToolExecutorConfig</b> 携带注册表与三个可选 hook；<b>BatchConfig</b> 内嵌它并加 ForceSequential。</li>
+          <li><b>ExecuteToolCalls</b> 按模式串/并行；含 sequential 工具则整批串行。</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer">
+      pigo · internal/agenttool · registry.go · tool_executor.go · batch_executor.go · *_tool.go
+    </div>
+  </div>
+</body>
+</html>

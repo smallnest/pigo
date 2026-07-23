@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>agentcore 类图</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Geist', sans-serif;
+      background: #faf6f0;
+      min-height: 100vh;
+      padding: 2.5rem 2rem;
+      color: #1c1917;
+    }
+    .container { max-width: 1240px; margin: 0 auto; }
+    .header { margin-bottom: 2rem; }
+    .eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #78716c;
+      margin-bottom: 0.375rem;
+    }
+    h1 {
+      font-family: 'Instrument Serif', serif;
+      font-size: 1.75rem;
+      font-weight: 400;
+      color: #1c1917;
+    }
+    .subtitle {
+      color: #78716c;
+      font-size: 0.8125rem;
+      margin-top: 0.375rem;
+    }
+    .diagram-desc {
+      color: #a8a29e;
+      font-size: 0.6875rem;
+      margin-top: 0.5rem;
+      line-height: 1.5;
+      font-style: italic;
+    }
+    .diagram-container {
+      background: #f0ebe3;
+      border: 1px solid rgba(28,25,23,0.12);
+      border-radius: 8px;
+      padding: 1.5rem;
+      overflow-x: auto;
+    }
+    svg { width: 100%; min-width: 1000px; display: block; }
+    .cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid rgba(28,25,23,0.12);
+      border-radius: 6px;
+      padding: 1.25rem;
+    }
+    .card-eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #a8a29e;
+      margin-bottom: 0.5rem;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .card-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .card-dot.ink { background: #1c1917; }
+    .card-dot.accent { background: #d97706; }
+    .card-dot.muted { background: #78716c; }
+    .card h3 { font-size: 0.8125rem; font-weight: 600; color: #1c1917; }
+    .card ul {
+      list-style: none;
+      color: #78716c;
+      font-size: 0.75rem;
+      line-height: 1.6;
+    }
+    .card li { margin-bottom: 0.25rem; }
+    .footer {
+      margin-top: 1.5rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(28,25,23,0.08);
+      text-align: center;
+      font-family: 'Geist Mono', monospace;
+      color: #a8a29e;
+      font-size: 0.625rem;
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <p class="eyebrow">Class Diagram</p>
+      <h1>internal/agentcore 类图</h1>
+      <p class="subtitle">四个密封接口 (Content / Message / AgentEvent / AgentTool) 及其实现，聚合于 AgentContext 的静态结构</p>
+      <p class="diagram-desc"><b>类图 (Class Diagram)</b> — 结构性图形。展现 pigo agent 内核 "叶子" 数据模型的静态结构：接口、实现、组合与聚合关系。</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1300 940">
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#78716c"/>
+          </marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#d97706"/>
+          </marker>
+          <marker id="tri" markerWidth="14" markerHeight="12" refX="12" refY="6" orient="auto">
+            <polygon points="0 0, 12 6, 0 12" fill="#faf6f0" stroke="#78716c" stroke-width="1"/>
+          </marker>
+          <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.9" fill="rgba(28,25,23,0.10)"/>
+          </pattern>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#faf6f0"/>
+        <rect width="100%" height="100%" fill="url(#dots)" opacity="0.6"/>
+
+        <!-- ============================================================
+             RELATIONSHIP LINES (drawn first — z-order behind boxes)
+             ============================================================ -->
+
+        <!-- Content realizations (dashed, hollow triangle) → Content interface LEFT edge x=470 -->
+        <line x1="270" y1="86"  x2="470" y2="80"  stroke="#78716c" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+        <line x1="270" y1="206" x2="470" y2="90"  stroke="#78716c" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+        <line x1="270" y1="334" x2="470" y2="100" stroke="#78716c" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+        <line x1="270" y1="454" x2="470" y2="110" stroke="#78716c" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+
+        <!-- Message realizations (dashed, hollow triangle) → Message interface RIGHT edge x=850 -->
+        <line x1="1010" y1="86"  x2="850" y2="80"  stroke="#78716c" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+        <line x1="1010" y1="228" x2="850" y2="90"  stroke="#78716c" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+        <line x1="1010" y1="383" x2="850" y2="100" stroke="#78716c" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+        <line x1="1010" y1="533" x2="850" y2="110" stroke="#78716c" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+
+        <!-- ContentList *-- Content (composition []Content). filled diamond at ContentList top -->
+        <line x1="555" y1="210" x2="555" y2="126" stroke="#78716c" stroke-width="1"/>
+        <polygon points="555,210 547,200 555,190 563,200" fill="#78716c"/>
+        <rect x="560" y="152" width="52" height="12" rx="2" fill="#faf6f0"/>
+        <text x="586" y="162" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">[]Content</text>
+
+        <!-- AgentContext o-- Message (aggregation). open diamond at AgentContext top, arrow to Message bottom -->
+        <line x1="700" y1="680" x2="770" y2="126" stroke="#d97706" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+        <polygon points="700,680 692,671 700,662 708,671" fill="#faf6f0" stroke="#d97706" stroke-width="1"/>
+        <rect x="712" y="420" width="86" height="12" rx="2" fill="#faf6f0"/>
+        <text x="755" y="430" fill="#d97706" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">Messages 0..*</text>
+
+        <!-- AgentContext o-- AgentTool (aggregation). open diamond at AgentContext left, arrow to AgentTool right -->
+        <line x1="560" y1="745" x2="270" y2="745" stroke="#d97706" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+        <polygon points="560,745 551,737 542,745 551,753" fill="#faf6f0" stroke="#d97706" stroke-width="1"/>
+        <rect x="376" y="723" width="72" height="12" rx="2" fill="#faf6f0"/>
+        <text x="412" y="733" fill="#d97706" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">Tools 0..*</text>
+
+        <!-- AgentTool ..> AgentToolResult (dependency: Execute returns) -->
+        <line x1="270" y1="708" x2="300" y2="708" stroke="#78716c" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+        <rect x="256" y="686" width="58" height="12" rx="2" fill="#faf6f0"/>
+        <text x="285" y="696" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">returns</text>
+
+        <!-- AgentToolResult *-- ContentList (composition) -->
+        <line x1="400" y1="680" x2="555" y2="286" stroke="#78716c" stroke-width="1"/>
+        <polygon points="400,680 391,673 400,666 409,673" fill="#78716c"/>
+        <rect x="470" y="470" width="56" height="12" rx="2" fill="#faf6f0"/>
+        <text x="498" y="480" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">Content</text>
+
+        <!-- BOXES_PLACEHOLDER -->
+
+        <!-- ===== Content interface (center top) ===== -->
+        <rect x="470" y="40" width="170" height="86" rx="6" fill="rgba(217,119,6,0.06)"/>
+        <rect x="470" y="40" width="170" height="24" rx="6" fill="rgba(217,119,6,0.10)"/>
+        <rect x="470" y="60" width="170" height="4" fill="rgba(217,119,6,0.10)"/>
+        <rect x="470" y="40" width="170" height="86" rx="6" fill="none" stroke="#d97706" stroke-width="1.2"/>
+        <line x1="470" y1="64" x2="640" y2="64" stroke="rgba(217,119,6,0.25)" stroke-width="0.8"/>
+        <rect x="478" y="44" width="60" height="12" rx="2" fill="transparent" stroke="rgba(217,119,6,0.40)" stroke-width="0.8"/>
+        <text x="508" y="53" fill="rgba(217,119,6,0.85)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">INTERFACE</text>
+        <text x="600" y="53" fill="#1c1917" font-size="11" font-weight="600" text-anchor="middle">Content</text>
+        <text x="480" y="82" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">«sealed» isContent()</text>
+        <text x="480" y="100" fill="#a8a29e" font-size="8.5" font-family="'Geist Mono', monospace">decodeContent(raw) 分派</text>
+        <text x="480" y="116" fill="#a8a29e" font-size="8.5" font-family="'Geist Mono', monospace">type: text|thinking|toolCall|image</text>
+
+        <!-- ===== ContentList (below Content) ===== -->
+        <rect x="470" y="210" width="170" height="76" rx="6" fill="rgba(28,25,23,0.05)"/>
+        <rect x="470" y="210" width="170" height="24" rx="6" fill="rgba(28,25,23,0.05)"/>
+        <rect x="470" y="230" width="170" height="4" fill="rgba(28,25,23,0.05)"/>
+        <rect x="470" y="210" width="170" height="76" rx="6" fill="none" stroke="#78716c" stroke-width="1"/>
+        <line x1="470" y1="234" x2="640" y2="234" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <rect x="478" y="214" width="44" height="12" rx="2" fill="transparent" stroke="rgba(120,113,108,0.40)" stroke-width="0.8"/>
+        <text x="500" y="223" fill="rgba(120,113,108,0.85)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">TYPE</text>
+        <text x="600" y="223" fill="#1c1917" font-size="11" font-weight="600" text-anchor="middle">ContentList</text>
+        <text x="480" y="250" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">[]Content</text>
+        <text x="480" y="266" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">+ UnmarshalJSON([]byte)</text>
+        <text x="480" y="280" fill="#a8a29e" font-size="8.5" font-family="'Geist Mono', monospace">按 type 判别式解码</text>
+
+        <!-- ===== Message interface (right of Content) ===== -->
+        <rect x="680" y="40" width="170" height="86" rx="6" fill="rgba(217,119,6,0.06)"/>
+        <rect x="680" y="40" width="170" height="24" rx="6" fill="rgba(217,119,6,0.10)"/>
+        <rect x="680" y="60" width="170" height="4" fill="rgba(217,119,6,0.10)"/>
+        <rect x="680" y="40" width="170" height="86" rx="6" fill="none" stroke="#d97706" stroke-width="1.2"/>
+        <line x1="680" y1="64" x2="850" y2="64" stroke="rgba(217,119,6,0.25)" stroke-width="0.8"/>
+        <rect x="688" y="44" width="60" height="12" rx="2" fill="transparent" stroke="rgba(217,119,6,0.40)" stroke-width="0.8"/>
+        <text x="718" y="53" fill="rgba(217,119,6,0.85)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">INTERFACE</text>
+        <text x="810" y="53" fill="#1c1917" font-size="11" font-weight="600" text-anchor="middle">Message</text>
+        <text x="690" y="82" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">«sealed» isMessage()</text>
+        <text x="690" y="98" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">+ Role() string</text>
+        <text x="690" y="116" fill="#a8a29e" font-size="8.5" font-family="'Geist Mono', monospace">alias: AgentMessage · MessageList</text>
+
+        <!-- ===== Content implementations (LEFT column) ===== -->
+        <!-- TextContent -->
+        <rect x="60" y="52" width="210" height="72" rx="6" fill="#faf6f0"/>
+        <rect x="60" y="52" width="210" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="60" y="70" width="210" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="60" y="52" width="210" height="72" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="60" y1="74" x2="270" y2="74" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="165" y="67" fill="#1c1917" font-size="10.5" font-weight="600" text-anchor="middle">TextContent</text>
+        <text x="70" y="90" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Type / Text string</text>
+        <text x="70" y="104" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">TextSignature string</text>
+        <text x="70" y="118" fill="#a8a29e" font-size="8.5" font-family="'Geist Mono', monospace">+ NewTextContent()</text>
+
+        <!-- ThinkingContent -->
+        <rect x="60" y="172" width="210" height="72" rx="6" fill="#faf6f0"/>
+        <rect x="60" y="172" width="210" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="60" y="190" width="210" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="60" y="172" width="210" height="72" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="60" y1="194" x2="270" y2="194" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="165" y="187" fill="#1c1917" font-size="10.5" font-weight="600" text-anchor="middle">ThinkingContent</text>
+        <text x="70" y="210" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Thinking string</text>
+        <text x="70" y="224" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">ThinkingSignature string</text>
+        <text x="70" y="238" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Redacted bool</text>
+
+        <!-- ToolCallContent -->
+        <rect x="60" y="292" width="210" height="86" rx="6" fill="#faf6f0"/>
+        <rect x="60" y="292" width="210" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="60" y="310" width="210" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="60" y="292" width="210" height="86" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="60" y1="314" x2="270" y2="314" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="165" y="307" fill="#1c1917" font-size="10.5" font-weight="600" text-anchor="middle">ToolCallContent</text>
+        <text x="70" y="330" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">ID / Name string</text>
+        <text x="70" y="344" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Arguments json.RawMessage</text>
+        <text x="70" y="358" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">ThoughtSignature string</text>
+        <text x="70" y="372" fill="#a8a29e" font-size="8.5" font-family="'Geist Mono', monospace">→ AgentToolCall (loop 视图)</text>
+
+        <!-- ImageContent -->
+        <rect x="60" y="426" width="210" height="58" rx="6" fill="#faf6f0"/>
+        <rect x="60" y="426" width="210" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="60" y="444" width="210" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="60" y="426" width="210" height="58" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="60" y1="448" x2="270" y2="448" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="165" y="441" fill="#1c1917" font-size="10.5" font-weight="600" text-anchor="middle">ImageContent</text>
+        <text x="70" y="464" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Data string</text>
+        <text x="70" y="478" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">MimeType string</text>
+
+        <!-- ===== Message implementations (RIGHT column) ===== -->
+        <!-- UserMessage -->
+        <rect x="1010" y="50" width="220" height="66" rx="6" fill="#faf6f0"/>
+        <rect x="1010" y="50" width="220" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="1010" y="68" width="220" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="1010" y="50" width="220" height="66" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="1010" y1="72" x2="1230" y2="72" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="1120" y="65" fill="#1c1917" font-size="10.5" font-weight="600" text-anchor="middle">UserMessage</text>
+        <text x="1020" y="88" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Content ContentList</text>
+        <text x="1020" y="102" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Timestamp int64</text>
+
+        <!-- AssistantMessage -->
+        <rect x="1010" y="150" width="220" height="102" rx="6" fill="#faf6f0"/>
+        <rect x="1010" y="150" width="220" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="1010" y="168" width="220" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="1010" y="150" width="220" height="102" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="1010" y1="172" x2="1230" y2="172" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="1120" y="165" fill="#1c1917" font-size="10.5" font-weight="600" text-anchor="middle">AssistantMessage</text>
+        <text x="1020" y="188" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Content ContentList</text>
+        <text x="1020" y="202" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Model / Provider string</text>
+        <text x="1020" y="216" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Usage *Usage · StopReason</text>
+        <line x1="1010" y1="224" x2="1230" y2="224" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="1020" y="240" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">+ ToolCalls() []ToolCallContent</text>
+
+        <!-- ToolResultMessage -->
+        <rect x="1010" y="300" width="220" height="86" rx="6" fill="#faf6f0"/>
+        <rect x="1010" y="300" width="220" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="1010" y="318" width="220" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="1010" y="300" width="220" height="86" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="1010" y1="322" x2="1230" y2="322" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="1120" y="315" fill="#1c1917" font-size="10.5" font-weight="600" text-anchor="middle">ToolResultMessage</text>
+        <text x="1020" y="338" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">ToolCallID / ToolName string</text>
+        <text x="1020" y="352" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Content ContentList</text>
+        <text x="1020" y="366" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Details any · IsError bool</text>
+
+        <!-- CompactionMessage -->
+        <rect x="1010" y="500" width="220" height="86" rx="6" fill="#faf6f0"/>
+        <rect x="1010" y="500" width="220" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="1010" y="518" width="220" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="1010" y="500" width="220" height="86" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="1010" y1="522" x2="1230" y2="522" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="1120" y="515" fill="#1c1917" font-size="10.5" font-weight="600" text-anchor="middle">CompactionMessage</text>
+        <text x="1020" y="538" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Summary string</text>
+        <text x="1020" y="552" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">TokensBefore int · Details</text>
+        <line x1="1010" y1="560" x2="1230" y2="560" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="1020" y="576" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">+ AsUserMessage() UserMessage</text>
+
+        <!-- ===== AgentTool interface (bottom left) ===== -->
+        <rect x="60" y="655" width="210" height="125" rx="6" fill="rgba(217,119,6,0.06)"/>
+        <rect x="60" y="655" width="210" height="24" rx="6" fill="rgba(217,119,6,0.10)"/>
+        <rect x="60" y="675" width="210" height="4" fill="rgba(217,119,6,0.10)"/>
+        <rect x="60" y="655" width="210" height="125" rx="6" fill="none" stroke="#d97706" stroke-width="1.2"/>
+        <line x1="60" y1="679" x2="270" y2="679" stroke="rgba(217,119,6,0.25)" stroke-width="0.8"/>
+        <rect x="68" y="659" width="60" height="12" rx="2" fill="transparent" stroke="rgba(217,119,6,0.40)" stroke-width="0.8"/>
+        <text x="98" y="668" fill="rgba(217,119,6,0.85)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">INTERFACE</text>
+        <text x="200" y="668" fill="#1c1917" font-size="10.5" font-weight="600" text-anchor="middle">AgentTool</text>
+        <text x="70" y="696" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">+ Name() / Description() string</text>
+        <text x="70" y="710" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">+ Schema() json.RawMessage</text>
+        <text x="70" y="724" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">+ ExecutionMode() Mode</text>
+        <text x="70" y="738" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">+ Execute(ctx,id,args,onUpdate)</text>
+        <text x="70" y="756" fill="#a8a29e" font-size="8.5" font-family="'Geist Mono', monospace">Mode: parallel | sequential</text>
+        <text x="70" y="770" fill="#a8a29e" font-size="8.5" font-family="'Geist Mono', monospace">ToolUpdateFunc(partial)</text>
+
+        <!-- ===== AgentToolResult (bottom center-left) ===== -->
+        <rect x="300" y="680" width="200" height="90" rx="6" fill="rgba(28,25,23,0.05)"/>
+        <rect x="300" y="680" width="200" height="22" rx="6" fill="rgba(28,25,23,0.05)"/>
+        <rect x="300" y="698" width="200" height="4" fill="rgba(28,25,23,0.05)"/>
+        <rect x="300" y="680" width="200" height="90" rx="6" fill="none" stroke="#78716c" stroke-width="1"/>
+        <line x1="300" y1="702" x2="500" y2="702" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="400" y="695" fill="#1c1917" font-size="10.5" font-weight="600" text-anchor="middle">AgentToolResult</text>
+        <text x="310" y="718" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Content ContentList</text>
+        <text x="310" y="732" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Details any</text>
+        <text x="310" y="746" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">Terminate *bool</text>
+        <text x="310" y="762" fill="#a8a29e" font-size="8.5" font-family="'Geist Mono', monospace">← AgentToolCall {ID,Name,Args}</text>
+
+        <!-- ===== AgentContext (bottom center — hub) ===== -->
+        <rect x="560" y="655" width="200" height="155" rx="6" fill="rgba(217,119,6,0.06)"/>
+        <rect x="560" y="655" width="200" height="24" rx="6" fill="rgba(217,119,6,0.10)"/>
+        <rect x="560" y="675" width="200" height="4" fill="rgba(217,119,6,0.10)"/>
+        <rect x="560" y="655" width="200" height="155" rx="6" fill="none" stroke="#d97706" stroke-width="1.2"/>
+        <line x1="560" y1="679" x2="760" y2="679" stroke="rgba(217,119,6,0.25)" stroke-width="0.8"/>
+        <rect x="568" y="659" width="34" height="12" rx="2" fill="transparent" stroke="rgba(217,119,6,0.40)" stroke-width="0.8"/>
+        <text x="585" y="668" fill="rgba(217,119,6,0.85)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">HUB</text>
+        <text x="668" y="668" fill="#1c1917" font-size="11" font-weight="600" text-anchor="middle">AgentContext</text>
+        <text x="570" y="696" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">SystemPrompt string</text>
+        <text x="570" y="712" fill="#d97706" font-size="9" font-family="'Geist Mono', monospace">→ Messages MessageList</text>
+        <text x="570" y="728" fill="#d97706" font-size="9" font-family="'Geist Mono', monospace">→ Tools []AgentTool</text>
+        <line x1="560" y1="738" x2="760" y2="738" stroke="rgba(217,119,6,0.20)" stroke-width="0.8"/>
+        <text x="570" y="754" fill="#a8a29e" font-size="8.5" font-family="'Geist Mono', monospace">loop 运行输入状态</text>
+        <text x="570" y="770" fill="#a8a29e" font-size="8.5" font-family="'Geist Mono', monospace">AgentLoopTurnUpdate 可换 ctx/model</text>
+        <text x="570" y="786" fill="#a8a29e" font-size="8.5" font-family="'Geist Mono', monospace">EmitFunc(ctx, AgentEvent)</text>
+        <text x="570" y="802" fill="#a8a29e" font-size="8.5" font-family="'Geist Mono', monospace">Hook: before/afterToolCall</text>
+
+        <!-- ===== AgentEvent interface (bottom right) ===== -->
+        <rect x="820" y="655" width="190" height="86" rx="6" fill="rgba(217,119,6,0.06)"/>
+        <rect x="820" y="655" width="190" height="24" rx="6" fill="rgba(217,119,6,0.10)"/>
+        <rect x="820" y="675" width="190" height="4" fill="rgba(217,119,6,0.10)"/>
+        <rect x="820" y="655" width="190" height="86" rx="6" fill="none" stroke="#d97706" stroke-width="1.2"/>
+        <line x1="820" y1="679" x2="1010" y2="679" stroke="rgba(217,119,6,0.25)" stroke-width="0.8"/>
+        <rect x="828" y="659" width="60" height="12" rx="2" fill="transparent" stroke="rgba(217,119,6,0.40)" stroke-width="0.8"/>
+        <text x="858" y="668" fill="rgba(217,119,6,0.85)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">INTERFACE</text>
+        <text x="945" y="668" fill="#1c1917" font-size="10.5" font-weight="600" text-anchor="middle">AgentEvent</text>
+        <text x="830" y="696" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">«sealed» isAgentEvent()</text>
+        <text x="830" y="710" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">+ EventType() string</text>
+        <text x="830" y="726" fill="#a8a29e" font-size="8.5" font-family="'Geist Mono', monospace">11 种事件 (对标 pi 全集)</text>
+
+        <!-- ===== AgentEvent implementations (compact list, bottom right) ===== -->
+        <rect x="820" y="765" width="410" height="130" rx="6" fill="#faf6f0"/>
+        <rect x="820" y="765" width="410" height="22" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="820" y="783" width="410" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="820" y="765" width="410" height="130" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="820" y1="787" x2="1230" y2="787" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="1025" y="780" fill="#1c1917" font-size="10.5" font-weight="600" text-anchor="middle">AgentEvent 实现 (11)</text>
+        <text x="830" y="804" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">AgentStartEvent · AgentEndEvent</text>
+        <text x="830" y="820" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">TurnStartEvent · TurnEndEvent</text>
+        <text x="830" y="836" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">MessageStart/Update/EndEvent</text>
+        <text x="830" y="852" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">ToolExecutionStart/Update/EndEvent</text>
+        <text x="830" y="868" fill="#78716c" font-size="8.5" font-family="'Geist Mono', monospace">CompactionEvent (reason/tokens/counts)</text>
+        <text x="830" y="886" fill="#a8a29e" font-size="8.5" font-family="'Geist Mono', monospace">经 EventStream[T,R] 泛型流投递</text>
+
+        <!-- AgentEvent impl-list ..> AgentEvent interface (realization, dashed) -->
+        <line x1="1025" y1="765" x2="1005" y2="741" stroke="#78716c" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#tri)"/>
+
+        <!-- ============================================================
+             LEGEND
+             ============================================================ -->
+        <line x1="60" y1="908" x2="1230" y2="908" stroke="rgba(28,25,23,0.10)" stroke-width="0.8"/>
+        <text x="60" y="930" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+        <rect x="140" y="920" width="22" height="14" rx="4" fill="rgba(217,119,6,0.06)" stroke="#d97706" stroke-width="0.8"/>
+        <text x="170" y="931" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">接口/核心</text>
+
+        <rect x="250" y="920" width="22" height="14" rx="4" fill="#faf6f0" stroke="#1c1917" stroke-width="0.8"/>
+        <text x="280" y="931" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">具体实现</text>
+
+        <rect x="360" y="920" width="22" height="14" rx="4" fill="rgba(28,25,23,0.05)" stroke="#78716c" stroke-width="0.8"/>
+        <text x="390" y="931" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">值/辅助类型</text>
+
+        <polygon points="480,920 468,927 480,934" fill="#faf6f0" stroke="#78716c" stroke-width="1"/>
+        <line x1="480" y1="927" x2="510" y2="927" stroke="#78716c" stroke-width="1" stroke-dasharray="4 3"/>
+        <text x="518" y="931" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">实现接口</text>
+
+        <polygon points="620,927 612,920 604,927 612,934" fill="#78716c"/>
+        <line x1="620" y1="927" x2="650" y2="927" stroke="#78716c" stroke-width="1"/>
+        <text x="658" y="931" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">组合</text>
+
+        <polygon points="740,927 732,920 724,927 732,934" fill="#faf6f0" stroke="#d97706" stroke-width="1"/>
+        <line x1="740" y1="927" x2="770" y2="927" stroke="#d97706" stroke-width="1.2"/>
+        <text x="778" y="931" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">聚合</text>
+
+        <line x1="850" y1="927" x2="880" y2="927" stroke="#78716c" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+        <text x="888" y="931" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">依赖</text>
+      </svg>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <p class="card-eyebrow">SEALED INTERFACES</p>
+        <div class="card-header">
+          <div class="card-dot accent"></div>
+          <h3>4 个密封接口 + 判别式解码</h3>
+        </div>
+        <ul>
+          <li>• Content — text / thinking / toolCall / image，isContent() 密封</li>
+          <li>• Message — user / assistant / toolResult / compaction，Role() 判别</li>
+          <li>• AgentEvent — 11 种事件，isAgentEvent() + EventType()</li>
+          <li>• AgentTool — Name/Schema/ExecutionMode/Execute</li>
+          <li>• ContentList / MessageList 自定义 UnmarshalJSON 按判别式分派</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <p class="card-eyebrow">AGGREGATION & FLOW</p>
+        <div class="card-header">
+          <div class="card-dot ink"></div>
+          <h3>AgentContext 为运行时枢纽</h3>
+        </div>
+        <ul>
+          <li>• AgentContext ◇→ MessageList (0..*) + []AgentTool (0..*)</li>
+          <li>• ContentList ◆ Content；ToolResult/User/Assistant 均持有</li>
+          <li>• AgentTool.Execute ⇢ 返回 AgentToolResult</li>
+          <li>• 事件经 EventStream[T,R] 泛型流投递 (Emit/Result)</li>
+          <li>• Hooks: before/afterToolCall, prepareNextTurn (指针三态)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer">
+      pigo · internal/agentcore · content.go · message.go · event.go · tool.go
+    </div>
+  </div>
+</body>
+</html>
