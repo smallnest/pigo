@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/smallnest/pigo/internal/agentcore"
@@ -187,5 +189,86 @@ func TestExecutorAbortedContext(t *testing.T) {
 	msg, _ := executeToolCall(ctx, cfg, agentcore.AgentToolCall{ID: "1", Name: "echo"}, nil)
 	if !msg.IsError {
 		t.Fatalf("aborted call should be error result: %+v", msg)
+	}
+}
+
+// TestExecutorResultBudget proves the executor-layer byte budget applies to any
+// tool: a stub tool emitting output larger than the budget gets its result text
+// truncated with an accurate "[truncated N bytes]" marker, while a small output
+// is left untouched.
+func TestExecutorResultBudget(t *testing.T) {
+	const budget = 1000
+	big := strings.Repeat("A", budget) + strings.Repeat("B", budget) // 2*budget bytes
+	tool := execTool{name: "flood", run: func(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
+		return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(big)}}, nil
+	}}
+	cfg := newExecCfg(t, tool)
+	cfg.MaxResultBytes = budget
+
+	msg, _ := executeToolCall(context.Background(), cfg, agentcore.AgentToolCall{ID: "1", Name: "flood"}, nil)
+	got := textOf(msg)
+	if len(got) >= len(big) {
+		t.Fatalf("output not truncated: len=%d, original=%d", len(got), len(big))
+	}
+	half := budget / 2
+	removed := len(big) - 2*half
+	marker := fmt.Sprintf("\n[truncated %d bytes]\n", removed)
+	if !strings.Contains(got, marker) {
+		t.Fatalf("missing/incorrect truncation marker %q in output %q", marker, got)
+	}
+	want := big[:half] + marker + big[len(big)-half:]
+	if got != want {
+		t.Fatalf("truncated output mismatch:\n got=%q\nwant=%q", got, want)
+	}
+}
+
+// TestExecutorResultBudgetSmallOutputUntouched proves outputs within budget are
+// passed through verbatim.
+func TestExecutorResultBudgetSmallOutputUntouched(t *testing.T) {
+	small := "just a little output"
+	tool := execTool{name: "tiny", run: func(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
+		return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(small)}}, nil
+	}}
+	cfg := newExecCfg(t, tool)
+	cfg.MaxResultBytes = 1000
+
+	msg, _ := executeToolCall(context.Background(), cfg, agentcore.AgentToolCall{ID: "1", Name: "tiny"}, nil)
+	if got := textOf(msg); got != small {
+		t.Fatalf("small output altered: got=%q want=%q", got, small)
+	}
+}
+
+// TestExecutorResultBudgetDefault proves the default (zero MaxResultBytes) uses
+// toolResultMaxBytes and truncates output beyond it.
+func TestExecutorResultBudgetDefault(t *testing.T) {
+	big := strings.Repeat("x", toolResultMaxBytes+5000)
+	tool := execTool{name: "flood", run: func(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
+		return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(big)}}, nil
+	}}
+	cfg := newExecCfg(t, tool) // MaxResultBytes == 0 -> default
+
+	msg, _ := executeToolCall(context.Background(), cfg, agentcore.AgentToolCall{ID: "1", Name: "flood"}, nil)
+	got := textOf(msg)
+	if !strings.Contains(got, "[truncated ") {
+		t.Fatalf("default budget did not truncate: len=%d", len(got))
+	}
+	if len(got) > toolResultMaxBytes+64 {
+		t.Fatalf("default-truncated output too large: %d", len(got))
+	}
+}
+
+// TestExecutorResultBudgetDisabled proves a negative MaxResultBytes disables the
+// budget entirely.
+func TestExecutorResultBudgetDisabled(t *testing.T) {
+	big := strings.Repeat("y", toolResultMaxBytes*2)
+	tool := execTool{name: "flood", run: func(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
+		return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(big)}}, nil
+	}}
+	cfg := newExecCfg(t, tool)
+	cfg.MaxResultBytes = -1
+
+	msg, _ := executeToolCall(context.Background(), cfg, agentcore.AgentToolCall{ID: "1", Name: "flood"}, nil)
+	if got := textOf(msg); got != big {
+		t.Fatalf("disabled budget altered output: len=%d want=%d", len(got), len(big))
 	}
 }

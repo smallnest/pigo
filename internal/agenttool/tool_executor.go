@@ -14,9 +14,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/smallnest/pigo/internal/agentcore"
 )
+
+// toolResultMaxBytes is the executor-layer budget for a single tool result's
+// combined text, applied uniformly to EVERY tool right before its result enters
+// the AgentToolResult / message list. Individual tools also impose their own,
+// stricter inner caps (read: readToolMaxLines, search: searchMaxResults,
+// webfetch: webFetchMaxBytes, bash: bashMaxOutputBytes); those still run first
+// and clip a tool below this outer budget. This budget is the last line of
+// defense so a tool with no (or a looser) inner cap cannot blow the model's
+// context. Override per-executor via ToolExecutorConfig.MaxResultBytes.
+const toolResultMaxBytes = 100_000
 
 // ToolExecutorConfig holds the registry and the optional per-phase hooks. Every
 // hook is optional (nil = default behavior).
@@ -25,6 +36,10 @@ type ToolExecutorConfig struct {
 	PrepareArguments agentcore.PrepareArgumentsFunc
 	BeforeToolCall   agentcore.BeforeToolCallFunc
 	AfterToolCall    agentcore.AfterToolCallFunc
+	// MaxResultBytes overrides the executor-layer per-result text budget. Zero
+	// (the default) uses toolResultMaxBytes; a negative value disables the
+	// budget entirely.
+	MaxResultBytes int
 }
 
 // executeToolCall runs one tool call through prepare → execute → finalize and
@@ -149,6 +164,11 @@ func finalizeToolCall(ctx context.Context, cfg ToolExecutorConfig, call agentcor
 		}
 	}
 
+	// Result-shaping seam: every tool's output funnels through here before it
+	// becomes a ToolResultMessage, so this is the single point where the
+	// executor-layer byte budget is enforced uniformly for ALL tools.
+	result.Content = clipToolResultContent(result.Content, cfg.MaxResultBytes)
+
 	if emit != nil {
 		_ = emit(ctx, agentcore.ToolExecutionEndEvent{ToolCallID: call.ID, ToolName: call.Name, Result: result, IsError: isError})
 	}
@@ -167,6 +187,67 @@ func finalizeToolCall(ctx context.Context, cfg ToolExecutorConfig, call agentcor
 // errorResult builds an error AgentToolResult carrying a single text block.
 func errorResult(msg string) agentcore.AgentToolResult {
 	return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(msg)}}
+}
+
+// clipToolResultContent enforces the executor-layer byte budget on a tool
+// result's text, uniformly for every tool. budget<=0 with the sentinel meaning:
+// 0 => toolResultMaxBytes default, <0 => disabled. Non-text blocks (e.g. images)
+// pass through untouched and keep their order; the combined text of all text
+// blocks is measured against the budget and, when over, collapsed into a single
+// truncated text block via truncateToBudget (head + "[truncated N bytes]" +
+// tail, matching the bash idiom). Per-tool inner caps have already run, so this
+// only bites when a tool's own cap is looser or absent.
+func clipToolResultContent(content agentcore.ContentList, cfgMax int) agentcore.ContentList {
+	budget := cfgMax
+	if budget == 0 {
+		budget = toolResultMaxBytes
+	}
+	if budget < 0 {
+		return content
+	}
+
+	total := 0
+	textBlocks := 0
+	for _, c := range content {
+		if t, ok := c.(agentcore.TextContent); ok {
+			total += len(t.Text)
+			textBlocks++
+		}
+	}
+	if textBlocks == 0 || total <= budget {
+		return content
+	}
+
+	// Over budget: gather all text (in order) and non-text blocks separately,
+	// then emit the non-text blocks followed by one truncated text block.
+	var sb strings.Builder
+	out := make(agentcore.ContentList, 0, len(content))
+	for _, c := range content {
+		if t, ok := c.(agentcore.TextContent); ok {
+			sb.WriteString(t.Text)
+			continue
+		}
+		out = append(out, c)
+	}
+	out = append(out, agentcore.NewTextContent(truncateToBudget(sb.String(), budget)))
+	return out
+}
+
+// truncateToBudget caps s at budget bytes. When s is longer it keeps a head and
+// a tail preview (split evenly) joined by a "[truncated N bytes]" marker, so
+// both the start and the end of the text survive. Cut points are pulled back to
+// UTF-8 rune boundaries so no partial rune is emitted; N counts the raw bytes
+// dropped from the middle. This is the single shared truncation idiom reused by
+// both the bash tool's inner cap and the executor-layer budget.
+func truncateToBudget(s string, budget int) string {
+	if budget <= 0 || len(s) <= budget {
+		return s
+	}
+	half := budget / 2
+	head := trimUTF8Prefix(s[:half])
+	tail := trimUTF8Suffix(s[len(s)-half:])
+	removed := len(s) - len(head) - len(tail)
+	return head + fmt.Sprintf("\n[truncated %d bytes]\n", removed) + tail
 }
 
 // decodeArgs unmarshals a tool's JSON arguments into T. On failure it returns an

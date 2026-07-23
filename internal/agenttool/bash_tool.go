@@ -33,20 +33,12 @@ const bashMaxTimeout = 10 * time.Minute
 // may impose a stricter outer limit.
 const bashMaxOutputBytes = 30_000
 
-// truncateBashOutput caps s at bashMaxOutputBytes. When s is longer it keeps a
-// head and a tail preview (split evenly) joined by a "[truncated N bytes]" marker,
-// so both the start and the end of the output survive. Cut points are pulled back
-// to UTF-8 rune boundaries so no partial rune is emitted; N counts the raw bytes
-// dropped from the middle.
+// truncateBashOutput caps s at bashMaxOutputBytes using the shared
+// truncateToBudget idiom (head + "[truncated N bytes]" marker + tail, cut on
+// UTF-8 rune boundaries). It is the bash tool's own inner cap; the executor
+// layer applies a separate, uniform outer budget afterward.
 func truncateBashOutput(s string) string {
-	if len(s) <= bashMaxOutputBytes {
-		return s
-	}
-	half := bashMaxOutputBytes / 2
-	head := trimUTF8Prefix(s[:half])
-	tail := trimUTF8Suffix(s[len(s)-half:])
-	removed := len(s) - len(head) - len(tail)
-	return head + fmt.Sprintf("\n[truncated %d bytes]\n", removed) + tail
+	return truncateToBudget(s, bashMaxOutputBytes)
 }
 
 // trimUTF8Prefix drops trailing bytes of s that form an incomplete rune, so the
