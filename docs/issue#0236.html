@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0236</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/236">#236</a> &mdash; Document model-name auto-inference in README &amp; --help &mdash; 2026-07-23</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Full prefix table in the README</h3>
+      <p><strong>Ambiguity:</strong> The issue asks to "list the inference patterns" but not in what form.</p>
+      <p><strong>Choice:</strong> A dedicated markdown table (prefix → provider) plus an explicit precedence line and a note about which families are deliberately NOT inferred.</p>
+      <p><strong>Rationale:</strong> Mirrors the existing "Provider 一览" table style in the same section; a table is scannable and stays close to the code's own table in <code>infer.go</code>.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Renumbered the resolution list to 6 steps</h3>
+      <p><strong>Ambiguity:</strong> The README already had a 5-step heuristic list; inference had to slot in.</p>
+      <p><strong>Choice:</strong> Insert inference as step 5 (before the OpenRouter default, now step 6), matching the code comment in <code>resolveProvider</code>.</p>
+      <p><strong>Rationale:</strong> Doc order must reflect actual runtime precedence so the two never drift.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label none">None</span></h3>
+      <p class="none">None — updated the README "模型与 Provider" section and the <code>--model</code> flag help text as the issue specified. The <code>resolveProvider</code> doc comment was already updated in #235; verified it reflects the new step.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Where to surface inference in <code>--help</code></h3>
+      <p><strong>Alternatives:</strong> (a) extend the <code>--model</code> flag description; (b) add a separate block to <code>printProviderHelp</code>.</p>
+      <p><strong>Chosen:</strong> (a) — a concise parenthetical on <code>--model</code>.</p>
+      <p><strong>Why it won:</strong> Inference is a property of how <code>--model</code> is interpreted, so the flag's own help is where a user looks. The provider-list block stays focused on the explicit <code>--provider</code> names; the full table lives in the README to avoid bloating terminal help.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label none">None</span></h3>
+      <p class="none">None — this is a documentation-only change verified against the shipped behavior of #234/#235 (help text rendered via <code>go run ./cmd/pigo --help</code>).</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

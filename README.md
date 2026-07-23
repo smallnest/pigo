@@ -194,7 +194,32 @@ pigo -a -p "运行 go test ./... 并修复失败的用例"
 2. **预置目录命中** → 使用预置声明的 Provider（REPL 中可用 `/models` 查看、`/model <id>` 切换）。
 3. **`ollama/` 前缀** 或 base URL 含 `11434` → 本地 Ollama。
 4. **`nvidia/` 前缀** → NVIDIA NIM。
-5. **其余** → OpenRouter（默认）。
+5. **按模型名推断** → 未设 `--provider`/`--protocol`/`--base-url` 时，从模型名的知名前缀推断其第一方内置 Provider（如 `-m claude-opus-4-8` 直连 Anthropic，无需再写 `--provider`）。
+6. **其余** → OpenRouter（默认）。
+
+> **优先级**：显式 flag（`--provider` > `--protocol`）> 预置目录 > `ollama/`/`nvidia/` 前缀 > 模型名推断 > OpenRouter 默认。显式 `--provider` 始终胜出；给了 `--base-url` 会被视为自定义端点信号，跳过第 5 步推断。
+
+**按模型名推断的前缀对照**（仅推断能唯一确定 Provider 的前缀；`llama-*`、`qwq-*`、`gemma-*`、`mixtral-*` 等被多家网关服务的家族，以及形如 `provider/model` 的 routed id，不推断，回落到 OpenRouter 默认）：
+
+| 模型名前缀 | 推断的 Provider |
+|-----------|-----------------|
+| `claude-*` | anthropic |
+| `gpt-*` / `o1-*` / `o3-*` / `o4-*` | openai |
+| `gemini-*` | google |
+| `deepseek-*` | deepseek |
+| `glm-*` | zai |
+| `kimi-*` / `moonshot-*` | moonshotai |
+| `qwen-*` | dashscope |
+| `ernie-*` | qianfan |
+| `doubao-*` | volcengine |
+| `grok-*` | xai |
+| `mistral-*` / `codestral-*` / `devstral-*` | mistral |
+| `hunyuan-*` | hunyuan |
+| `minimax-*` | minimax |
+| `mimo-*` | xiaomi |
+
+匹配大小写不敏感。推断命中后走与显式 `--provider` 相同的解析路径，使用该 Provider 的默认 base URL、协议与 `<PROVIDER>_API_KEY` 环境变量。
+
 
 | Provider | 线路格式 | 默认 base URL | API Key 环境变量 |
 |----------|----------|---------------|------------------|
