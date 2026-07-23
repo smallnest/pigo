@@ -43,8 +43,12 @@ type replDeps struct {
 	agentCtx *agentcore.AgentContext
 	live     *liveRunConfig
 	reg      *agenttool.ToolRegistry
-	slash    *runtime.SlashRegistry
-	creds    *provider.CredentialStore
+	// reminders holds the per-turn system-reminder providers (US-002). It is nil
+	// when no todo tool is present; when set, streamRun wires it so ephemeral
+	// <system-reminder> context is injected into each turn's request.
+	reminders *runtime.ReminderRegistry
+	slash     *runtime.SlashRegistry
+	creds     *provider.CredentialStore
 
 	// notifier delivers agent lifecycle events to subscribed plugins (US-017,
 	// #133). It is nil when no plugin subscribes; DrainStream's OnEvent stays
@@ -329,6 +333,7 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 				BeforeToolCall: trustBeforeToolCall(deps.trust, deps.cwd, deps.in, out, deps.confirmMu),
 			},
 		},
+		Reminders: deps.reminders,
 	}
 	stream := runtime.StartRun(ctx, deps.agentCtx, cfg)
 

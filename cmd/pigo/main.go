@@ -22,6 +22,7 @@ import (
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/provider"
+	"github.com/smallnest/pigo/internal/runtime"
 )
 
 // Build metadata, injected at release time via -ldflags by goreleaser
@@ -281,4 +282,18 @@ func toolRegistry(tools []agentcore.AgentTool) *agenttool.ToolRegistry {
 		_ = reg.Register(t)
 	}
 	return reg
+}
+
+// todoReminders builds the per-turn system-reminder registry for a tool set
+// (US-002): it locates the stateful TodoTool and registers a TodoReminderProvider
+// over its shared store, so the model is reminded of unfinished tasks each turn.
+// Returns nil when no todo tool is present (e.g. --no-tools), leaving injection
+// disabled.
+func todoReminders(tools []agentcore.AgentTool) *runtime.ReminderRegistry {
+	for _, t := range tools {
+		if tt, ok := t.(*agenttool.TodoTool); ok && tt.Store != nil {
+			return runtime.NewReminderRegistry(&runtime.TodoReminderProvider{Store: tt.Store})
+		}
+	}
+	return nil
 }
