@@ -40,6 +40,11 @@ type ToolExecutorConfig struct {
 	// (the default) uses toolResultMaxBytes; a negative value disables the
 	// budget entirely.
 	MaxResultBytes int
+	// MaxToolRetries overrides the number of RETRIES for a transient tool error
+	// (see isRetryableToolError). Zero (the default) uses maxToolRetries; a
+	// negative value disables retrying (a single attempt). Mirrors the
+	// MaxResultBytes sentinel convention.
+	MaxToolRetries int
 }
 
 // executeToolCall runs one tool call through prepare → execute → finalize and
@@ -61,7 +66,7 @@ func executeToolCall(ctx context.Context, cfg ToolExecutorConfig, call agentcore
 			return errorToolResult(call, "aborted before execution: "+err.Error()), false
 		}
 	}
-	result, isError := runTool(ctx, tool, call, args, emit)
+	result, isError := runToolWithRetry(ctx, cfg, tool, call, args, emit)
 
 	// 3. finalize: afterToolCall overrides.
 	return finalizeToolCall(ctx, cfg, call, result, isError, emit)
@@ -119,12 +124,55 @@ func prepareToolCall(ctx context.Context, cfg ToolExecutorConfig, call agentcore
 	return tool, args, nil, false
 }
 
-// runTool executes the tool, converting a returned error or a panic into an
-// error result instead of propagating it (FR: never panic).
-func runTool(ctx context.Context, tool agentcore.AgentTool, call agentcore.AgentToolCall, args json.RawMessage, emit agentcore.EmitFunc) (result agentcore.AgentToolResult, isError bool) {
+// runToolWithRetry wraps runTool with the classified, bounded retry policy at
+// the single tool-execution seam so EVERY tool gets uniform resilience. It only
+// retries when runTool surfaces a non-nil Go error (transport/agent-error path)
+// AND isRetryableToolError says that error is transient; a (result, nil) is
+// done regardless of the result's IsError flag (a tool's own terminal result is
+// never retried). Retries are capped by toolRetryCap and separated by a small
+// backoff. Context cancellation short-circuits immediately: a cancelled/expired
+// outer ctx is never retried.
+func runToolWithRetry(ctx context.Context, cfg ToolExecutorConfig, tool agentcore.AgentTool, call agentcore.AgentToolCall, args json.RawMessage, emit agentcore.EmitFunc) (agentcore.AgentToolResult, bool) {
+	retryCap := toolRetryCap(cfg.MaxToolRetries)
+
+	var lastResult agentcore.AgentToolResult
+	var lastIsError bool
+	for attempt := 0; attempt <= retryCap; attempt++ {
+		result, err, isError := runTool(ctx, tool, call, args, emit)
+		if err == nil {
+			// Execute returned (result, nil): terminal success regardless of
+			// the result's own IsError flag. Done, no retry.
+			return result, isError
+		}
+
+		lastResult, lastIsError = result, isError
+
+		// Do not retry if the outer context is done (Canceled or its deadline
+		// has passed) — a dead context means stop.
+		if ctx.Err() != nil {
+			break
+		}
+		// Only transient errors are retried, and only if we have budget left.
+		if attempt >= retryCap || !isRetryableToolError(err) {
+			break
+		}
+		// Small backoff; abort the wait early if ctx dies mid-sleep.
+		if !waitToolRetryBackoff(ctx, attempt) {
+			break
+		}
+	}
+	return lastResult, lastIsError
+}
+
+// runTool executes the tool, recovering a panic into an error. It returns the
+// shaped error result, the raw error (nil on success), and the isError flag.
+// The raw error is surfaced so the caller can classify it for retry; on success
+// err is nil even if the result itself carries IsError semantics.
+func runTool(ctx context.Context, tool agentcore.AgentTool, call agentcore.AgentToolCall, args json.RawMessage, emit agentcore.EmitFunc) (result agentcore.AgentToolResult, rawErr error, isError bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			result = errorResult(fmt.Sprintf("tool %q panicked: %v", call.Name, r))
+			rawErr = toolPanic{value: r}
 			isError = true
 		}
 	}()
@@ -138,9 +186,9 @@ func runTool(ctx context.Context, tool agentcore.AgentTool, call agentcore.Agent
 
 	res, err := tool.Execute(ctx, call.ID, args, onUpdate)
 	if err != nil {
-		return errorResult(fmt.Sprintf("tool %q failed: %v", call.Name, err)), true
+		return errorResult(fmt.Sprintf("tool %q failed: %v", call.Name, err)), err, true
 	}
-	return res, false
+	return res, nil, false
 }
 
 // finalizeToolCall applies the afterToolCall hook (field-level override, no deep

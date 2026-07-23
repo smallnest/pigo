@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"os"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
 
 	"github.com/smallnest/pigo/internal/agentcore"
@@ -272,3 +276,190 @@ func TestExecutorResultBudgetDisabled(t *testing.T) {
 		t.Fatalf("disabled budget altered output: len=%d want=%d", len(got), len(big))
 	}
 }
+
+// --- Tool-execution retry (node #252) ---------------------------------------
+
+// countingTool returns a transient error for its first failN attempts, then
+// succeeds; if failN < 0 it always fails. It records how many times Execute ran.
+type retryStub struct {
+	failN   int   // number of leading failures before success; <0 = always fail
+	err     error // error to return on a failing attempt
+	attempts int32
+}
+
+func (s *retryStub) run(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
+	n := atomic.AddInt32(&s.attempts, 1)
+	if s.failN < 0 || int(n) <= s.failN {
+		return agentcore.AgentToolResult{}, s.err
+	}
+	return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent("ok")}}, nil
+}
+
+func newRetryCfg(t *testing.T, name string, s *retryStub) ToolExecutorConfig {
+	t.Helper()
+	return newExecCfg(t, execTool{name: name, run: s.run})
+}
+
+func TestExecutorRetryTransientThenSuccess(t *testing.T) {
+	// Fails 2 times with a transient error, then succeeds. With the default cap
+	// (2 retries = 3 attempts) this should ultimately succeed on attempt 3.
+	s := &retryStub{failN: 2, err: syscall.ECONNRESET}
+	cfg := newRetryCfg(t, "flaky", s)
+	msg, _ := executeToolCall(context.Background(), cfg, agentcore.AgentToolCall{ID: "1", Name: "flaky"}, nil)
+	if msg.IsError {
+		t.Fatalf("expected eventual success, got error: %q", textOf(msg))
+	}
+	if got := atomic.LoadInt32(&s.attempts); got != 3 {
+		t.Fatalf("expected 3 attempts (2 retries), got %d", got)
+	}
+}
+
+func TestExecutorRetryCapExhausted(t *testing.T) {
+	// Always fails with a transient error: must stop after maxToolRetries+1
+	// attempts (default cap) and give up with an error result.
+	s := &retryStub{failN: -1, err: syscall.ETIMEDOUT}
+	cfg := newRetryCfg(t, "always", s)
+	msg, _ := executeToolCall(context.Background(), cfg, agentcore.AgentToolCall{ID: "1", Name: "always"}, nil)
+	if !msg.IsError {
+		t.Fatalf("expected error result after exhausting retries: %+v", msg)
+	}
+	want := int32(maxToolRetries + 1)
+	if got := atomic.LoadInt32(&s.attempts); got != want {
+		t.Fatalf("expected %d attempts, got %d", want, got)
+	}
+}
+
+func TestExecutorRetryTerminalNoRetry(t *testing.T) {
+	// A terminal (non-transient) error must be tried exactly once.
+	s := &retryStub{failN: -1, err: errors.New("invalid argument: bad")}
+	cfg := newRetryCfg(t, "terminal", s)
+	msg, _ := executeToolCall(context.Background(), cfg, agentcore.AgentToolCall{ID: "1", Name: "terminal"}, nil)
+	if !msg.IsError {
+		t.Fatalf("expected error result: %+v", msg)
+	}
+	if got := atomic.LoadInt32(&s.attempts); got != 1 {
+		t.Fatalf("terminal error must not retry: got %d attempts", got)
+	}
+}
+
+func TestExecutorRetryDisabled(t *testing.T) {
+	// MaxToolRetries < 0 disables retry even for a transient error.
+	s := &retryStub{failN: -1, err: syscall.ECONNRESET}
+	cfg := newRetryCfg(t, "notretry", s)
+	cfg.MaxToolRetries = -1
+	msg, _ := executeToolCall(context.Background(), cfg, agentcore.AgentToolCall{ID: "1", Name: "notretry"}, nil)
+	if !msg.IsError {
+		t.Fatalf("expected error result: %+v", msg)
+	}
+	if got := atomic.LoadInt32(&s.attempts); got != 1 {
+		t.Fatalf("disabled retry must try once: got %d attempts", got)
+	}
+}
+
+func TestExecutorRetryCustomCap(t *testing.T) {
+	// A custom positive cap is honored: always-failing transient error stops at
+	// cap+1 attempts.
+	s := &retryStub{failN: -1, err: syscall.EAGAIN}
+	cfg := newRetryCfg(t, "custom", s)
+	cfg.MaxToolRetries = 4
+	msg, _ := executeToolCall(context.Background(), cfg, agentcore.AgentToolCall{ID: "1", Name: "custom"}, nil)
+	if !msg.IsError {
+		t.Fatalf("expected error result: %+v", msg)
+	}
+	if got := atomic.LoadInt32(&s.attempts); got != 5 {
+		t.Fatalf("expected 5 attempts (cap 4), got %d", got)
+	}
+}
+
+func TestExecutorRetryCanceledContextNoRetry(t *testing.T) {
+	// context.Canceled surfaced by the tool must never be retried.
+	s := &retryStub{failN: -1, err: context.Canceled}
+	cfg := newRetryCfg(t, "cancel", s)
+	msg, _ := executeToolCall(context.Background(), cfg, agentcore.AgentToolCall{ID: "1", Name: "cancel"}, nil)
+	if !msg.IsError {
+		t.Fatalf("expected error result: %+v", msg)
+	}
+	if got := atomic.LoadInt32(&s.attempts); got != 1 {
+		t.Fatalf("context.Canceled must not retry: got %d attempts", got)
+	}
+}
+
+func TestExecutorRetryStopsWhenOuterCtxCanceled(t *testing.T) {
+	// If the outer ctx is cancelled during execution, retries stop even though
+	// the returned error is transient.
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &retryStub{failN: -1, err: syscall.ECONNRESET}
+	tool := execTool{name: "abortmid", run: func(c context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
+		atomic.AddInt32(&s.attempts, 1)
+		cancel() // outer ctx dies after the first attempt
+		return agentcore.AgentToolResult{}, syscall.ECONNRESET
+	}}
+	cfg := newExecCfg(t, tool)
+	msg, _ := executeToolCall(ctx, cfg, agentcore.AgentToolCall{ID: "1", Name: "abortmid"}, nil)
+	if !msg.IsError {
+		t.Fatalf("expected error result: %+v", msg)
+	}
+	if got := atomic.LoadInt32(&s.attempts); got != 1 {
+		t.Fatalf("cancelled outer ctx must stop retry: got %d attempts", got)
+	}
+}
+
+func TestIsRetryableToolError(t *testing.T) {
+	transient := []error{
+		syscall.ETIMEDOUT,
+		syscall.ECONNRESET,
+		syscall.EAGAIN,
+		context.DeadlineExceeded,
+		os.ErrDeadlineExceeded,
+		fmt.Errorf("dial tcp: %w", syscall.ECONNRESET),
+		errors.New("connection refused"),
+		errors.New("resource temporarily unavailable"),
+		errors.New("read: i/o timeout"),
+		&net.DNSError{IsTimeout: true},
+	}
+	for _, err := range transient {
+		if !isRetryableToolError(err) {
+			t.Errorf("expected transient (retryable): %v", err)
+		}
+	}
+	terminal := []error{
+		nil,
+		context.Canceled,
+		fmt.Errorf("wrapped: %w", context.Canceled),
+		errors.New("file not found"),
+		errors.New("invalid argument"),
+		os.ErrNotExist,
+		toolPanic{value: "boom"},
+	}
+	for _, err := range terminal {
+		if isRetryableToolError(err) {
+			t.Errorf("expected terminal (not retryable): %v", err)
+		}
+	}
+}
+
+// TestExecutorRetrySuccessResultWithIsErrorNotRetried proves that a
+// (result, nil) whose own content signals an error is NOT retried: only a
+// non-nil Go error triggers retry.
+func TestExecutorRetrySuccessResultWithIsErrorNotRetried(t *testing.T) {
+	var attempts int32
+	term := false
+	tool := execTool{name: "toolerr", run: func(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
+		atomic.AddInt32(&attempts, 1)
+		return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent("tool-level error")}, Terminate: &term}, nil
+	}}
+	cfg := newExecCfg(t, tool)
+	// afterToolCall marks it as an error result; still must not be retried.
+	isErr := true
+	cfg.AfterToolCall = func(ctx context.Context, call agentcore.AgentToolCall, result agentcore.AgentToolResult, isError bool) *agentcore.AfterToolCallResult {
+		return &agentcore.AfterToolCallResult{IsError: &isErr}
+	}
+	msg, _ := executeToolCall(context.Background(), cfg, agentcore.AgentToolCall{ID: "1", Name: "toolerr"}, nil)
+	if !msg.IsError {
+		t.Fatalf("expected error result from afterToolCall override")
+	}
+	if got := atomic.LoadInt32(&attempts); got != 1 {
+		t.Fatalf("(result,nil) must not be retried: got %d attempts", got)
+	}
+}
+
