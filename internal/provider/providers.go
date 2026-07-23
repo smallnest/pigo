@@ -123,10 +123,36 @@ func encodeOpenAIRequest(req CompletionRequest) ([]byte, error) {
 		"stream":         true,
 		"stream_options": map[string]any{"include_usage": true},
 	}
+	// Reasoning effort: when a thinking level is requested, forward it as the
+	// OpenAI `reasoning_effort` field. Reasoning models (o-series, DeepSeek-R1,
+	// GLM-thinking, …) read this to open their reasoning channel; omitting it
+	// leaves them at their default and effectively disables extended reasoning.
+	if effort := openAIReasoningEffort(req.Config.ThinkingLevel); effort != "" {
+		body["reasoning_effort"] = effort
+	}
 	if tools := encodeOpenAITools(req.Context.Tools); len(tools) > 0 {
 		body["tools"] = tools
 	}
 	return json.Marshal(body)
+}
+
+// openAIReasoningEffort maps the unified ThinkingLevel onto the OpenAI
+// `reasoning_effort` wire value. "off"/"" yields "" (field omitted, default
+// behavior preserved). OpenAI accepts minimal|low|medium|high; xhigh maps to
+// high (the strongest supported value).
+func openAIReasoningEffort(level agentcore.ThinkingLevel) string {
+	switch level {
+	case agentcore.ThinkingMinimal:
+		return "minimal"
+	case agentcore.ThinkingLow:
+		return "low"
+	case agentcore.ThinkingMedium:
+		return "medium"
+	case agentcore.ThinkingHigh, agentcore.ThinkingXHigh:
+		return "high"
+	default: // off or unset
+		return ""
+	}
 }
 
 // encodeOpenAIMessage maps one pigo message onto the OpenAI wire shape. An
@@ -142,7 +168,7 @@ func encodeOpenAIMessage(m agentcore.Message) []map[string]any {
 		return []map[string]any{{"role": "user", "content": openAIUserContent(u.Content)}}
 	case agentcore.AssistantMessage:
 		entry := map[string]any{"role": "assistant"}
-		entry["content"] = agentcore.ContentToText(msg.Content)
+		text := agentcore.ContentToText(msg.Content)
 		var toolCalls []map[string]any
 		for _, c := range msg.Content {
 			if tc, ok := c.(agentcore.ToolCallContent); ok {
@@ -158,6 +184,16 @@ func encodeOpenAIMessage(m agentcore.Message) []map[string]any {
 		}
 		if len(toolCalls) > 0 {
 			entry["tool_calls"] = toolCalls
+			// With tool calls present, send content as JSON null when there is no
+			// accompanying text: an empty string trips strict gateways (e.g. vLLM)
+			// that expect null | non-empty for an assistant tool-call turn.
+			if text == "" {
+				entry["content"] = nil
+			} else {
+				entry["content"] = text
+			}
+		} else {
+			entry["content"] = text
 		}
 		return []map[string]any{entry}
 	case agentcore.ToolResultMessage:
@@ -260,7 +296,7 @@ func (d *anthropicCompatDriver) StreamCompletion(ctx context.Context, req Comple
 	if err := checkImageSupport(d.name, req.Model, d.models, req.Context.Messages); err != nil {
 		return nil, err
 	}
-	body, err := encodeAnthropicRequest(req)
+	body, err := encodeAnthropicRequest(req, d.models)
 	if err != nil {
 		return nil, fmt.Errorf("%s: build request body: %w", d.name, err)
 	}
@@ -286,7 +322,7 @@ func (d *anthropicCompatDriver) StreamCompletion(ctx context.Context, req Comple
 // encodeAnthropicRequest serializes a CompletionRequest into an Anthropic
 // Messages JSON body with streaming enabled. The system prompt is a top-level
 // field; tool results and tool calls follow the Messages content-block shape.
-func encodeAnthropicRequest(req CompletionRequest) ([]byte, error) {
+func encodeAnthropicRequest(req CompletionRequest, models []Model) ([]byte, error) {
 	msgs := make([]map[string]any, 0, len(req.Context.Messages))
 	for _, m := range req.Context.Messages {
 		if enc := encodeAnthropicMessage(m); enc != nil {
@@ -300,16 +336,68 @@ func encodeAnthropicRequest(req CompletionRequest) ([]byte, error) {
 	if sp := req.Context.SystemPrompt; sp != "" {
 		body["system"] = sp
 	}
-	if maxTok := maxOutputTokensFor(req); maxTok > 0 {
-		body["max_tokens"] = maxTok
-	} else {
-		// Anthropic requires max_tokens; supply a safe default when unknown.
-		body["max_tokens"] = 4096
+	maxTok := maxOutputTokensFor(req)
+	if maxTok <= 0 {
+		// Anthropic requires max_tokens. Prefer the model's declared cap; fall
+		// back to a coding-friendly default (4096 was too low and caused
+		// truncation/retry loops on longer edits).
+		maxTok = anthropicDefaultMaxTokens(req.Model, models)
 	}
+	// Extended thinking: when a thinking level is requested, enable the Anthropic
+	// thinking block with a budget derived from the level. Omitted for off/unset
+	// so non-thinking requests keep their prior shape.
+	if budget := anthropicThinkingBudget(req.Config.ThinkingLevel); budget > 0 {
+		// Anthropic counts thinking tokens toward max_tokens and requires
+		// budget_tokens < max_tokens (else a 400). Guarantee headroom for the
+		// visible reply by lifting max_tokens above the budget when the caller's
+		// cap is too low to fit both the reasoning and a real answer.
+		if minTok := budget + anthropicResponseHeadroom; maxTok < minTok {
+			maxTok = minTok
+		}
+		body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
+	}
+	body["max_tokens"] = maxTok
 	if tools := encodeAnthropicTools(req.Context.Tools); len(tools) > 0 {
 		body["tools"] = tools
 	}
 	return json.Marshal(body)
+}
+
+// anthropicResponseHeadroom is the token margin reserved for the visible reply
+// on top of the thinking budget, so max_tokens always exceeds budget_tokens (an
+// Anthropic hard requirement) with room left for a real answer.
+const anthropicResponseHeadroom = 4096
+
+// anthropicDefaultMaxTokens picks the max_tokens fallback when no explicit hint
+// is given: the model's declared MaxOutputTokens if present in the driver's
+// model catalog, otherwise 8192 (a coding-friendly default that avoids
+// premature truncation while staying within common model caps).
+func anthropicDefaultMaxTokens(model string, models []Model) int {
+	for _, m := range models {
+		if m.ID == model && m.MaxOutputTokens > 0 {
+			return m.MaxOutputTokens
+		}
+	}
+	return 8192
+}
+
+// anthropicThinkingBudget maps a unified ThinkingLevel onto an Anthropic
+// thinking budget_tokens value. off/"" yields 0 (thinking block omitted).
+func anthropicThinkingBudget(level agentcore.ThinkingLevel) int {
+	switch level {
+	case agentcore.ThinkingMinimal:
+		return 1024
+	case agentcore.ThinkingLow:
+		return 2048
+	case agentcore.ThinkingMedium:
+		return 8192
+	case agentcore.ThinkingHigh:
+		return 16384
+	case agentcore.ThinkingXHigh:
+		return 32768
+	default: // off or unset
+		return 0
+	}
 }
 
 // encodeAnthropicMessage maps one pigo message onto the Anthropic Messages
@@ -324,9 +412,34 @@ func encodeAnthropicMessage(m agentcore.Message) map[string]any {
 		return map[string]any{"role": "user", "content": anthropicUserContent(u.Content)}
 	case agentcore.AssistantMessage:
 		var blocks []map[string]any
+		// Thinking blocks must precede tool_use in the same assistant turn:
+		// Anthropic extended-thinking requires the prior thinking block (and its
+		// signature) to be echoed back verbatim on tool-use turns, or the API
+		// rejects/degrades the request. Emit them first.
+		for _, c := range msg.Content {
+			if t, ok := c.(agentcore.ThinkingContent); ok {
+				if t.Redacted {
+					blocks = append(blocks, map[string]any{
+						"type": "redacted_thinking", "data": t.ThinkingSignature,
+					})
+					continue
+				}
+				if t.Thinking == "" {
+					continue
+				}
+				block := map[string]any{"type": "thinking", "thinking": t.Thinking}
+				if t.ThinkingSignature != "" {
+					block["signature"] = t.ThinkingSignature
+				}
+				blocks = append(blocks, block)
+			}
+		}
 		for _, c := range msg.Content {
 			switch b := c.(type) {
 			case agentcore.TextContent:
+				if b.Text == "" {
+					continue
+				}
 				blocks = append(blocks, map[string]any{"type": "text", "text": b.Text})
 			case agentcore.ToolCallContent:
 				var input any
@@ -337,7 +450,9 @@ func encodeAnthropicMessage(m agentcore.Message) map[string]any {
 			}
 		}
 		if len(blocks) == 0 {
-			blocks = []map[string]any{{"type": "text", "text": ""}}
+			// No usable content: emit a single space rather than an empty text
+			// block ("text must be non-empty" is rejected by strict endpoints).
+			blocks = []map[string]any{{"type": "text", "text": " "}}
 		}
 		return map[string]any{"role": "assistant", "content": blocks}
 	case agentcore.ToolResultMessage:

@@ -42,6 +42,7 @@ type openaiToolCall struct {
 // not safe for concurrent use — the transport drives it from one goroutine.
 type OpenAIDecoder struct {
 	text      strings.Builder
+	thinking  strings.Builder // reasoning_content / reasoning stream (if any)
 	toolCalls map[int]*openaiToolCall
 	toolOrder []int // tool-call indices in first-seen order
 
@@ -64,8 +65,15 @@ type openaiChunk struct {
 	Model   string `json:"model"`
 	Choices []struct {
 		Delta struct {
-			Content   string            `json:"content"`
-			ToolCalls []openaiToolDelta `json:"tool_calls"`
+			Content string `json:"content"`
+			// ReasoningContent carries the model's reasoning/thinking stream on the
+			// OpenAI wire (DeepSeek-R1, Kimi, and other reasoning models put their
+			// chain-of-thought here). Some gateways name it "reasoning" instead, so
+			// both are accepted; without this field the thinking stream is silently
+			// dropped from the response and from history.
+			ReasoningContent string            `json:"reasoning_content"`
+			Reasoning        string            `json:"reasoning"`
+			ToolCalls        []openaiToolDelta `json:"tool_calls"`
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
@@ -120,6 +128,15 @@ func (d *OpenAIDecoder) Decode(payload []byte) ([]StreamEvent, error) {
 
 	var events []StreamEvent
 	for _, choice := range chunk.Choices {
+		// Reasoning stream (DeepSeek-R1 / Kimi / …): reasoning_content is the
+		// common field; a few gateways use "reasoning". Accumulate whichever is set.
+		if r := choice.Delta.ReasoningContent; r != "" {
+			d.thinking.WriteString(r)
+			events = append(events, StreamThinkingEvent{Partial: d.partial()})
+		} else if r := choice.Delta.Reasoning; r != "" {
+			d.thinking.WriteString(r)
+			events = append(events, StreamThinkingEvent{Partial: d.partial()})
+		}
 		if choice.Delta.Content != "" {
 			d.text.WriteString(choice.Delta.Content)
 			events = append(events, StreamTextEvent{Partial: d.partial()})
@@ -187,6 +204,9 @@ func (d *OpenAIDecoder) partial() agentcore.AssistantMessage {
 	}
 	if d.inputTokens != 0 || d.outputTokens != 0 {
 		msg.Usage = &agentcore.Usage{InputTokens: d.inputTokens, OutputTokens: d.outputTokens}
+	}
+	if d.thinking.Len() > 0 {
+		msg.Content = append(msg.Content, agentcore.NewThinkingContent(d.thinking.String()))
 	}
 	if d.text.Len() > 0 {
 		msg.Content = append(msg.Content, agentcore.NewTextContent(d.text.String()))
