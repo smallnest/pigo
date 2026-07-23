@@ -121,7 +121,10 @@ func printProviderHelp(w io.Writer) {
 //     OpenRouter/NVIDIA/Ollama presets pick the right gateway).
 //  2. An "ollama/" prefix (or a base URL on the Ollama port) → local Ollama.
 //  3. An "nvidia/" prefix → NVIDIA NIM (strips the prefix for the wire id).
-//  4. Everything else → OpenRouter, the reference OpenAI-compatible gateway.
+//  4. Model-name inference: with no --base-url, a well-known model-name prefix
+//     (e.g. "claude-*", "deepseek-*") selects its first-party built-in provider
+//     via resolveNamedProvider (see provider.InferProviderFromModel).
+//  5. Everything else → OpenRouter, the reference OpenAI-compatible gateway.
 //
 // An unknown protocol value is an error, surfaced to the caller for exit-code
 // mapping rather than silently falling back.
@@ -175,7 +178,19 @@ func resolveProvider(model, baseURL, protocol, providerName string) (provider.Pr
 		id := strings.TrimPrefix(model, "nvidia/")
 		return provider.NewNvidiaProvider(baseURL, []provider.Model{{Provider: "nvidia", ID: id, SupportsImages: true}}), "nvidia", nil
 	}
-	// 4. Default: OpenRouter.
+	// 4. Model-name inference: with no --provider/--protocol (both empty here) and
+	//    no --base-url, guess the provider from the model name's well-known prefix
+	//    (e.g. "claude-*" → anthropic, "deepseek-*" → deepseek). A confident hit is
+	//    routed through resolveNamedProvider so the provider's registry protocol,
+	//    default base URL, and API-key env var are used. A --base-url is treated as
+	//    a custom-endpoint signal that should not be second-guessed, so inference is
+	//    skipped when one is given. Ambiguous/unknown names fall through to (5).
+	if strings.TrimSpace(baseURL) == "" {
+		if name, ok := provider.InferProviderFromModel(model); ok {
+			return resolveNamedProvider(name, model, baseURL, protocol)
+		}
+	}
+	// 5. Default: OpenRouter.
 	return provider.NewOpenRouterProvider(baseURL, []provider.Model{{Provider: "openrouter", ID: model, SupportsImages: true}}), "openrouter", nil
 }
 

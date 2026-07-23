@@ -167,6 +167,54 @@ func TestResolveProviderCNExplicit(t *testing.T) {
 	}
 }
 
+// TestResolveProviderModelNameInference verifies model-name inference (Issue
+// #235): with only --model given (no --provider/--protocol/--base-url), a bare
+// model name whose prefix identifies a single provider resolves to that provider
+// — NOT the OpenRouter default. These ids are deliberately absent from the
+// preset catalog so the inference step (not the LookupPreset branch) is what
+// resolves them.
+func TestResolveProviderModelNameInference(t *testing.T) {
+	cases := []struct {
+		model    string
+		wantName string
+	}{
+		{"claude-opus-4-8", "anthropic"}, // acceptance criterion in the issue
+		{"deepseek-chat", "deepseek"},    // acceptance criterion in the issue
+		{"gpt-4.1", "openai"},
+		{"gemini-3-pro", "google"},
+		{"grok-5", "xai"},
+	}
+	for _, c := range cases {
+		if _, name, err := resolveProvider(c.model, "", "", ""); err != nil || name != c.wantName {
+			t.Errorf("resolveProvider(%q) = (%q, %v), want (%q, nil)", c.model, name, err, c.wantName)
+		}
+	}
+}
+
+// TestResolveProviderInferencePrecedence verifies that model-name inference does
+// not override explicit flags and does not fire when a --base-url is given, and
+// that unknown/ambiguous names still fall back to OpenRouter (no behavior change).
+func TestResolveProviderInferencePrecedence(t *testing.T) {
+	// Explicit --provider wins over an inferable model name.
+	if _, name, err := resolveProvider("claude-opus-4-8", "", "", "deepseek"); err != nil || name != "deepseek" {
+		t.Errorf("provider=deepseek overrides inference = (%q, %v), want (deepseek, nil)", name, err)
+	}
+	// Explicit --protocol wins over an inferable model name.
+	if _, name, err := resolveProvider("claude-opus-4-8", "https://example.com/v1", "openai", ""); err != nil || name != "openai" {
+		t.Errorf("protocol=openai overrides inference = (%q, %v), want (openai, nil)", name, err)
+	}
+	// A --base-url signals a custom endpoint: inference is skipped, default applies.
+	if _, name, err := resolveProvider("claude-opus-4-8", "https://gw.local/v1", "", ""); err != nil || name != "openrouter" {
+		t.Errorf("inference skipped with base-url = (%q, %v), want (openrouter, nil)", name, err)
+	}
+	// Ambiguous/unknown names still default to OpenRouter.
+	for _, m := range []string{"llama-3.3-70b", "totally-unknown-model"} {
+		if _, name, err := resolveProvider(m, "", "", ""); err != nil || name != "openrouter" {
+			t.Errorf("resolveProvider(%q) = (%q, %v), want (openrouter, nil)", m, name, err)
+		}
+	}
+}
+
 // TestPresetListingGroupsAndFilters verifies /models lists all providers by
 // default and filters to one provider when given an argument.
 func TestPresetListingGroupsAndFilters(t *testing.T) {

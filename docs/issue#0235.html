@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0235</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/235">#235</a> &mdash; Wire model-name inference into resolveProvider &mdash; 2026-07-23</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Inference is skipped when <code>--base-url</code> is set</h3>
+      <p><strong>Ambiguity:</strong> The issue says inference fires only when <code>--provider</code>, <code>--protocol</code>, and <code>--base-url</code> are all unset, but <code>resolveProvider</code> reaches step 4 with <code>protocol==""</code> and <code>provider==""</code> already guaranteed — only base URL still needs a guard.</p>
+      <p><strong>Choice:</strong> Gate the inference branch on <code>strings.TrimSpace(baseURL) == ""</code>.</p>
+      <p><strong>Rationale:</strong> A user-supplied base URL signals a custom/self-hosted endpoint; inferring a first-party provider (with its own default base URL) would override the user's endpoint. Skipping keeps the OpenRouter default, which respects the given base URL.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Delegate hits to <code>resolveNamedProvider</code></h3>
+      <p><strong>Ambiguity:</strong> The issue says "delegate to resolveNamedProvider" but that function also accepts a <code>protocol</code> arg.</p>
+      <p><strong>Choice:</strong> Pass the (empty) <code>protocol</code> through unchanged.</p>
+      <p><strong>Rationale:</strong> Reuses the exact registry-driven path (protocol, base-URL precedence, <code>&lt;PROVIDER&gt;_API_KEY</code> env) that explicit <code>--provider</code> uses, so inferred and explicit selection are identical downstream. An empty protocol never conflicts with the spec's own protocol.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label none">None</span></h3>
+      <p class="none">None — implementation followed the issue as written. Inserted between the nvidia-prefix rule (step 3) and the OpenRouter default (step 5), exactly as specified.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Placement after preset/prefix, before default</h3>
+      <p><strong>Alternatives:</strong> (a) infer early, before the preset catalog; (b) infer late, just before the OpenRouter fallback.</p>
+      <p><strong>Chosen:</strong> (b).</p>
+      <p><strong>Why it won:</strong> The preset catalog and <code>ollama/</code>/<code>nvidia/</code> prefixes are more specific, curated signals; letting them win first preserves all existing behavior, and name inference only rescues ids that would otherwise have silently defaulted to OpenRouter.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Missing API-key UX</h3>
+      <p><strong>Assumption:</strong> When <code>-m claude-opus-4-8</code> infers <code>anthropic</code> but no <code>ANTHROPIC_API_KEY</code> is set, the existing auth error path gives a clear enough message.</p>
+      <p><strong>Verify:</strong> Confirm the resulting "missing credential" error names the anthropic env var; if not, a follow-up could hint that the provider was inferred from the model name.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
