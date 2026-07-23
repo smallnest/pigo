@@ -57,6 +57,7 @@ func main() {
 	flag.BoolVar(&opts.noSkills, "no-skills", false, "disable skill discovery (do not load skills under ~/.agents/skills as /skill-name commands)")
 	flag.StringVar(&opts.systemPrompt, "system-prompt", "", "system prompt to use instead of the default coding-assistant prompt (对标 pi --system-prompt)")
 	flag.StringArrayVar(&opts.appendSystemPrompt, "append-system-prompt", nil, "append text or file contents to the system prompt; repeatable (对标 pi --append-system-prompt)")
+	flag.StringVar(&opts.thinkingLevel, "thinking-level", "", "reasoning effort: off|minimal|low|medium|high|xhigh (overrides PIGO_THINKING_LEVEL and config; default medium)")
 	flag.BoolVar(&opts.subagentRPC, "subagent-rpc", false, "internal: run as a process-isolated sub-agent JSON-RPC server over stdio (US-019)")
 	flag.BoolVarP(&opts.showVersion, "version", "v", false, "print version information and exit")
 	// Extend the default pflag usage with a "Supported providers" block so

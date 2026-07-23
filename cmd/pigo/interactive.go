@@ -46,8 +46,12 @@ type interactiveOptions struct {
 	baseURL      string
 	apiKey       string
 	protocol     string
-	tools        []agentcore.AgentTool
-	sysPrompt    string
+	// thinkingLevel is the resolved reasoning-effort level (US-023): it seeds the
+	// live run config so every REPL turn requests it, until a control command
+	// changes it.
+	thinkingLevel agentcore.ThinkingLevel
+	tools         []agentcore.AgentTool
+	sysPrompt     string
 
 	// resumeID, when non-empty, resumes an existing session: its messages seed
 	// the context and replayed transcript. Otherwise a fresh session is created.
@@ -131,6 +135,7 @@ func runInteractive(opts interactiveOptions) error {
 		provider:      opts.provider,
 		baseURL:       opts.baseURL,
 		protocol:      opts.protocol,
+		thinkingLevel: opts.thinkingLevel,
 		contextWindow: defaultContextWindow,
 	}
 
@@ -338,6 +343,9 @@ type liveRunConfig struct {
 	provider     provider.Provider
 	baseURL      string
 	protocol     string
+	// thinkingLevel is the reasoning-effort level applied to each turn. It is
+	// seeded from the resolved config chain and read by streamRun on every prompt.
+	thinkingLevel agentcore.ThinkingLevel
 	// contextWindow is the model's total context-token budget, used to gate
 	// automatic compaction. When 0 the window is unknown and auto-compaction is
 	// disabled; the REPL seeds it with a conservative default so long sessions

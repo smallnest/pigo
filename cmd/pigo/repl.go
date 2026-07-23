@@ -317,6 +317,7 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 		LoopConfig: runtime.LoopConfig{
 			Model:         deps.live.model,
 			Provider:      deps.live.providerName,
+			ThinkingLevel: deps.live.thinkingLevel,
 			Stream:        provider.StreamFnFromProvider(deps.live.provider),
 			GetAPIKey:     deps.creds.GetAPIKey,
 			ContextWindow: deps.live.contextWindow,

@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
@@ -128,17 +129,73 @@ func pluginsDir() string {
 	return filepath.Join(dir, "plugins")
 }
 
+// configDir returns the directory pigo reads its global config layer from:
+// $PIGO_HOME, or ~/.pigo by default. An empty string is returned when the home
+// directory cannot be resolved and no override is set (the caller then treats
+// the global layer as absent).
+func configDir() string {
+	dir := os.Getenv("PIGO_HOME")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		dir = filepath.Join(home, ".pigo")
+	}
+	return dir
+}
+
+// resolveThinkingLevel resolves the effective reasoning-effort level through the
+// layered config chain (US-023): default < global < project < env < CLI flag.
+// The global layer is $PIGO_HOME/config.json (or ~/.pigo/config.json); the
+// project layer is ./.pigo/config.json in the working directory. A malformed
+// layer file or an invalid resolved value is a hard error, surfaced to the
+// caller for exit-code mapping. cliLevel is the raw --thinking-level flag ("" =
+// unset, so lower layers show through).
+func resolveThinkingLevel(cliLevel string) (agentcore.ThinkingLevel, error) {
+	def := runtime.DefaultConfigLayer()
+	layers := []*runtime.ConfigLayer{&def}
+
+	if dir := configDir(); dir != "" {
+		global, err := runtime.LoadConfigLayer(filepath.Join(dir, "config.json"))
+		if err != nil {
+			return "", err
+		}
+		layers = append(layers, global)
+	}
+	project, err := runtime.LoadConfigLayer(filepath.Join(".pigo", "config.json"))
+	if err != nil {
+		return "", err
+	}
+	layers = append(layers, project)
+
+	env := runtime.EnvConfigLayer(os.Getenv)
+	layers = append(layers, &env)
+
+	if v := strings.TrimSpace(cliLevel); v != "" {
+		cli := runtime.ConfigLayer{ThinkingLevel: &v}
+		layers = append(layers, &cli)
+	}
+
+	cfg, err := runtime.ResolveConfig(layers...)
+	if err != nil {
+		return "", err
+	}
+	return cfg.ThinkingLevel, nil
+}
+
 // newRunConfig builds the loop configuration shared by every driver: the
 // provider stream, the dynamic API-key resolver, and the tool registry. It is
 // the single definition of "how a run is wired", so the REPL (streamRun) and the
 // headless driver cannot drift apart.
-func newRunConfig(model, providerName string, prov provider.Provider, creds *provider.CredentialStore, reg *agenttool.ToolRegistry) runtime.RunConfig {
+func newRunConfig(model, providerName string, thinking agentcore.ThinkingLevel, prov provider.Provider, creds *provider.CredentialStore, reg *agenttool.ToolRegistry) runtime.RunConfig {
 	return runtime.RunConfig{
 		LoopConfig: runtime.LoopConfig{
-			Model:     model,
-			Provider:  providerName,
-			Stream:    provider.StreamFnFromProvider(prov),
-			GetAPIKey: creds.GetAPIKey,
+			Model:         model,
+			Provider:      providerName,
+			ThinkingLevel: thinking,
+			Stream:        provider.StreamFnFromProvider(prov),
+			GetAPIKey:     creds.GetAPIKey,
 		},
 		Batch: agenttool.BatchConfig{
 			ToolExecutorConfig: agenttool.ToolExecutorConfig{Registry: reg},
@@ -184,6 +241,11 @@ type cliOptions struct {
 	// #135): pigo reads JSON-RPC sub-agent run requests from stdin and writes
 	// results to stdout. Internal, used by SubAgentTool's process mode.
 	subagentRPC bool
+	// thinkingLevel, when non-empty, is the --thinking-level flag: the reasoning
+	// effort for requests (off|minimal|low|medium|high|xhigh). It is the highest-
+	// precedence layer in resolveThinkingLevel, overriding PIGO_THINKING_LEVEL, the
+	// config files, and the built-in default (medium).
+	thinkingLevel string
 	// showVersion prints build metadata (version/commit/date, injected at release
 	// time by goreleaser) and exits, without running the agent.
 	showVersion bool
@@ -242,19 +304,25 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		if env.plugins != nil {
 			defer env.plugins.Close()
 		}
+		thinking, err := resolveThinkingLevel(opts.thinkingLevel)
+		if err != nil {
+			fmt.Fprintf(errOut, "pigo: %v\n", err)
+			return 2
+		}
 		if err := runInteractive(interactiveOptions{
-			model:        opts.model,
-			providerName: env.providerName,
-			provider:     env.provider,
-			baseURL:      opts.baseURL,
-			apiKey:       opts.apiKey,
-			protocol:     opts.protocol,
-			tools:        env.tools,
-			sysPrompt:    env.sysPrompt,
-			resumeID:     resumeID,
-			approve:      opts.approve,
-			noSkills:     opts.noSkills,
-			plugins:      env.plugins,
+			model:         opts.model,
+			providerName:  env.providerName,
+			provider:      env.provider,
+			baseURL:       opts.baseURL,
+			apiKey:        opts.apiKey,
+			protocol:      opts.protocol,
+			thinkingLevel: thinking,
+			tools:         env.tools,
+			sysPrompt:     env.sysPrompt,
+			resumeID:      resumeID,
+			approve:       opts.approve,
+			noSkills:      opts.noSkills,
+			plugins:       env.plugins,
 		}); err != nil {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
 			return 1
@@ -298,11 +366,19 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		Tools:        env.tools,
 	}
 
+	// Resolve the effective reasoning-effort level through the layered config
+	// chain (default < global < project < env < --thinking-level flag).
+	thinking, err := resolveThinkingLevel(opts.thinkingLevel)
+	if err != nil {
+		fmt.Fprintf(errOut, "pigo: %v\n", err)
+		return 2
+	}
+
 	// Resolve the API key by provider name from the environment (never logged).
 	// An explicit --api-key overrides env/config for the resolved provider.
 	creds := provider.NewCredentialStore(nil)
 	creds.SetOverride(env.providerName, opts.apiKey)
-	runCfg := newRunConfig(opts.model, env.providerName, env.provider, creds, toolRegistry(env.tools))
+	runCfg := newRunConfig(opts.model, env.providerName, thinking, env.provider, creds, toolRegistry(env.tools))
 	runCfg.SessionID = hs.header.ID
 	cfg := runtime.HeadlessConfig{
 		Mode: mode,
