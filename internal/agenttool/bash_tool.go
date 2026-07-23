@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/smallnest/pigo/internal/agentcore"
 )
@@ -22,6 +23,57 @@ const bashDefaultTimeout = 2 * time.Minute
 
 // bashMaxTimeout caps any requested timeout.
 const bashMaxTimeout = 10 * time.Minute
+
+// bashMaxOutputBytes caps how many bytes of combined stdout/stderr the bash tool
+// returns to the model. A single command can emit megabytes (build logs, a big
+// cat), which — unlike the timeout cap — would otherwise flow into context whole
+// and blow the window. Output past this size is truncated to a head + tail
+// preview (see truncateBashOutput), mirroring search's searchMaxResults/"[truncated
+// …]" convention. This is the tool's own inner cap; a later executor-layer budget
+// may impose a stricter outer limit.
+const bashMaxOutputBytes = 30_000
+
+// truncateBashOutput caps s at bashMaxOutputBytes. When s is longer it keeps a
+// head and a tail preview (split evenly) joined by a "[truncated N bytes]" marker,
+// so both the start and the end of the output survive. Cut points are pulled back
+// to UTF-8 rune boundaries so no partial rune is emitted; N counts the raw bytes
+// dropped from the middle.
+func truncateBashOutput(s string) string {
+	if len(s) <= bashMaxOutputBytes {
+		return s
+	}
+	half := bashMaxOutputBytes / 2
+	head := trimUTF8Prefix(s[:half])
+	tail := trimUTF8Suffix(s[len(s)-half:])
+	removed := len(s) - len(head) - len(tail)
+	return head + fmt.Sprintf("\n[truncated %d bytes]\n", removed) + tail
+}
+
+// trimUTF8Prefix drops trailing bytes of s that form an incomplete rune, so the
+// returned prefix ends on a rune boundary.
+func trimUTF8Prefix(s string) string {
+	for len(s) > 0 {
+		if r, size := utf8.DecodeLastRuneInString(s); r == utf8.RuneError && size <= 1 {
+			s = s[:len(s)-1]
+			continue
+		}
+		break
+	}
+	return s
+}
+
+// trimUTF8Suffix drops leading bytes of s that form an incomplete rune, so the
+// returned suffix starts on a rune boundary.
+func trimUTF8Suffix(s string) string {
+	for len(s) > 0 {
+		if r, size := utf8.DecodeRuneInString(s); r == utf8.RuneError && size <= 1 {
+			s = s[1:]
+			continue
+		}
+		break
+	}
+	return s
+}
 
 // BashTool runs shell commands. Dir bounds the working directory (empty = the
 // process CWD). Shell selects the interpreter (empty = "bash -c").
@@ -133,6 +185,11 @@ func (t *BashTool) Execute(ctx context.Context, id string, args json.RawMessage,
 	mu.Lock()
 	output := combined.String()
 	mu.Unlock()
+
+	// Cap the output before it enters any ToolResult / error message, so a single
+	// command's huge output cannot blow the model's context. Truncation keeps a
+	// head + tail preview with a "[truncated N bytes]" marker in the middle.
+	output = truncateBashOutput(output)
 
 	// Context cancellation / timeout takes precedence in the message.
 	if runCtx.Err() == context.DeadlineExceeded {
