@@ -92,6 +92,19 @@ type replDeps struct {
 	// the objective is injected each turn and goal_complete/goal_blocked can end
 	// the run.
 	goal *agenttool.GoalState
+
+	// lastBtw holds the most recent /btw side thread from this process (US-004,
+	// #281), so a bare "/btw" reopens it and shows its history. It is nil until
+	// the first /btw and is reset to nil on any session switch (/fork, /clone,
+	// /import) because a side thread branched from the old conversation no longer
+	// makes sense against a different one. It is never persisted: restarting pigo
+	// starts with lastBtw nil again.
+	lastBtw *agentcore.AgentContext
+	// lastBtwBase is the number of leading messages in lastBtw.Messages that were
+	// copied from the main conversation as background — the side thread's own Q&A
+	// is everything from this index on. Reopening replays only Messages[base:] so
+	// the whole main transcript is not reprinted.
+	lastBtwBase int
 }
 
 // replScanBufInit is the initial size of the shared input reader. A REPL user
@@ -528,6 +541,10 @@ func runForkClone(out io.Writer, deps *replDeps, line string) {
 	if len(path) > 0 {
 		deps.curLeaf = path[len(path)-1].ID
 	}
+	// A side thread branched from the old conversation is meaningless against the
+	// new branch, so drop it (#281).
+	deps.lastBtw = nil
+	deps.lastBtwBase = 0
 
 	action := "cloned"
 	if cmd == "/fork" {
@@ -657,6 +674,10 @@ func runImport(out io.Writer, deps *replDeps, line string) {
 	if len(entries) > 0 {
 		deps.curLeaf = entries[len(entries)-1].ID
 	}
+	// A side thread branched from the previous conversation no longer applies to
+	// the imported one, so drop it (#281).
+	deps.lastBtw = nil
+	deps.lastBtwBase = 0
 	fmt.Fprintf(out, "imported %d entries from %s → session %s\n", len(entries), path, newHeader.ID)
 }
 

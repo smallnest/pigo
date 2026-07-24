@@ -14,9 +14,10 @@
 // deps.header.UpdatedAt. Closing the side thread, switching sessions or
 // restarting pigo discards everything.
 //
-// Scope of this file (#279): the interception + isolation skeleton for a single
-// side question. Multi-turn follow-ups, bare-/btw reopen, and a model/thinking
-// override config land in follow-up issues (#280/#281/#282).
+// Scope: /btw is intercepted in the REPL loop and runs a side question against a
+// copy of the main context (#279); it supports multi-turn follow-ups in the same
+// ephemeral thread (#280) and bare-/btw reopen of the most recent side thread
+// this process (#281). A model/thinking override config lands in #282.
 package main
 
 import (
@@ -42,27 +43,43 @@ const btwHeader = "btw · side thread"
 // thread, distinguishing it from the main "pigo(model)>" prompt.
 const btwPrompt = "btw> "
 
-// runBtw handles a /btw invocation. With an argument it asks that side question
-// immediately, then enters a follow-up loop so the user can keep asking in the
-// same ephemeral thread; with no argument it prompts the user to supply one
-// (bare-/btw reopen of a prior side thread lands in #281). setCancel publishes
-// the active run's cancel func so the REPL's SIGINT handler can interrupt the
-// side run, reusing the same plumbing as a normal turn.
+// runBtw handles a /btw invocation. With an argument it starts a fresh side
+// thread, asks that question, then enters a follow-up loop so the user can keep
+// asking in the same ephemeral thread. Bare "/btw" reopens the most recent side
+// thread from this process — replaying its Q&A history — and drops back into the
+// follow-up loop; if none exists yet it guides the user to supply a question
+// (US-004, #281). setCancel publishes the active run's cancel func so the REPL's
+// SIGINT handler can interrupt the side run, reusing the same plumbing as a
+// normal turn.
 //
 // The main context is never mutated: runBtw builds a private side AgentContext
 // seeded with a copy of the main messages, runs every turn against that copy,
-// and returns without touching deps.agentCtx or persisting anything. The whole
-// side thread is discarded when this function returns.
+// and returns without touching deps.agentCtx or persisting anything. The side
+// thread is retained in-process (deps.lastBtw) so a later bare /btw can reopen
+// it, but it is never written to disk — restarting pigo discards it.
 func runBtw(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, editor *replLineEditor, line string) {
 	question := strings.TrimSpace(strings.TrimPrefix(line, "/btw"))
 	if question == "" {
-		// Bare /btw: reopening the most recent side thread is #281; for now guide
-		// the user to supply a question rather than erroring.
-		fmt.Fprintln(out, "usage: /btw <question> — ask a quick side question without touching the main conversation")
+		// Bare /btw: reopen the most recent side thread if one exists this process,
+		// replaying its history; otherwise guide the user to supply a question.
+		if deps.lastBtw == nil {
+			fmt.Fprintln(out, "usage: /btw <question> — ask a quick side question without touching the main conversation")
+			return
+		}
+		printBtwHeader(out)
+		replaySideHistory(out, deps.lastBtw, deps.lastBtwBase)
+		if editor != nil {
+			btwFollowUpLoop(setCancel, out, deps, editor, deps.lastBtw)
+		}
 		return
 	}
 
 	side := newSideContext(deps.agentCtx)
+	// Remember this thread so a later bare /btw can reopen it. lastBtwBase marks
+	// where the copied background ends and the side Q&A begins, so a reopen only
+	// replays the side turns, not the whole main transcript.
+	deps.lastBtw = side
+	deps.lastBtwBase = len(side.Messages)
 	printBtwHeader(out)
 	askSide(setCancel, out, deps, side, question)
 	// Follow-up loop: keep answering in the same ephemeral thread until the user
@@ -70,6 +87,31 @@ func runBtw(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, e
 	// the loop entirely, so a single /btw asks exactly one question and returns.
 	if editor != nil {
 		btwFollowUpLoop(setCancel, out, deps, editor, side)
+	}
+}
+
+// replaySideHistory prints the side thread's own Q&A (everything after the
+// copied main-conversation background at index base) when a bare /btw reopens a
+// prior thread, so the user can browse earlier answers before continuing. Only
+// user questions and assistant text are shown; tool activity is omitted to keep
+// the recap compact.
+func replaySideHistory(out io.Writer, side *agentcore.AgentContext, base int) {
+	if base > len(side.Messages) {
+		base = len(side.Messages)
+	}
+	for _, msg := range side.Messages[base:] {
+		switch m := msg.(type) {
+		case agentcore.UserMessage:
+			fmt.Fprintf(out, "%s %s\n", colorize(colorEnabled(), ansiDim, "you:"), agentcore.ContentToText(m.Content))
+		case agentcore.AssistantMessage:
+			if text := agentcore.ContentToText(m.Content); text != "" {
+				rendered := renderMarkdown(text)
+				fmt.Fprint(out, rendered)
+				if !strings.HasSuffix(rendered, "\n") {
+					fmt.Fprintln(out)
+				}
+			}
+		}
 	}
 }
 

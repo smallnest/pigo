@@ -59,8 +59,8 @@ func TestBtwDoesNotPersist(t *testing.T) {
 	}
 }
 
-// TestBtwBareUsage verifies bare "/btw" does not launch a run and prints usage
-// guidance (reopen of a prior side thread is a follow-up issue).
+// TestBtwBareUsage verifies bare "/btw" with no prior side thread does not
+// launch a run and prints usage guidance.
 func TestBtwBareUsage(t *testing.T) {
 	p := &replProvider{reply: "unused"}
 	deps, _ := newTestDeps(t, p)
@@ -74,6 +74,37 @@ func TestBtwBareUsage(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "usage: /btw") {
 		t.Errorf("expected usage hint for bare /btw, got: %q", out.String())
+	}
+}
+
+// TestBtwBareReopensLastThread verifies that after a side thread exists, a bare
+// "/btw" reopens it, replays the prior side Q&A, and lets the user keep asking
+// in the SAME thread. The main context stays untouched throughout.
+func TestBtwBareReopensLastThread(t *testing.T) {
+	p := &replProvider{reply: "side answer"}
+	deps, _ := newTestDeps(t, p)
+
+	var out bytes.Buffer
+	// Open a side thread and ask once, leave it, then bare /btw reopens it and
+	// asks a follow-up, then leave again and exit the REPL.
+	in := strings.NewReader("/btw first question?\n/exit\n/btw\nsecond question?\n/exit\n/exit\n")
+	if err := runREPL(in, &out, deps); err != nil {
+		t.Fatalf("runREPL: %v", err)
+	}
+	if p.calls != 2 {
+		t.Fatalf("expected 2 side runs (1 initial + 1 after reopen), got %d", p.calls)
+	}
+	if len(deps.agentCtx.Messages) != 0 {
+		t.Fatalf("main context must stay untouched, got %d messages", len(deps.agentCtx.Messages))
+	}
+	s := out.String()
+	// The reopen must not print the bare-/btw usage hint (a thread existed).
+	if strings.Contains(s, "usage: /btw") {
+		t.Errorf("bare /btw with an existing thread must not print usage, got: %q", s)
+	}
+	// The replay must echo the earlier question.
+	if !strings.Contains(s, "first question?") {
+		t.Errorf("reopen should replay the earlier side question, got: %q", s)
 	}
 }
 

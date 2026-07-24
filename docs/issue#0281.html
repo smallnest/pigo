@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #281</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/281">#281</a> &mdash; /btw: 裸 /btw 重开最近侧线程 &mdash; 2026-07-24</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 进程级状态存于 <code>replDeps.lastBtw</code> + <code>lastBtwBase</code></h3>
+      <p><strong>Ambiguity:</strong> Issue 要求"维护进程级 <code>lastBtw *agentcore.AgentContext</code>"，但未规定放在哪个结构、如何区分"背景拷贝"与"侧线程问答"。</p>
+      <p><strong>Choice:</strong> 在 <code>replDeps</code> 上加 <code>lastBtw</code>（最近侧线程）与 <code>lastBtwBase</code>（拷贝自主上下文的前缀长度）。REPL 循环以 <code>&amp;deps</code> 调用 <code>runBtw</code>，故跨轮次持久，重启进程即归零。</p>
+      <p><strong>Rationale:</strong> <code>replDeps</code> 已是循环持有的可变状态载体；用一个 base 下标即可在重开时只回放 <code>Messages[base:]</code>（侧问答），不重复打印整段主对话。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 重开只回放 user/assistant 文本，省略工具活动</h3>
+      <p><strong>Ambiguity:</strong> "展示历史问答"未规定回放粒度。</p>
+      <p><strong>Choice:</strong> <code>replaySideHistory</code> 只打印 UserMessage 文本（<code>you:</code> 前缀）与 AssistantMessage 文本，跳过 tool call / tool result。</p>
+      <p><strong>Rationale:</strong> 侧线程重开的目的是"浏览earlier answers"，紧凑回放更可读；工具细节对回顾问答无价值。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 会话切换清空 lastBtw 覆盖 /fork、/clone、/import，未含 /tree</h3>
+      <p><strong>Spec:</strong> AC 写"会话切换（/fork/clone/import）时清空 <code>lastBtw</code>"。</p>
+      <p><strong>Implemented:</strong> 在 <code>runForkClone</code> 与 <code>runImport</code> 成功切换后 <code>deps.lastBtw = nil</code>；<code>/tree</code> 不清空。</p>
+      <p><strong>Why:</strong> <code>/tree</code> 只在<em>同一会话</em>内移动 leaf，不是切换到另一段对话，侧线程背景仍属同一 conversation，无需失效。这与 AC 列举的三个命令一致，未偏离意图。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 重开沿用旧背景快照，不刷新主上下文</h3>
+      <p><strong>Alternatives:</strong> (A) 重开时保留侧线程创建时拷贝的主上下文背景；(B) 重开时用当前最新主上下文重新 seed 背景，再接上旧侧问答。</p>
+      <p><strong>Chosen:</strong> A。<strong>Pros:</strong> 侧线程语义稳定——它是"当时那条支线"，问答与其背景自洽；实现最简。<strong>Cons:</strong> 若主对话在两次 /btw 间大幅推进，重开的侧线程看到的是旧背景。对"快速回顾侧问答"场景可接受；需要最新背景时用户可起新 <code>/btw &lt;q&gt;</code>。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 只保留"最近一个"侧线程，历史侧线程不可回溯</h3>
+      <p><strong>Assumption:</strong> <code>lastBtw</code> 是单槽，起新 <code>/btw &lt;q&gt;</code> 会覆盖上一条侧线程；无侧线程列表/多槽浏览。</p>
+      <p><strong>Verify:</strong> 确认"仅最近一条可重开"符合预期（Claude Code 的 /btw 也是重开 most recent；多侧线程管理未在本 issue 范围）。</p>
+    </div>
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
