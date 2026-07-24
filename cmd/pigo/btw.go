@@ -16,8 +16,9 @@
 //
 // Scope: /btw is intercepted in the REPL loop and runs a side question against a
 // copy of the main context (#279); it supports multi-turn follow-ups in the same
-// ephemeral thread (#280) and bare-/btw reopen of the most recent side thread
-// this process (#281). A model/thinking override config lands in #282.
+// ephemeral thread (#280), bare-/btw reopen of the most recent side thread this
+// process (#281), and an optional model/thinking override config (#282, see
+// btw_config.go) that affects only the side thread.
 package main
 
 import (
@@ -59,6 +60,10 @@ const btwPrompt = "btw> "
 // it, but it is never written to disk — restarting pigo discards it.
 func runBtw(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, editor *replLineEditor, line string) {
 	question := strings.TrimSpace(strings.TrimPrefix(line, "/btw"))
+	// Resolve the side thread's model/thinking once per invocation from the
+	// session defaults overlaid with btw.json (#282). Re-read each call so an
+	// edit takes effect next time with no restart.
+	settings := resolveBtwSettings(out, deps)
 	if question == "" {
 		// Bare /btw: reopen the most recent side thread if one exists this process,
 		// replaying its history; otherwise guide the user to supply a question.
@@ -69,7 +74,7 @@ func runBtw(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, e
 		printBtwHeader(out)
 		replaySideHistory(out, deps.lastBtw, deps.lastBtwBase)
 		if editor != nil {
-			btwFollowUpLoop(setCancel, out, deps, editor, deps.lastBtw)
+			btwFollowUpLoop(setCancel, out, deps, editor, deps.lastBtw, settings)
 		}
 		return
 	}
@@ -81,12 +86,12 @@ func runBtw(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, e
 	deps.lastBtw = side
 	deps.lastBtwBase = len(side.Messages)
 	printBtwHeader(out)
-	askSide(setCancel, out, deps, side, question)
+	askSide(setCancel, out, deps, side, settings, question)
 	// Follow-up loop: keep answering in the same ephemeral thread until the user
 	// exits. A nil editor (direct test callers that only ask one question) skips
 	// the loop entirely, so a single /btw asks exactly one question and returns.
 	if editor != nil {
-		btwFollowUpLoop(setCancel, out, deps, editor, side)
+		btwFollowUpLoop(setCancel, out, deps, editor, side, settings)
 	}
 }
 
@@ -120,7 +125,7 @@ func replaySideHistory(out io.Writer, side *agentcore.AgentContext, base int) {
 // /quit, EOF, or an idle Ctrl+C (errLineInterrupted) — the same exit affordances
 // as the main REPL, but confined to the side thread (FR-5). A blank line is
 // ignored (stays in the thread). Nothing here touches the main context.
-func btwFollowUpLoop(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, editor *replLineEditor, side *agentcore.AgentContext) {
+func btwFollowUpLoop(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, editor *replLineEditor, side *agentcore.AgentContext, settings btwRunSettings) {
 	for {
 		raw, err := editor.readLine(btwPrompt)
 		if errors.Is(err, errLineInterrupted) {
@@ -142,7 +147,7 @@ func btwFollowUpLoop(setCancel func(context.CancelFunc), out io.Writer, deps *re
 		if q == "" {
 			continue
 		}
-		askSide(setCancel, out, deps, side, q)
+		askSide(setCancel, out, deps, side, settings, q)
 	}
 }
 
@@ -169,8 +174,10 @@ func printBtwHeader(out io.Writer) {
 // askSide appends the question to the side context and streams one answer,
 // mirroring streamRun's rendering but targeting the side context so nothing is
 // written back to the main conversation or to disk. It reuses the REPL's SIGINT
-// cancel plumbing via setCancel.
-func askSide(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, side *agentcore.AgentContext, question string) {
+// cancel plumbing via setCancel. The model/provider/thinking come from settings
+// (session defaults overlaid with btw.json, #282), never from deps.live, so a
+// /btw override cannot leak into the main session.
+func askSide(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, side *agentcore.AgentContext, settings btwRunSettings, question string) {
 	content, err := buildUserContent(question)
 	if err != nil {
 		fmt.Fprintf(out, "pigo: %v\n", err)
@@ -194,10 +201,10 @@ func askSide(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, 
 
 	cfg := runtime.RunConfig{
 		LoopConfig: runtime.LoopConfig{
-			Model:         deps.live.model,
-			Provider:      deps.live.providerName,
-			ThinkingLevel: deps.live.thinkingLevel,
-			Stream:        provider.StreamFnFromProvider(deps.live.provider),
+			Model:         settings.model,
+			Provider:      settings.providerName,
+			ThinkingLevel: settings.thinkingLevel,
+			Stream:        provider.StreamFnFromProvider(settings.provider),
 			GetAPIKey:     deps.creds.GetAPIKey,
 			ContextWindow: deps.live.contextWindow,
 			Compaction:    compaction.DefaultCompactionSettings,

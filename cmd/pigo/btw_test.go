@@ -139,9 +139,10 @@ func TestBtwFollowUpLoopAccumulates(t *testing.T) {
 	side := &agentcore.AgentContext{}
 	deps, _ := newTestDeps(t, &replProvider{reply: "a"})
 	setCancel := func(context.CancelFunc) {}
-	askSide(setCancel, &bytes.Buffer{}, &deps, side, "q1")
+	settings := resolveBtwSettings(&bytes.Buffer{}, &deps)
+	askSide(setCancel, &bytes.Buffer{}, &deps, side, settings, "q1")
 	n1 := len(side.Messages)
-	askSide(setCancel, &bytes.Buffer{}, &deps, side, "q2")
+	askSide(setCancel, &bytes.Buffer{}, &deps, side, settings, "q2")
 	if len(side.Messages) <= n1 {
 		t.Fatalf("side context should accumulate across follow-ups: %d then %d", n1, len(side.Messages))
 	}
