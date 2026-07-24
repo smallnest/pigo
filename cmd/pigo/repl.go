@@ -124,6 +124,14 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 	if deps.in == nil {
 		deps.in = bufio.NewReaderSize(in, replScanBufInit)
 	}
+	var priorInputs []string
+	for _, msg := range deps.agentCtx.Messages {
+		if user, ok := msg.(agentcore.UserMessage); ok {
+			priorInputs = append(priorInputs, agentcore.ContentToText(user.Content))
+		}
+	}
+	editor := newREPLLineEditor(in, deps.in, out, deps.slash, priorInputs)
+	editor.models = append([]string{deps.live.model}, editor.models...)
 
 	// A SIGINT during a run cancels only that run; the handler is installed for
 	// the whole REPL and targets whichever run is active via runCancel. runCancel
@@ -153,8 +161,11 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 	}()
 
 	for {
-		fmt.Fprintf(out, "\npigo(%s)> ", deps.live.model)
-		raw, err := deps.in.ReadString('\n')
+		fmt.Fprintln(out)
+		raw, err := editor.readLine(fmt.Sprintf("pigo(%s)> ", deps.live.model))
+		if errors.Is(err, errLineInterrupted) {
+			continue
+		}
 		if err != nil && raw == "" {
 			// EOF (Ctrl+D) or read error with no partial line: exit cleanly.
 			fmt.Fprintln(out)
@@ -164,6 +175,7 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 			return err
 		}
 		line := strings.TrimSpace(raw)
+		editor.remember(line)
 		if line == "" {
 			if err != nil {
 				// A trailing partial line at EOF that trims to empty: exit.
