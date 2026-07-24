@@ -287,6 +287,10 @@ pigo --continue                   # 续跑最近一次会话
 
 REPL 中的内置斜杠命令包括 `/model`、`/models`、`/help`、`/compact`、`/fork`、`/clone`、`/tree`、`/export`、`/import`、`/copy`、`/session`、`/exit` 等。
 
+在交互终端输入时，pigo 会用灰色文字提示最近匹配的输入或斜杠命令；
+输入 `/model ` 时还会从最近使用的模型和内置模型目录中匹配。按 `Tab`
+或右方向键接受当前提示，继续输入则会实时缩小匹配范围。
+
 ---
 
 ## 系统提示词组装
@@ -446,4 +450,3 @@ git push origin v0.2.0
 ## 许可证
 
 参见仓库根目录的 [LICENSE](LICENSE)。
-
