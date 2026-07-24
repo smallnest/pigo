@@ -166,3 +166,29 @@ func TestTodoReminderEndToEndInjection(t *testing.T) {
 		t.Fatalf("todo reminder should be injected into the request, saw %v", seen)
 	}
 }
+
+func TestGoalReminderOnlyWhenActive(t *testing.T) {
+	st := agenttool.NewGoalState()
+	p := &GoalReminderProvider{State: st}
+
+	// Idle: no reminder.
+	if _, ok := p.Reminder(context.Background(), nil); ok {
+		t.Fatal("idle goal should not inject a reminder")
+	}
+
+	// Active: injects the objective.
+	st.Start("g1", "build the feature", 0)
+	body, ok := p.Reminder(context.Background(), nil)
+	if !ok {
+		t.Fatal("active goal should inject a reminder")
+	}
+	if !strings.Contains(body, "build the feature") {
+		t.Errorf("reminder body missing objective: %q", body)
+	}
+
+	// Completed: silent again.
+	st.MarkComplete("done")
+	if _, ok := p.Reminder(context.Background(), nil); ok {
+		t.Fatal("completed goal should not inject a reminder")
+	}
+}

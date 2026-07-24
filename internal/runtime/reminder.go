@@ -24,6 +24,7 @@ package runtime
 
 import (
 	"context"
+	"strings"
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
@@ -187,4 +188,34 @@ func (p *TodoReminderProvider) Reminder(ctx context.Context, _ agentcore.Message
 	}
 	return "Your todo list has unfinished items. Keep it up to date with the todo tool.\n\n" +
 		agenttool.RenderTodoList(items), true
+}
+
+// GoalReminderProvider surfaces the active goal as background context each turn
+// so the model keeps working toward it (对标 pi-goal). It reads the same
+// GoalState the /goal command drives, so the reminder always reflects the live
+// objective. It fires only while the goal is active — a paused, blocked, or
+// completed goal (and an idle state) injects nothing.
+type GoalReminderProvider struct {
+	// State is the session goal state. When nil the provider never fires.
+	State *agenttool.GoalState
+}
+
+// Name implements ReminderProvider.
+func (p *GoalReminderProvider) Name() string { return "goal" }
+
+// Reminder implements ReminderProvider. It injects the objective plus a
+// persistence instruction while the goal is active, and stays silent otherwise.
+func (p *GoalReminderProvider) Reminder(ctx context.Context, _ agentcore.MessageList) (string, bool) {
+	if p.State == nil {
+		return "", false
+	}
+	snap := p.State.Snapshot()
+	if snap.Status != agenttool.GoalActive || strings.TrimSpace(snap.Objective) == "" {
+		return "", false
+	}
+	return "You are working autonomously toward this goal:\n\n" + snap.Objective +
+		"\n\nKeep making progress. When every requirement is verifiably met, call the " +
+		"goal_complete tool with a summary. If you hit a true impasse you cannot work " +
+		"around, call goal_blocked with concrete evidence. Do not stop or ask the user " +
+		"to continue — keep going until the goal is done or blocked.", true
 }

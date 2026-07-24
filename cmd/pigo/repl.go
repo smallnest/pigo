@@ -85,6 +85,13 @@ type replDeps struct {
 	// from curLeaf, so switching leaves and continuing grows a real tree instead
 	// of rewriting the file as a single linear chain.
 	persisted int
+
+	// goal holds the session's autonomous-goal state (对标 pi-goal), driven by
+	// the /goal command. It is always non-nil (runInteractive seeds an idle
+	// state); the GoalReminderProvider and the goal tools share this handle so
+	// the objective is injected each turn and goal_complete/goal_blocked can end
+	// the run.
+	goal *agenttool.GoalState
 }
 
 // replScanBufInit is the initial size of the shared input reader. A REPL user
@@ -250,6 +257,15 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 			// derived from deps.header + the in-memory context — state a pure
 			// string→string Action closure cannot see.
 			runSession(out, &deps)
+			continue
+		}
+		if line == "/goal" || strings.HasPrefix(line, "/goal ") {
+			// /goal is intercepted here (like /compact) because it must run one or
+			// more agent streams and mutate the shared context/goal state — none of
+			// which a slash Action closure (string→string) can do. It drives the
+			// autonomous goal loop, reusing the same SIGINT cancel plumbing as a
+			// normal turn via setCancel.
+			runGoal(setCancel, out, &deps, line)
 			continue
 		}
 
