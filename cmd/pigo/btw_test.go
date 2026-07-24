@@ -7,6 +7,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 
@@ -76,7 +77,45 @@ func TestBtwBareUsage(t *testing.T) {
 	}
 }
 
-// TestNewSideContextIsolated verifies newSideContext copies the main messages so
+// TestBtwFollowUpsShareThread verifies that after "/btw <q>" the user can ask
+// follow-ups at the btw prompt (without retyping /btw), each launching a run,
+// and that none of them pollute the main context. "/exit" leaves the thread.
+func TestBtwFollowUpsShareThread(t *testing.T) {
+	p := &replProvider{reply: "ok"}
+	deps, _ := newTestDeps(t, p)
+
+	var out bytes.Buffer
+	// First /btw asks once; then two bare follow-ups; then /exit leaves the side
+	// thread; then /exit ends the REPL.
+	in := strings.NewReader("/btw first?\nsecond?\nthird?\n/exit\n/exit\n")
+	if err := runREPL(in, &out, deps); err != nil {
+		t.Fatalf("runREPL: %v", err)
+	}
+	if p.calls != 3 {
+		t.Fatalf("expected 3 side runs (1 initial + 2 follow-ups), got %d", p.calls)
+	}
+	if len(deps.agentCtx.Messages) != 0 {
+		t.Fatalf("follow-ups must not pollute main context, got %d messages", len(deps.agentCtx.Messages))
+	}
+	if !strings.Contains(out.String(), "left side thread") {
+		t.Errorf("expected 'left side thread' on /exit from the side thread")
+	}
+}
+
+// TestBtwFollowUpLoopAccumulates verifies the side context grows across
+// follow-ups so a later question sees the earlier Q&A.
+func TestBtwFollowUpLoopAccumulates(t *testing.T) {
+	side := &agentcore.AgentContext{}
+	deps, _ := newTestDeps(t, &replProvider{reply: "a"})
+	setCancel := func(context.CancelFunc) {}
+	askSide(setCancel, &bytes.Buffer{}, &deps, side, "q1")
+	n1 := len(side.Messages)
+	askSide(setCancel, &bytes.Buffer{}, &deps, side, "q2")
+	if len(side.Messages) <= n1 {
+		t.Fatalf("side context should accumulate across follow-ups: %d then %d", n1, len(side.Messages))
+	}
+}
+
 // appending to the side thread cannot reach the main slice.
 func TestNewSideContextIsolated(t *testing.T) {
 	main := &agentcore.AgentContext{

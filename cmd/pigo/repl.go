@@ -275,7 +275,7 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 			// can express. The exact-or-space-prefix guard keeps "/btweak" from
 			// being mistaken for "/btw". It reuses the same SIGINT cancel plumbing
 			// as a normal turn via setCancel.
-			runBtw(setCancel, out, &deps, line)
+			runBtw(setCancel, out, &deps, editor, line)
 			continue
 		}
 
