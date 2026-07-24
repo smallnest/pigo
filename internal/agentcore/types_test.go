@@ -52,6 +52,57 @@ func TestContentUnknownTypeRejected(t *testing.T) {
 	}
 }
 
+// TestToolCallInvalidArgumentsMarshal verifies a ToolCallContent whose
+// Arguments are syntactically invalid JSON (as a model can stream) still
+// marshals — as a JSON string of the raw bytes — rather than aborting the
+// encode. Without this, session persistence and provider re-serialization would
+// crash the whole turn on a single malformed tool call.
+func TestToolCallInvalidArgumentsMarshal(t *testing.T) {
+	bad := NewToolCallContent("c1", "todo", json.RawMessage(`{"todos": []{}"content": ""x"}`))
+	data, err := json.Marshal(bad)
+	if err != nil {
+		t.Fatalf("marshal invalid tool args: %v", err)
+	}
+	if !json.Valid(data) {
+		t.Fatalf("marshaled output is not valid JSON: %s", data)
+	}
+	// It must round-trip back through the discriminated decoder without error.
+	var out ContentList
+	if err := json.Unmarshal([]byte("["+string(data)+"]"), &out); err != nil {
+		t.Fatalf("round-trip unmarshal: %v", err)
+	}
+	tc, ok := out[0].(ToolCallContent)
+	if !ok {
+		t.Fatalf("want ToolCallContent, got %T", out[0])
+	}
+	// The raw invalid text is preserved (as the decoded string).
+	var recovered string
+	if err := json.Unmarshal(tc.Arguments, &recovered); err != nil {
+		t.Fatalf("arguments not a JSON string: %v", err)
+	}
+	if recovered != `{"todos": []{}"content": ""x"}` {
+		t.Errorf("raw arguments lost: %q", recovered)
+	}
+}
+
+// TestToolCallValidArgumentsUnchanged verifies well-formed arguments are emitted
+// verbatim (not string-wrapped), preserving the object shape providers expect.
+func TestToolCallValidArgumentsUnchanged(t *testing.T) {
+	tc := NewToolCallContent("c1", "read", json.RawMessage(`{"path":"a.go"}`))
+	data, err := json.Marshal(tc)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var out ContentList
+	if err := json.Unmarshal([]byte("["+string(data)+"]"), &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	got := out[0].(ToolCallContent)
+	if string(got.Arguments) != `{"path":"a.go"}` {
+		t.Errorf("arguments = %s, want the object unchanged", got.Arguments)
+	}
+}
+
 func TestContentMissingTypeRejected(t *testing.T) {
 	var out ContentList
 	err := json.Unmarshal([]byte(`[{"text":"no type"}]`), &out)

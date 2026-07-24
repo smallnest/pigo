@@ -12,6 +12,7 @@
 package agentcore
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -67,6 +68,43 @@ func (TextContent) isContent()     {}
 func (ThinkingContent) isContent() {}
 func (ToolCallContent) isContent() {}
 func (ImageContent) isContent()    {}
+
+// MarshalJSON encodes a ToolCallContent, tolerating malformed Arguments. A
+// model can stream syntactically invalid tool-call JSON (a truncated or
+// duplicated key, e.g. `{"todos": []{}...`); such bytes are kept verbatim in
+// Arguments so schema validation can report "not valid JSON" to the model, but
+// json.RawMessage.MarshalJSON rejects them, which would otherwise abort every
+// downstream serialization (session persistence, provider re-serialization) and
+// take the whole turn down. To keep those paths crash-free we emit invalid
+// arguments as a JSON string of the raw bytes: valid JSON that round-trips the
+// original text. Well-formed arguments are emitted unchanged.
+func (t ToolCallContent) MarshalJSON() ([]byte, error) {
+	args := t.Arguments
+	if len(bytes.TrimSpace(args)) == 0 {
+		args = json.RawMessage("{}")
+	} else if !json.Valid(args) {
+		s, err := json.Marshal(string(args))
+		if err != nil {
+			return nil, fmt.Errorf("content: encode invalid tool arguments: %w", err)
+		}
+		args = s
+	}
+	// A named alias avoids recursing into this MarshalJSON.
+	type wire struct {
+		Type             string          `json:"type"`
+		ID               string          `json:"id"`
+		Name             string          `json:"name"`
+		Arguments        json.RawMessage `json:"arguments"`
+		ThoughtSignature string          `json:"thoughtSignature,omitempty"`
+	}
+	return json.Marshal(wire{
+		Type:             t.Type,
+		ID:               t.ID,
+		Name:             t.Name,
+		Arguments:        args,
+		ThoughtSignature: t.ThoughtSignature,
+	})
+}
 
 // Constructors set the Type discriminant so callers never desync it.
 
