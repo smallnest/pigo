@@ -504,6 +504,7 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
 		{"copy", "copy the most recent assistant reply to the clipboard"},
 		{"session", "show session stats: messages, tokens, model, compactions"},
 		{"goal", "run autonomously toward a goal: /goal [--tokens N] <objective> | pause | resume | clear"},
+		{"btw", "ask a quick side question without touching the main conversation: /btw <question>"},
 	} {
 		reg.AddBuiltin(runtime.SlashCommand{
 			Name:        c.name,

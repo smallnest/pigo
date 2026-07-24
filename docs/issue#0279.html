@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #279</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/279">#279</a> &mdash; /btw: 主循环拦截 + 侧线程上下文隔离骨架 &mdash; 2026-07-24</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 侧线程用主消息切片的浅拷贝隔离</h3>
+      <p><strong>Ambiguity:</strong> PRD (FR-2) 要求"只读拷贝"作为背景，但未规定深拷贝还是浅拷贝。</p>
+      <p><strong>Choice:</strong> <code>newSideContext</code> 用 <code>make + copy</code> 复制切片头，元素（<code>agentcore.Message</code> 接口值）共享。</p>
+      <p><strong>Rationale:</strong> 消息一旦入列即不可变（全项目按追加式使用，从不原地改元素），因此复制切片头就足以保证向侧线程 append 永不触及 <code>deps.agentCtx.Messages</code>。深拷贝每条消息是无谓开销。<code>TestNewSideContextIsolated</code> 锁定了这一隔离保证。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 完整复用 streamRun/drainGoalStream 的渲染管线</h3>
+      <p><strong>Ambiguity:</strong> PRD 设计考量提到"行式简化实现"，未指定复用哪段渲染代码。</p>
+      <p><strong>Choice:</strong> <code>drainSideStream</code> 直接照搬 <code>drainGoalStream</code> 的 Markdown 缓冲 + 工具活动渲染，仅把目标 <code>AgentContext</code> 指向侧线程副本，且不做任何持久化。</p>
+      <p><strong>Rationale:</strong> 保持侧线程输出风格与主对话/goal 一致；渲染 bug 只有一处来源。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 本 issue 未实现 <code>btw · side thread</code> 之外的滚动 UI</h3>
+      <p><strong>Spec:</strong> PRD 描述了 pi-btw 风格的 <code>PgUp/PgDn</code> 滚动、固定头部 overlay。</p>
+      <p><strong>Implemented:</strong> 仅打印一次头部横幅 + 行式流式输出。</p>
+      <p><strong>Why:</strong> #279 范围明确限定为"拦截 + 隔离骨架"；多轮追问/退出交互属 #280，滚动浏览为 PRD Open Question 中的可选增强。pigo 当前 REPL 是逐行流式（非全屏 TUI），行式实现与现有架构一致。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 独立 <code>runBtw</code> 函数 vs 复用 <code>streamRun</code> 加参数</h3>
+      <p><strong>Alternatives:</strong> (A) 给 <code>streamRun</code> 加 <code>persist bool</code>/目标 ctx 参数复用；(B) 新写独立的 <code>runBtw</code>/<code>askSide</code>/<code>drainSideStream</code>。</p>
+      <p><strong>Chosen:</strong> B。<strong>Pros:</strong> streamRun 的持久化逻辑（persistTurn、curLeaf 推进、header 更新）与"零污染/零落盘"契约根本对立，加开关会让 streamRun 变得布满 <code>if persist</code> 分支，易误用；独立函数让隔离契约在代码层面显式且不可能意外落盘。<strong>Cons:</strong> 渲染代码有一份复制（与 goal 已有的复制同源）。与 <code>/goal</code> 的既有模式一致，团队已接受这种"每个特殊模式一个 drain 函数"的结构。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 侧线程内工具调用的信任确认沿用主会话策略是否符合预期</h3>
+      <p><strong>Assumption:</strong> <code>askSide</code> 复用了 <code>trustBeforeToolCall</code>，即侧线程若触发 bash/write/edit 仍走主会话的信任确认。</p>
+      <p><strong>Verify:</strong> 确认这是期望行为——即侧问也能像主对话一样执行副作用工具（PRD Non-Goals 已声明本期不为侧线程单设权限模型）。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> SIGINT 退出侧线程的完整语义待 #280 落地</h3>
+      <p><strong>Assumption:</strong> 当前 <code>Ctrl+C</code> 取消运行中的侧问并打印 "left side thread"，随即返回主提示符（因单问即结束）。</p>
+      <p><strong>Verify:</strong> #280 引入多轮追问循环后，需确认"运行中取消 vs 空闲退出"的两段式 <code>Ctrl+C</code> 语义与此骨架衔接一致。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

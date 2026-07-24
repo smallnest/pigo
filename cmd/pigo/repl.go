@@ -268,6 +268,16 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 			runGoal(setCancel, out, &deps, line)
 			continue
 		}
+		if line == "/btw" || strings.HasPrefix(line, "/btw ") {
+			// /btw is intercepted here (like /goal) because it must run an agent
+			// stream against a COPY of the main context and must NOT mutate or
+			// persist the main conversation — none of which a slash Action closure
+			// can express. The exact-or-space-prefix guard keeps "/btweak" from
+			// being mistaken for "/btw". It reuses the same SIGINT cancel plumbing
+			// as a normal turn via setCancel.
+			runBtw(setCancel, out, &deps, line)
+			continue
+		}
 
 		// Resolve slash-commands: an action command runs and prints its message
 		// (no agent run); a prompt command or skill expands to the text we run; a
