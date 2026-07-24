@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #284</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/284">#284</a> &mdash; /btw: 上下文隔离与零污染的自动化测试 &mdash; 2026-07-24</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 用非空的种子对话作为测试起点</h3>
+      <p><strong>Ambiguity:</strong> AC 只说"主会话零增长"，未规定测试起始状态。空 slice 的零增长是弱证明。</p>
+      <p><strong>Choice:</strong> <code>seedMainContext</code> 先往主上下文塞一轮真实 user+assistant 对话，再跑 <code>/btw</code>，断言前后 count 与逐条内容都不变。</p>
+      <p><strong>Rationale:</strong> 证明 <code>/btw</code> 不仅"不追加"，更"不改写既有历史"——覆盖 shallow-copy 隔离可能被破坏的真实场景。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 快照比对内容而非仅比长度</h3>
+      <p><strong>Ambiguity:</strong> "数量与内容零增长"——如何比"内容"未规定。</p>
+      <p><strong>Choice:</strong> <code>snapshotMessages</code> 把每条消息拍平成 <code>role:text</code> 字符串数组，逐条对比。</p>
+      <p><strong>Rationale:</strong> 泄漏可能替换某条消息而不改长度；逐条比对能抓到这种"等长但内容变了"的污染。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 持久化簿记用非零初值</h3>
+      <p><strong>Ambiguity:</strong> AC-4 要求 <code>persisted/curLeaf/UpdatedAt</code> 不变，但从零值开始无法区分"未改"与"被重置为零"。</p>
+      <p><strong>Choice:</strong> 测试前置 <code>deps.persisted=2</code>、<code>deps.curLeaf="leaf-abc"</code>，再断言 <code>/btw</code> 后仍是这些值。</p>
+      <p><strong>Rationale:</strong> 同时捕获"增量"与"清零"两类回归。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> <code>snapshotMessages</code> 用类型 switch 取 Content，而非接口方法</h3>
+      <p><strong>Spec:</strong> 无——属实现细节。</p>
+      <p><strong>Implemented:</strong> 初稿写成 <code>m.Content()</code>，编译报错（<code>agentcore.Message</code> 接口只有 <code>Role()</code>/<code>isMessage()</code>，无 <code>Content()</code>）。改为对 <code>UserMessage</code>/<code>AssistantMessage</code> 类型 switch 取 <code>.Content</code> 字段。</p>
+      <p><strong>Why:</strong> <code>/btw</code> 只会向侧上下文追加 user/assistant 两类消息，覆盖这两种足够；避免为测试给 agentcore 接口加方法。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 端到端驱动 <code>runREPL</code> 而非直接调 <code>askSide</code></h3>
+      <p><strong>Alternatives:</strong> (A) 用 <code>strings.NewReader</code> 喂 <code>/btw ...\n/exit</code> 跑完整 REPL 循环；(B) 直接调内部 <code>askSide</code>/<code>runBtw</code> 断言。</p>
+      <p><strong>Chosen:</strong> A（延续 btw_test.go 既有风格）。<strong>Pros:</strong> 覆盖真实拦截路径（repl.go 的 <code>/btw</code> 拦截 → runBtw → askSide → 不落盘），最贴近用户行为；同一测试顺带验证追问循环。<strong>Cons:</strong> 比单元调用慢一点、失败定位略粗——但都是毫秒级 fake provider，可接受。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 是否需要断言 store 文件的 mtime / 字节数不变</h3>
+      <p><strong>Assumption:</strong> 用 <code>store.LoadEntries</code> 断言"该会话零 entry"已足以证明未落盘；不额外检查磁盘文件时间戳/大小。</p>
+      <p><strong>Verify:</strong> 确认"无 entry 写入"是"零污染落盘"的充分证明；若将来 store 有旁路写入（如索引文件），需补充断言。</p>
+    </div>
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
