@@ -71,7 +71,7 @@ func TestBuildSlashRegistryIncludesSkills(t *testing.T) {
 	t.Setenv("PIGO_HOME", t.TempDir())
 	writeSkill(t, dir, "summarize.md", "---\nname: summarize\ndescription: summarize input\n---\nSummarize the following: $ARGUMENTS")
 
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, false)
+	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, false, nil)
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestBuildSlashRegistryNoSkills(t *testing.T) {
 	t.Setenv("PIGO_HOME", t.TempDir())
 	writeSkill(t, dir, "summarize.md", "---\nname: summarize\ndescription: summarize input\n---\nSummarize the following: $ARGUMENTS")
 
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, true)
+	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, true, nil)
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}
