@@ -361,23 +361,30 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 	}
 	stream := runtime.StartRun(ctx, deps.agentCtx, cfg)
 
-	// atLineStart tracks whether the cursor sits at the start of a line, so the
-	// turn-end flush adds a newline only after streamed text (and tool activity
-	// is surfaced on its own lines below the reply).
-	atLineStart := true
+	// The assistant reply is Markdown, which can only be laid out once the whole
+	// block is known, so streamed text is buffered here and rendered at turn end
+	// (renderMarkdown). On non-terminal output renderMarkdown returns the raw
+	// source, so pipes/tests are unchanged. flushReply guarantees the rendered
+	// block ends on a fresh line so tool activity below it starts cleanly.
+	var reply strings.Builder
+	flushReply := func() {
+		if reply.Len() == 0 {
+			return
+		}
+		rendered := renderMarkdown(reply.String())
+		fmt.Fprint(out, rendered)
+		if !strings.HasSuffix(rendered, "\n") {
+			fmt.Fprintln(out)
+		}
+		reply.Reset()
+	}
 	_, err = runtime.DrainStream(ctx, stream, runtime.StreamHandler{
 		OnEvent: deps.notifierHandle(),
 		OnText: func(delta string) {
-			fmt.Fprint(out, delta)
-			if delta != "" {
-				atLineStart = strings.HasSuffix(delta, "\n")
-			}
+			reply.WriteString(delta)
 		},
 		OnTurnEnd: func(msg agentcore.AssistantMessage, results []agentcore.ToolResultMessage) {
-			if !atLineStart {
-				fmt.Fprintln(out)
-				atLineStart = true
-			}
+			flushReply()
 			for _, c := range msg.ToolCalls() {
 				fmt.Fprintf(out, "  %s %s\n", colorize(colorEnabled(), ansiGreen, "→ tool:"), toolCallLabel(c))
 			}
@@ -386,6 +393,9 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 			}
 		},
 	})
+	// A run can end (error or interrupt) with buffered text from a final turn
+	// that never fired OnTurnEnd; flush it so no reply is silently dropped.
+	flushReply()
 	if err != nil {
 		if ctx.Err() != nil {
 			fmt.Fprintln(out, "^C interrupted")
