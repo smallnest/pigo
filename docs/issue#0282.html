@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #282</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/282">#282</a> &mdash; /btw: 独立的 model / thinking 覆盖配置 &mdash; 2026-07-24</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 配置文件路径复用 <code>configDir()</code>，落在 <code>$PIGO_HOME/btw.json</code></h3>
+      <p><strong>Ambiguity:</strong> Issue 要求"对标 pi-btw.json 的覆盖配置"，但未规定文件名与目录。</p>
+      <p><strong>Choice:</strong> <code>btwConfigPath()</code> 复用既有 <code>configDir()</code>（<code>$PIGO_HOME</code> 或 <code>~/.pigo</code>），文件名 <code>btw.json</code>；<code>configDir()</code> 返回空时视为"无配置"。</p>
+      <p><strong>Rationale:</strong> 与 pigo 其它配置同目录，用户心智一致；命名对齐 pi-btw；空目录静默降级避免在无 HOME 环境崩溃。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 每次 <code>/btw</code> 调用重新读取配置</h3>
+      <p><strong>Ambiguity:</strong> 未规定配置的读取时机（启动时一次 vs 每次调用）。</p>
+      <p><strong>Choice:</strong> <code>runBtw</code> 开头调用 <code>resolveBtwSettings(out, deps)</code>，每次 <code>/btw</code> 都重读 <code>btw.json</code>。</p>
+      <p><strong>Rationale:</strong> 编辑配置后无需重启 pigo，下次 <code>/btw</code> 即生效；配置文件极小，重读成本可忽略。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 逐字段降级（partial config）</h3>
+      <p><strong>Ambiguity:</strong> "部分配置"如何处理未规定。</p>
+      <p><strong>Choice:</strong> <code>btwRunSettings</code> 先以 <code>deps.live</code> 会话默认填满，再逐字段用 btw.json 覆盖；只设 <code>thinkingLevel</code> 时 model 仍继承会话，反之亦然。</p>
+      <p><strong>Rationale:</strong> 用户可只覆盖关心的一项；空字段/缺字段一律"继承默认"，语义直观。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 无效值只警告一行并降级，从不使 <code>/btw</code> 失败</h3>
+      <p><strong>Spec:</strong> Issue 要求"覆盖 model/thinking"，未明确错误处理策略。</p>
+      <p><strong>Implemented:</strong> 畸形 JSON → 一行 <code>invalid btw.json</code> 警告后整体继承；非法 <code>thinkingLevel</code> → 一行警告后保留会话值；model 无法 resolve/鉴权 → 一行警告后回退会话 model+provider。全部非致命。</p>
+      <p><strong>Why:</strong> 侧线程是"随手一问"的辅助功能，配置错误不应阻断提问；一行 dim 警告足以提示用户而不打断心流。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 通过 <code>btwRunSettings</code> 传参，而非临时改写 <code>deps.live</code></h3>
+      <p><strong>Alternatives:</strong> (A) 把解析后的 model/thinking 打包成 <code>btwRunSettings</code>，穿过 <code>askSide</code>/<code>btwFollowUpLoop</code> 显式传递；(B) 进入 <code>/btw</code> 时临时改 <code>deps.live</code>，退出时还原。</p>
+      <p><strong>Chosen:</strong> A。<strong>Pros:</strong> <code>deps.live</code> 永不被侧线程触碰，覆盖绝无可能泄漏进主会话（FR-8）；无需 defer 还原、无 panic 泄漏风险；可测（<code>TestBtwConfigDoesNotMutateSession</code>）。<strong>Cons:</strong> 三个函数签名各加一个 <code>settings</code> 参数，调用点略啰嗦。</p>
+      <p><strong>Rationale:</strong> 隔离正确性 &gt; 签名简洁；B 的"改了再还原"在 Ctrl+C/异常路径下极易漏还原，风险不值当。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> model 覆盖复用 <code>resolveProvider</code> 而非新解析逻辑</h3>
+      <p><strong>Alternatives:</strong> (A) 复用 <code>/model</code> 用的 <code>resolveProvider(model, baseURL, protocol, "")</code>；(B) 为 btw 写独立的 provider 解析。</p>
+      <p><strong>Chosen:</strong> A。<strong>Pros:</strong> 与 <code>/model</code> 行为完全一致（preset 目录、ollama 前缀、协议推断），零重复。<strong>Cons:</strong> 沿用会话的 <code>baseURL</code>/<code>protocol</code>，btw.json 无法单独覆盖 base URL —— 但本 issue 只要求 model/thinking，未超范围。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> btw.json 是否需要支持覆盖 baseURL / protocol / provider</h3>
+      <p><strong>Assumption:</strong> 本 issue 仅覆盖 <code>model</code> 与 <code>thinkingLevel</code>；model 的 provider 由 <code>resolveProvider</code> 从会话的 baseURL/protocol 推断。</p>
+      <p><strong>Verify:</strong> 确认"侧线程用另一 provider/自定义 base URL"不在需求内。若将来需要跨 provider 的侧线程（如主用 anthropic、侧用本地 ollama），需扩展 <code>btwConfig</code> 增加 baseURL/protocol 字段。</p>
+    </div>
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
