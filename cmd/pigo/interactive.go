@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/builtinskills"
 	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
@@ -203,6 +204,7 @@ func runInteractive(opts interactiveOptions) error {
 		curLeaf:   curLeaf,
 		persisted: len(history),
 		notifier:  plugin.NewEventNotifier(opts.plugins, os.Stderr),
+		goal:      agenttool.NewGoalState(),
 	})
 }
 
@@ -501,6 +503,7 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
 		{"import", "import a JSONL export as a new session: /import <path.jsonl>"},
 		{"copy", "copy the most recent assistant reply to the clipboard"},
 		{"session", "show session stats: messages, tokens, model, compactions"},
+		{"goal", "run autonomously toward a goal: /goal [--tokens N] <objective> | pause | resume | clear"},
 	} {
 		reg.AddBuiltin(runtime.SlashCommand{
 			Name:        c.name,

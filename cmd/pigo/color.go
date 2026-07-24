@@ -10,12 +10,13 @@ import "os"
 // ANSI SGR escape sequences used by the REPL. Kept unexported and small — this
 // is not a general-purpose styling library.
 const (
-	ansiReset = "\033[0m"
-	ansiBold  = "\033[1m"
-	ansiDim   = "\033[2m"
-	ansiCyan  = "\033[36m"
-	ansiGreen = "\033[32m"
-	ansiRed   = "\033[31m"
+	ansiReset  = "\033[0m"
+	ansiBold   = "\033[1m"
+	ansiDim    = "\033[2m"
+	ansiCyan   = "\033[36m"
+	ansiGreen  = "\033[32m"
+	ansiRed    = "\033[31m"
+	ansiYellow = "\033[33m"
 )
 
 // colorEnabled reports whether ANSI color should be emitted. Color is on only
