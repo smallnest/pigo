@@ -169,6 +169,11 @@ func (e *replLineEditor) readLine(prompt string) (string, error) {
 	// (the best match) whenever the input text changes, since the candidate list
 	// is recomputed from scratch.
 	selected := 0
+	// histNav tracks the position while browsing prior inputs with the arrow
+	// keys on a blank line: -1 means not browsing, otherwise it indexes into
+	// e.history (oldest to newest). It resets to -1 whenever the user edits the
+	// line, so history browsing is only active while stepping through entries.
+	histNav := -1
 	// visible returns the suggestion currently shown/accepted: the candidate at
 	// the selected index, clamped to the available list.
 	visible := func() string {
@@ -218,18 +223,21 @@ func (e *replLineEditor) readLine(prompt string) (string, error) {
 			if s := visible(); s != "" {
 				input = s
 				selected = 0
+				histNav = -1
 			}
 		case 8, 127:
 			if input != "" {
 				_, size := utf8.DecodeLastRuneInString(input)
 				input = input[:len(input)-size]
 				selected = 0
+				histNav = -1
 			}
 		case 27:
 			// Arrow keys drive suggestion selection: → accepts the visible
-			// suggestion, ↑/↓ cycle to the previous/next candidate. Any other
-			// escape sequence is consumed and ignored so it never leaks into the
-			// submitted text.
+			// suggestion, ↑/↓ cycle to the previous/next candidate. On a blank
+			// line ↑/↓ instead browse prior inputs (most recent first). Any
+			// other escape sequence is consumed and ignored so it never leaks
+			// into the submitted text.
 			b2, _ := e.in.ReadByte()
 			b3, _ := e.in.ReadByte()
 			if b2 == '[' {
@@ -238,13 +246,35 @@ func (e *replLineEditor) readLine(prompt string) (string, error) {
 					if s := visible(); s != "" {
 						input = s
 						selected = 0
+						histNav = -1
 					}
-				case 'A': // up arrow: previous suggestion
-					if n := len(e.suggestions(input)); n > 0 {
+				case 'A': // up arrow
+					if input == "" || histNav >= 0 {
+						// Browse history: step toward older entries.
+						if histNav < 0 {
+							histNav = len(e.history)
+						}
+						if histNav > 0 {
+							histNav--
+							input = e.history[histNav]
+							selected = 0
+						}
+					} else if n := len(e.suggestions(input)); n > 0 {
 						selected = (selected - 1 + n) % n
 					}
-				case 'B': // down arrow: next suggestion
-					if n := len(e.suggestions(input)); n > 0 {
+				case 'B': // down arrow
+					if histNav >= 0 {
+						// Browse history: step toward newer entries; past the
+						// newest, return to a blank line.
+						if histNav < len(e.history)-1 {
+							histNav++
+							input = e.history[histNav]
+						} else {
+							histNav = -1
+							input = ""
+						}
+						selected = 0
+					} else if n := len(e.suggestions(input)); n > 0 {
 						selected = (selected + 1) % n
 					}
 				}
@@ -269,6 +299,7 @@ func (e *replLineEditor) readLine(prompt string) (string, error) {
 			}
 			input += string(bytes)
 			selected = 0
+			histNav = -1
 		}
 		render()
 	}
