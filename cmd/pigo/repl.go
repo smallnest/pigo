@@ -242,8 +242,10 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 		}
 
 		// Resolve slash-commands: an action command runs and prints its message
-		// (no agent run); a prompt command or skill expands to the text we run; an
-		// unknown command prints an error and returns to the prompt.
+		// (no agent run); a prompt command or skill expands to the text we run; a
+		// hybrid (plugin) command runs its side effect, prints its message
+		// (notifications), then runs the returned prompt if non-empty; an unknown
+		// command prints an error and returns to the prompt.
 		prompt := line
 		if strings.HasPrefix(line, "/") {
 			outcome, err := deps.slash.ResolveOutcome(line)
@@ -255,6 +257,16 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 				if outcome.Message != "" {
 					fmt.Fprintln(out, outcome.Message)
 				}
+				continue
+			}
+			// SlashPrompt. A hybrid command may carry a Message to surface first
+			// (e.g. plugin notifications) alongside the prompt to run.
+			if outcome.Message != "" {
+				fmt.Fprintln(out, outcome.Message)
+			}
+			// A hybrid command with no prompt (only notifications) has nothing to
+			// run; return to the prompt without starting a turn.
+			if outcome.Prompt == "" {
 				continue
 			}
 			prompt = outcome.Prompt

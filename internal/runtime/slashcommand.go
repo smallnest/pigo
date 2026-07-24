@@ -47,17 +47,20 @@ func (s SlashCommandSource) String() string {
 
 // SlashCommand is a resolved command: its name (without the leading "/"), a
 // short description for the command palette, and its source. A command is one
-// of two kinds, distinguished by which callback is set:
+// of three kinds, distinguished by which callback is set:
 //
 //   - A prompt command sets Expand: it turns the invocation arguments into the
 //     prompt text fed to the agent (the original slash-command behavior).
 //   - An action command sets Action instead: it performs a side effect (e.g.
 //     switching the runtime model) and returns a status line to show the user,
 //     rather than producing a prompt. No agent run is started.
+//   - A hybrid command sets Run: it performs a side effect AND may return prompt
+//     text to run — used by plugin commands, which RPC their plugin, surface the
+//     returned notifications, then inject the returned prompt as the next turn.
 //
-// Exactly one of Expand/Action should be set. When both are set Action wins
-// (an action command never doubles as a prompt). This split is what lets a
-// control command like "/model" change runtime state — the old design could
+// Exactly one of Expand/Action/Run should be set. Precedence when more than one
+// is set: Action wins over Run, which wins over Expand. This split is what lets
+// a control command like "/model" change runtime state — the old design could
 // only emit prompt text.
 type SlashCommand struct {
 	Name        string
@@ -74,6 +77,16 @@ type SlashCommand struct {
 	// and mutate live runtime state, which Expand (a pure prompt producer)
 	// cannot. Nil for a prompt command.
 	Action func(args string) string
+	// Run is the hybrid of Action and Expand: it performs a side effect AND may
+	// produce prompt text to run as the next agent turn. It returns
+	// (message, prompt): message is shown to the user immediately (like an
+	// Action's status, e.g. plugin notifications), and prompt, when non-empty, is
+	// run as a normal turn (like Expand's output). This is what a plugin command
+	// needs — it RPCs its plugin (side effect), surfaces the returned
+	// notifications (message), then injects the returned prompt (prompt). Set
+	// instead of Expand/Action for such a command; nil otherwise. When Run is set
+	// it takes precedence over Expand (but Action still wins over Run).
+	Run func(args string) (message, prompt string)
 }
 
 // SlashKind classifies how a resolved invocation should be handled by the
@@ -94,6 +107,11 @@ const (
 // to run). When Handled is true, Kind says whether Prompt should be run
 // (SlashPrompt) or an action already ran and Message should be shown without
 // starting a run (SlashAction).
+//
+// A hybrid (Run) command resolves to Kind SlashPrompt with BOTH fields set: its
+// side effect already ran, Message carries the text to show the user first
+// (e.g. plugin notifications), and Prompt, when non-empty, is the turn to run
+// after. The caller shows Message (if any) then runs Prompt (if non-empty).
 type SlashOutcome struct {
 	Handled bool
 	Kind    SlashKind
@@ -216,8 +234,10 @@ func (r *SlashRegistry) Resolve(input string) (prompt string, handled bool, err 
 // non-command it returns {Handled:false, Prompt:input}. For a known prompt
 // command it returns {Handled:true, Kind:SlashPrompt, Prompt:<expanded>}. For a
 // known action command it RUNS the action and returns {Handled:true,
-// Kind:SlashAction, Message:<status>} — no prompt to run. An unknown "/name"
-// yields an error.
+// Kind:SlashAction, Message:<status>} — no prompt to run. For a known hybrid
+// (Run) command it RUNS the side effect and returns {Handled:true,
+// Kind:SlashPrompt, Message:<status>, Prompt:<text>} — the caller shows Message
+// then runs Prompt when non-empty. An unknown "/name" yields an error.
 func (r *SlashRegistry) ResolveOutcome(input string) (SlashOutcome, error) {
 	trimmed := strings.TrimLeft(input, " \t")
 	if !strings.HasPrefix(trimmed, "/") {
@@ -236,6 +256,13 @@ func (r *SlashRegistry) ResolveOutcome(input string) (SlashOutcome, error) {
 	}
 	if cmd.Action != nil {
 		return SlashOutcome{Handled: true, Kind: SlashAction, Message: cmd.Action(args)}, nil
+	}
+	if cmd.Run != nil {
+		// A hybrid command runs its side effect now and may yield prompt text.
+		// The outcome is a prompt (SlashPrompt) that also carries a Message to
+		// surface first; the caller shows Message then runs Prompt if non-empty.
+		message, prompt := cmd.Run(args)
+		return SlashOutcome{Handled: true, Kind: SlashPrompt, Message: message, Prompt: prompt}, nil
 	}
 	return SlashOutcome{Handled: true, Kind: SlashPrompt, Prompt: cmd.Expand(args)}, nil
 }

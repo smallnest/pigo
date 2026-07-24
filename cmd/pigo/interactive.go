@@ -7,6 +7,8 @@ package main
 
 import (
 	"bufio"
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -165,7 +167,7 @@ func runInteractive(opts interactiveOptions) error {
 	// ~/.agents/skills. A load error is non-fatal — the REPL still runs with the
 	// built-ins. Instance built-ins that need live state (/model, /help) are
 	// registered against `live`.
-	slash, err := buildSlashRegistry(live, opts.noSkills)
+	slash, err := buildSlashRegistry(live, opts.noSkills, opts.plugins)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pigo: slash-commands: %v\n", err)
 	}
@@ -253,16 +255,18 @@ func stdoutIsTerminal() bool {
 // buildSlashRegistry assembles the REPL slash-command registry: compile-time
 // built-ins seeded by runtime.NewSlashRegistry, the live-state action commands
 // (/model, /help) bound to live, user declarative templates loaded from
-// ~/.pigo/commands (or $PIGO_HOME/commands), plus skills loaded from
-// ~/.agents/skills — each surfaced as a "/skill-name" command (对标 Claude
-// Code's /skill invocation). A missing directory is not an error. Names that
-// collide with a built-in are shadowed (the built-in wins) and reported on
-// stderr. When noSkills is true, skill discovery is skipped entirely (对标 pi
-// 的 --no-skills): user command templates still load, but no /skill-name
-// commands are registered.
-func buildSlashRegistry(live *liveRunConfig, noSkills bool) (*runtime.SlashRegistry, error) {
+// ~/.pigo/commands (or $PIGO_HOME/commands), plugin-declared commands from the
+// loaded Manager, plus skills loaded from ~/.agents/skills — each surfaced as a
+// "/skill-name" command (对标 Claude Code's /skill invocation). A missing
+// directory is not an error. Names that collide with a built-in are shadowed
+// (the built-in wins) and reported on stderr. When noSkills is true, skill
+// discovery is skipped entirely (对标 pi 的 --no-skills): user command
+// templates and plugin commands still load, but no /skill-name commands are
+// registered. mgr may be nil (no plugins loaded).
+func buildSlashRegistry(live *liveRunConfig, noSkills bool, mgr *plugin.Manager) (*runtime.SlashRegistry, error) {
 	reg := runtime.NewSlashRegistry()
 	registerLiveCommands(reg, live)
+	registerPluginCommands(reg, mgr)
 	dir := os.Getenv("PIGO_HOME")
 	if dir == "" {
 		home, err := os.UserHomeDir()
@@ -359,6 +363,66 @@ type liveRunConfig struct {
 // on genuinely long sessions (threshold = window - ReserveTokens), never on
 // ordinary short exchanges.
 const defaultContextWindow = 128000
+
+// registerPluginCommands installs each plugin-declared slash command
+// (Manager.Commands()) into the registry as a hybrid (Run) command. Invoking it
+// RPCs the owning plugin (Plugin.CallCommand), returns the plugin's
+// notifications as the outcome Message, and returns the plugin's Prompt to run
+// as the next turn. Plugin commands are registered with AddUser so a same-named
+// built-in still wins (existing precedence preserved) and a collision is
+// reported as shadowed. mgr may be nil (no plugins), in which case this is a
+// no-op.
+//
+// The args passed to CallCommand are the invocation's raw argument text encoded
+// as a JSON string (json.RawMessage of a quoted string), never null: the host
+// (node #263) expects a JSON string for a no-arg command, so a bare "/cmd"
+// sends `""` rather than nil. Each command captures its own plugin and spec name
+// (loop variables copied per-iteration).
+func registerPluginCommands(reg *runtime.SlashRegistry, mgr *plugin.Manager) {
+	if mgr == nil {
+		return
+	}
+	for _, pc := range mgr.Commands() {
+		pc := pc // capture per iteration
+		reg.AddUser(runtime.SlashCommand{
+			Name:        pc.Spec.Name,
+			Description: pc.Spec.Description,
+			Run: func(args string) (message, prompt string) {
+				// Encode the raw arg text as a JSON string (""for no args), matching
+				// the host's CommandCallParams.Args contract (a JSON string, never
+				// null). json.Marshal of a Go string always succeeds.
+				raw, _ := json.Marshal(args)
+				res, err := pc.Plugin.CallCommand(context.Background(), pc.Spec.Name, json.RawMessage(raw))
+				if err != nil {
+					return fmt.Sprintf("plugin command %q failed: %v", pc.Spec.Name, err), ""
+				}
+				return formatNotifications(res.Notifications), res.Prompt
+			},
+		})
+	}
+}
+
+// formatNotifications renders a plugin command's notifications into a single
+// block to surface to the user, one per line, prefixed by their type (when set)
+// so severity is visible. Returns "" when there are none.
+func formatNotifications(notes []plugin.CommandNotification) string {
+	if len(notes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, n := range notes {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		if n.Type != "" {
+			b.WriteString("[")
+			b.WriteString(n.Type)
+			b.WriteString("] ")
+		}
+		b.WriteString(n.Message)
+	}
+	return b.String()
+}
 
 // registerLiveCommands installs the built-in action commands that need live
 // runtime state. /model views or switches the active model; /help lists the
