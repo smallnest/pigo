@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NovaShield 风控对象图</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Geist', sans-serif;
+      background: #faf6f0;
+      min-height: 100vh;
+      padding: 2.5rem 2rem;
+      color: #1c1917;
+    }
+
+    .container { max-width: 960px; margin: 0 auto; }
+
+    .header { margin-bottom: 2rem; }
+
+    .eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #78716c;
+      margin-bottom: 0.375rem;
+    }
+
+    h1 {
+      font-family: 'Instrument Serif', serif;
+      font-size: 1.75rem;
+      font-weight: 400;
+      color: #1c1917;
+    }
+
+    .subtitle {
+      color: #78716c;
+      font-size: 0.8125rem;
+      margin-top: 0.375rem;
+    }
+
+    .diagram-desc {
+      color: #a8a29e;
+      font-size: 0.6875rem;
+      margin-top: 0.5rem;
+      line-height: 1.5;
+      font-style: italic;
+    }
+
+    .diagram-container {
+      background: #f0ebe3;
+      border: 1px solid rgba(28,25,23,0.12);
+      border-radius: 8px;
+      padding: 1.5rem;
+      overflow-x: auto;
+    }
+
+    svg { width: 100%; min-width: 780px; display: block; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+
+    .card {
+      background: #ffffff;
+      border: 1px solid rgba(28,25,23,0.12);
+      border-radius: 6px;
+      padding: 1.25rem;
+    }
+
+    .card-eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #a8a29e;
+      margin-bottom: 0.5rem;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .card-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .card-dot.ink { background: #1c1917; }
+    .card-dot.accent { background: #d97706; }
+    .card-dot.muted { background: #78716c; }
+
+    .card h3 { font-size: 0.8125rem; font-weight: 600; color: #1c1917; }
+
+    .card ul {
+      list-style: none;
+      color: #78716c;
+      font-size: 0.75rem;
+      line-height: 1.6;
+    }
+
+    .card li { margin-bottom: 0.25rem; }
+
+    .footer {
+      margin-top: 1.5rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(28,25,23,0.08);
+      text-align: center;
+      font-family: 'Geist Mono', monospace;
+      color: #a8a29e;
+      font-size: 0.625rem;
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <p class="eyebrow">Object Diagram</p>
+      <h1>诊断运行时对象快照</h1>
+      <p class="subtitle">ORD-A3F8X2 诊断运行中的 6 个关键对象实例、属性值及引用关系</p>
+      <p class="diagram-desc"><b>对象图 (Object Diagram)</b> — 结构性图形。类图的某一时刻实例映射，描述类图的实例及其相互作用。</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 960 540">
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#78716c"/>
+          </marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#d97706"/>
+          </marker>
+          <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.9" fill="rgba(28,25,23,0.10)"/>
+          </pattern>
+        </defs>
+
+        <!-- Background -->
+        <rect width="100%" height="100%" fill="#faf6f0"/>
+        <rect width="100%" height="100%" fill="url(#dots)" opacity="0.6"/>
+
+        <!-- ============================================================
+             ARROWS (drawn first — z-order behind boxes)
+             ============================================================ -->
+
+        <!-- 1. rabbitMsg → pipeIn (triggers) -->
+        <line x1="312" y1="116" x2="348" y2="116" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="306" y="100" width="48" height="12" rx="2" fill="#faf6f0"/>
+        <text x="330" y="109" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">route</text>
+
+        <!-- 2. pipeIn → metaResp (fetches) -->
+        <line x1="612" y1="116" x2="648" y2="116" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="606" y="100" width="48" height="12" rx="2" fill="#faf6f0"/>
+        <text x="630" y="109" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">fetch</text>
+
+        <!-- 3. metaResp → riskCtx (preprocess — curved path) -->
+        <path d="M780,184 C780,220 180,220 180,260" fill="none" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="448" y="210" width="64" height="12" rx="2" fill="#faf6f0"/>
+        <text x="480" y="219" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">preprocess</text>
+
+        <!-- 4. riskCtx → paymentResult (score — FOCAL accent) -->
+        <line x1="312" y1="320" x2="348" y2="320" stroke="#d97706" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+        <rect x="306" y="304" width="48" height="12" rx="2" fill="#faf6f0"/>
+        <text x="330" y="313" fill="#d97706" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">score</text>
+
+        <!-- 5. paymentResult → riskAlert (assemble) -->
+        <line x1="612" y1="328" x2="648" y2="328" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="604" y="312" width="52" height="12" rx="2" fill="#faf6f0"/>
+        <text x="630" y="321" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">assemble</text>
+
+        <!-- ============================================================
+             OBJECT BOXES (drawn after arrows — z-order above)
+             ============================================================ -->
+
+        <!-- ── rabbitMsg : OrderMessage ── -->
+        <rect x="48" y="48" width="264" height="136" rx="6" fill="#faf6f0"/>
+        <rect x="48" y="48" width="264" height="28" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="48" y="70" width="264" height="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="48" y="48" width="264" height="136" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="48" y1="76" x2="312" y2="76" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <!-- Header text (underlined) -->
+        <text x="60" y="66" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-decoration="underline">rabbitMsg : OrderMessage</text>
+        <!-- Fields -->
+        <text x="60" y="92" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">region = "us-east-1"</text>
+        <text x="60" y="108" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">jobId = "ORD-A3F8X2"</text>
+        <text x="60" y="124" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">version = "v1"</text>
+        <text x="60" y="140" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">tenant = "default"</text>
+        <text x="60" y="156" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">orderType = "digital"</text>
+        <text x="60" y="172" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">triggerType = "log"</text>
+
+        <!-- ── pipeIn : ScanInput ── -->
+        <rect x="348" y="48" width="264" height="120" rx="6" fill="#faf6f0"/>
+        <rect x="348" y="48" width="264" height="28" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="348" y="70" width="264" height="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="348" y="48" width="264" height="120" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="348" y1="76" x2="612" y2="76" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="360" y="66" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-decoration="underline">pipeIn : ScanInput</text>
+        <text x="360" y="92" fill="#d97706" font-size="9" font-family="'Geist Mono', monospace">message → rabbitMsg</text>
+        <text x="360" y="108" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">jobId = "ORD-A3F8X2"</text>
+        <text x="360" y="124" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">platform = "cloudmart"</text>
+        <text x="360" y="140" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">skipEnrichment = false</text>
+        <text x="360" y="156" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">region = "us-east-1"</text>
+
+        <!-- ── metaResp : OrderInfoResponse ── -->
+        <rect x="648" y="48" width="264" height="136" rx="6" fill="#faf6f0"/>
+        <rect x="648" y="48" width="264" height="28" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="648" y="70" width="264" height="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="648" y="48" width="264" height="136" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="648" y1="76" x2="912" y2="76" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="660" y="66" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-decoration="underline">metaResp : OrderInfoResponse</text>
+        <text x="660" y="92" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">status = "success"</text>
+        <text x="660" y="108" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">storageConfig = {region:…}</text>
+        <text x="660" y="124" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">version = "v1"</text>
+        <text x="660" y="140" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">itemCount = 3</text>
+        <text x="660" y="156" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">payMethod = "A100"</text>
+        <text x="660" y="172" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">amount = 64</text>
+
+        <!-- ── riskCtx : ScanContext ── -->
+        <rect x="48" y="260" width="264" height="120" rx="6" fill="#faf6f0"/>
+        <rect x="48" y="260" width="264" height="28" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="48" y="282" width="264" height="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="48" y="260" width="264" height="120" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="48" y1="288" x2="312" y2="288" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="60" y="278" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-decoration="underline">riskCtx : ScanContext</text>
+        <text x="60" y="304" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">jobId = "ORD-A3F8X2"</text>
+        <text x="60" y="320" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">itemCount = 3</text>
+        <text x="60" y="336" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">logSummary = "FRAUD err…"</text>
+        <text x="60" y="352" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">fraud_logSummary = "GPU fault…"</text>
+        <text x="60" y="368" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">timelineSummary = "Chargeback…"</text>
+
+        <!-- ── paymentResult : RiskResult (FOCAL — accent) ── -->
+        <rect x="348" y="260" width="264" height="136" rx="6" fill="#faf6f0"/>
+        <rect x="348" y="260" width="264" height="28" rx="6" fill="rgba(217,119,6,0.10)"/>
+        <rect x="348" y="282" width="264" height="6" fill="rgba(217,119,6,0.10)"/>
+        <rect x="348" y="260" width="264" height="136" rx="6" fill="rgba(217,119,6,0.06)" stroke="#d97706" stroke-width="1.2"/>
+        <line x1="348" y1="288" x2="612" y2="288" stroke="rgba(217,119,6,0.25)" stroke-width="0.8"/>
+        <text x="360" y="278" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-decoration="underline">paymentResult : RiskResult</text>
+        <text x="360" y="304" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">risk_category = "FRAUD"</text>
+        <text x="360" y="320" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">risk_subtype = "PAYMENT_MISMATCH"</text>
+        <text x="360" y="336" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">is_known_pattern = true</text>
+        <text x="360" y="352" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">confidence = 4</text>
+        <text x="360" y="368" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">evidence = "Suspicious IP…"</text>
+        <text x="360" y="384" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">remediation = "Check FRAUD…"</text>
+
+        <!-- ── riskAlert : AlertReport ── -->
+        <rect x="648" y="260" width="264" height="104" rx="6" fill="#faf6f0"/>
+        <rect x="648" y="260" width="264" height="28" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="648" y="282" width="264" height="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="648" y="260" width="264" height="104" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="648" y1="288" x2="912" y2="288" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="660" y="278" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-decoration="underline">riskAlert : AlertReport</text>
+        <text x="660" y="304" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">jobId = "ORD-A3F8X2"</text>
+        <text x="660" y="320" fill="#d97706" font-size="9" font-family="'Geist Mono', monospace">results → [paymentResult]</text>
+        <text x="660" y="336" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">warnings = []</text>
+        <text x="660" y="352" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">createdAt = "2026-05-07…"</text>
+
+        <!-- ============================================================
+             STAGE ANNOTATIONS (left margin)
+             ============================================================ -->
+        <text x="20" y="116" fill="#a8a29e" font-size="7" font-family="'Geist Mono', monospace" letter-spacing="0.08em">CONSUME</text>
+        <text x="20" y="128" fill="#a8a29e" font-size="7" font-family="'Geist Mono', monospace" letter-spacing="0.08em">ROUTE</text>
+        <text x="20" y="320" fill="#a8a29e" font-size="7" font-family="'Geist Mono', monospace" letter-spacing="0.08em">PREPROCESS</text>
+        <text x="20" y="332" fill="#a8a29e" font-size="7" font-family="'Geist Mono', monospace" letter-spacing="0.08em">SCORE</text>
+
+        <!-- ============================================================
+             SCENARIO ANNOTATION (top-right)
+             ============================================================ -->
+        <rect x="724" y="16" width="196" height="16" rx="2" fill="rgba(28,25,23,0.03)" stroke="rgba(28,25,23,0.15)" stroke-width="0.8"/>
+        <text x="822" y="27" fill="#a8a29e" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">SNAPSHOT: ORD-A3F8X2 / v1</text>
+
+        <!-- ============================================================
+             LEGEND (horizontal strip at bottom)
+             ============================================================ -->
+        <line x1="30" y1="420" x2="930" y2="420" stroke="rgba(28,25,23,0.10)" stroke-width="0.8"/>
+        <text x="30" y="444" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+        <!-- Object instance -->
+        <rect x="100" y="432" width="24" height="16" rx="3" fill="#faf6f0" stroke="#1c1917" stroke-width="0.8"/>
+        <line x1="100" y1="440" x2="124" y2="440" stroke="rgba(28,25,23,0.12)" stroke-width="0.5"/>
+        <text x="132" y="444" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">对象实例</text>
+
+        <!-- Focal object -->
+        <rect x="200" y="432" width="24" height="16" rx="3" fill="rgba(217,119,6,0.06)" stroke="#d97706" stroke-width="0.8"/>
+        <line x1="200" y1="440" x2="224" y2="440" stroke="rgba(217,119,6,0.25)" stroke-width="0.5"/>
+        <text x="232" y="444" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">关键对象</text>
+
+        <!-- Flow arrow -->
+        <line x1="312" y1="440" x2="340" y2="440" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <text x="348" y="444" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">数据流转</text>
+
+        <!-- Focal flow arrow -->
+        <line x1="428" y1="440" x2="456" y2="440" stroke="#d97706" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+        <text x="464" y="444" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">诊断阶段</text>
+
+        <!-- Reference -->
+        <text x="552" y="444" fill="#d97706" font-size="9" font-family="'Geist Mono', monospace">→ ref</text>
+        <text x="596" y="444" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">对象引用</text>
+
+        <!-- Curved arrow -->
+        <path d="M680,436 C690,430 700,450 710,444" fill="none" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <text x="718" y="444" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">跨行转换</text>
+
+      </svg>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="cards">
+      <div class="card">
+        <p class="card-eyebrow">INSTANCE</p>
+        <div class="card-header">
+          <div class="card-dot ink"></div>
+          <h3>6 个运行时对象</h3>
+        </div>
+        <ul>
+          <li>• rabbitMsg : OrderMessage — RabbitMQ 接收订单</li>
+          <li>• pipeIn : ScanInput — 4 种路由统一输入</li>
+          <li>• metaResp : OrderInfoResponse — CloudMart 订单信息</li>
+          <li>• riskCtx : ScanContext — 特征提取摘要</li>
+          <li>• paymentResult : RiskResult — 风控结果 (关键)</li>
+          <li>• riskAlert : AlertReport — 告警报告</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <p class="card-eyebrow">NOTATION</p>
+        <div class="card-header">
+          <div class="card-dot accent"></div>
+          <h3>对象图约定</h3>
+        </div>
+        <ul>
+          <li>• 实例名下划线 = UML 对象实例标记</li>
+          <li>• 字段值 = 该时刻的具体数据快照</li>
+          <li>• <span style="color:#d97706">→ ref</span> = 指向另一对象的引用</li>
+          <li>• accent 边框 = 风控结果 (Pipeline 产出)</li>
+          <li>• 弧线箭头 = 跨行数据转换 (含预处理)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer">
+      nova-shield · github.com/novashield/risk-engine
+    </div>
+  </div>
+</body>
+</html>

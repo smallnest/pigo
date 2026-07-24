@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/builtinskills"
 	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
@@ -289,6 +290,19 @@ func buildSlashRegistry(live *liveRunConfig, noSkills bool, mgr *plugin.Manager)
 	// only reported on stderr — so one malformed skill file cannot hide every
 	// other skill.
 	if !noSkills {
+		// First-run bootstrap: copy the built-in skill collections into the
+		// skills directory so they load as /skill-name commands out of the box.
+		// It is silent and best-effort — a failure never blocks the REPL — and
+		// runs before loadSkillCommands so freshly installed skills are picked up
+		// this launch. Skipped entirely under --no-skills, matching the "don't
+		// load ⇒ don't install" expectation. Debug output goes to stderr only
+		// when PIGO_DEBUG is set, keeping normal launches quiet.
+		var blog io.Writer
+		if os.Getenv("PIGO_DEBUG") != "" {
+			blog = os.Stderr
+		}
+		builtinskills.Bootstrap(configDir(), skillsDir(), blog)
+
 		skillCmds, serr := loadSkillCommands()
 		for _, c := range skillCmds {
 			reg.AddUser(c)

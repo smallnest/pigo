@@ -109,3 +109,47 @@ func TestBuildSlashRegistryNoSkills(t *testing.T) {
 		t.Error("/summarize must be unknown when --no-skills disables discovery")
 	}
 }
+
+// TestBuildSlashRegistryBootstrapsBuiltinSkills verifies that on a fresh
+// PIGO_SKILLS_DIR the built-in skills are installed and registered as
+// /skill-name commands (first-run bootstrap), so e.g. /prd resolves without any
+// manual install.
+func TestBuildSlashRegistryBootstrapsBuiltinSkills(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PIGO_SKILLS_DIR", dir)
+	t.Setenv("PIGO_HOME", t.TempDir())
+
+	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, false, nil)
+	if err != nil {
+		t.Fatalf("buildSlashRegistry: %v", err)
+	}
+	for _, name := range []string{"/prd", "/refactor", "/architecture-diagram", "/weather"} {
+		out, err := reg.ResolveOutcome(name)
+		if err != nil {
+			t.Errorf("%s should be registered after bootstrap: %v", name, err)
+			continue
+		}
+		if !out.Handled {
+			t.Errorf("%s should be handled by the registry after bootstrap", name)
+		}
+	}
+}
+
+// TestBuildSlashRegistryNoSkillsSkipsBootstrap verifies --no-skills skips the
+// first-run bootstrap entirely: nothing is written to the skills dir.
+func TestBuildSlashRegistryNoSkillsSkipsBootstrap(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PIGO_SKILLS_DIR", dir)
+	t.Setenv("PIGO_HOME", t.TempDir())
+
+	if _, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, true, nil); err != nil {
+		t.Fatalf("buildSlashRegistry: %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read skills dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("--no-skills must not bootstrap; skills dir has %d entries", len(entries))
+	}
+}

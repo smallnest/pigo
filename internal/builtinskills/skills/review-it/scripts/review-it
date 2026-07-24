@@ -1,0 +1,248 @@
+#!/usr/bin/env bash
+# review-it — Code review closeout helper
+# Orchestrates /review with optional parallel test execution.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILL_DIR="$(dirname "$SCRIPT_DIR")"
+
+MODE="auto"
+BASE="origin/main"
+TESTS=""
+DRY_RUN=false
+AGENT="auto"
+
+usage() {
+    cat <<EOF
+Usage: review-it [options]
+
+Options:
+  --mode auto|local|branch   Target selection. Default: auto.
+      auto:   uncommitted if dirty, branch diff otherwise
+      local:  force review on uncommitted changes
+      branch: force diff review against base
+  --agent auto|claude|antigravity|codex
+                             Agent to target. Default: auto (detects running agent).
+  --base REF                 Base ref for branch review. Default: origin/main.
+  --parallel-tests CMD       Run tests in parallel with review.
+  --dry-run                  Print what would be executed, don't run.
+  --help                     Show this help.
+
+Environment:
+  CC_REVIEW_OUTPUT           File to write review output to (default: stdout only).
+
+For branch mode, generates a git diff against the base and instructs
+Claude Code's /review to analyze it.
+
+Examples:
+  review-it                           # auto-detect mode and agent
+  review-it --agent antigravity       # use /code-review for Antigravity CLI
+  review-it --mode local              # review uncommitted changes
+  review-it --mode branch             # review branch vs origin/main
+  review-it --parallel-tests "go test ./..."  # review + test in parallel
+EOF
+    exit 0
+}
+
+# --- Parse args ---
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --mode) MODE="$2"; shift 2 ;;
+        --agent) AGENT="$2"; shift 2 ;;
+        --base) BASE="$2"; shift 2 ;;
+        --parallel-tests) TESTS="$2"; shift 2 ;;
+        --dry-run) DRY_RUN=true; shift ;;
+        --help) usage ;;
+        *) echo "Unknown option: $1"; usage ;;
+    esac
+done
+
+# --- Detect state ---
+STAGED=$(git diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')
+UNSTAGED=$(git diff --name-only 2>/dev/null | wc -l | tr -d ' ')
+UNTRACKED=$(git ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d ' ')
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "HEAD")
+IS_MAIN=false
+[[ "$CURRENT_BRANCH" == "main" || "$CURRENT_BRANCH" == "master" ]] && IS_MAIN=true
+
+HAS_DIRTY=false
+[[ "$STAGED" -gt 0 || "$UNSTAGED" -gt 0 || "$UNTRACKED" -gt 0 ]] && HAS_DIRTY=true
+
+# --- Detect agent ---
+detect_agent() {
+    # Check environment variables / parent process
+    if [[ -n "${ANTIGRAVITY_CLI:-}" ]] || [[ -n "${GEMINI_CLI:-}" ]]; then
+        echo "antigravity"
+    elif [[ -n "${CLAUDE_CODE:-}" ]] || [[ -n "${CLAUDE_CLI:-}" ]]; then
+        echo "claude"
+    elif command -v codex &>/dev/null && [[ -n "${CODEX_CLI:-}" ]]; then
+        echo "codex"
+    else
+        # Default to claude as most common
+        echo "claude"
+    fi
+}
+
+if [[ "$AGENT" == "auto" ]]; then
+    DETECTED_AGENT=$(detect_agent)
+else
+    DETECTED_AGENT="$AGENT"
+fi
+
+# --- Resolve review command by agent ---
+review_cmd_for() {
+    local mode="$1"
+    local diff_file="$2"
+    case "$DETECTED_AGENT" in
+        antigravity)
+            if [[ "$mode" == "local" ]]; then
+                echo "/code-review"
+            else
+                echo "/code-review the changes in $diff_file against $BASE"
+            fi
+            ;;
+        codex)
+            if [[ "$mode" == "local" ]]; then
+                echo "codex review"
+            else
+                echo "codex review $diff_file"
+            fi
+            ;;
+        claude|*)
+            if [[ "$mode" == "local" ]]; then
+                echo "/review"
+            else
+                echo "/review the changes in $diff_file against $BASE"
+            fi
+            ;;
+    esac
+}
+
+# --- Resolve mode ---
+if [[ "$MODE" == "auto" ]]; then
+    if $HAS_DIRTY; then
+        REVIEW_MODE="local"
+    elif $IS_MAIN; then
+        echo "review-it: on main with clean tree, nothing to review."
+        exit 0
+    else
+        REVIEW_MODE="branch"
+    fi
+else
+    REVIEW_MODE="$MODE"
+fi
+
+# --- Check for PR base ---
+if [[ "$REVIEW_MODE" == "branch" ]]; then
+    if command -v gh &>/dev/null; then
+        PR_BASE=$(gh pr view --json baseRefName --jq .baseRefName 2>/dev/null || echo "")
+        if [[ -n "$PR_BASE" ]]; then
+            BASE="origin/$PR_BASE"
+        fi
+    fi
+    # Fetch the base to ensure we have it
+    if ! $DRY_RUN; then
+        git fetch origin "$(echo "$BASE" | sed 's|origin/||')" 2>/dev/null || true
+    fi
+fi
+
+# --- Build review command ---
+DIFF_FILE=""
+case "$REVIEW_MODE" in
+    local)
+        REVIEW_DESC="uncommitted changes"
+        ;;
+    branch)
+        DIFF_FILE="/tmp/review-it-$$.diff"
+        REVIEW_DESC="branch $CURRENT_BRANCH vs $BASE"
+        ;;
+    *)
+        echo "review-it: unknown mode $REVIEW_MODE"
+        exit 1
+        ;;
+esac
+
+REVIEW_CMD=$(review_cmd_for "$REVIEW_MODE" "$DIFF_FILE")
+
+# --- Dry run ---
+if $DRY_RUN; then
+    echo "mode:     $REVIEW_MODE"
+    echo "agent:    $DETECTED_AGENT"
+    echo "target:   $REVIEW_DESC"
+    echo "review:   $REVIEW_CMD"
+    echo "dirty:    staged=$STAGED unstaged=$UNSTAGED untracked=$UNTRACKED"
+    if [[ "$REVIEW_MODE" == "branch" ]]; then
+        echo "diff:     $DIFF_FILE"
+        echo "base:     $BASE"
+    fi
+    if [[ -n "$TESTS" ]]; then
+        echo "tests:    $TESTS"
+    fi
+    exit 0
+fi
+
+# --- Run ---
+echo "review-it: mode=$REVIEW_MODE agent=$DETECTED_AGENT target=$REVIEW_DESC"
+echo ""
+
+# Generate diff for branch mode
+if [[ "$REVIEW_MODE" == "branch" ]]; then
+    if ! git diff "$BASE"...HEAD > "$DIFF_FILE" 2>/dev/null; then
+        echo "review-it: failed to generate diff against $BASE"
+        exit 1
+    fi
+    if [[ ! -s "$DIFF_FILE" ]]; then
+        echo "review-it: no changes between $BASE and HEAD"
+        rm -f "$DIFF_FILE"
+        exit 0
+    fi
+    echo "review-it: generated diff ($(wc -l < "$DIFF_FILE" | tr -d ' ') lines) at $DIFF_FILE"
+    echo ""
+fi
+
+# Run tests in background if requested
+TEST_PID=""
+if [[ -n "$TESTS" ]]; then
+    echo "review-it: running tests in background: $TESTS"
+    eval "$TESTS" > /tmp/review-it-tests-$$.log 2>&1 &
+    TEST_PID=$!
+    echo "review-it: test PID=$TEST_PID"
+    echo ""
+fi
+
+# Run review (this is a signal to the user — the actual /review
+# is executed by Claude Code when it reads this output)
+cat <<CCEOF
+review-it: ready for review ($REVIEW_DESC)
+
+$REVIEW_CMD
+CCEOF
+
+# Wait for tests if running
+if [[ -n "$TEST_PID" ]]; then
+    echo ""
+    echo "review-it: waiting for tests to complete (PID=$TEST_PID)..."
+    wait "$TEST_PID" 2>/dev/null || true
+    TEST_EXIT=$?
+    echo ""
+    echo "--- test output ---"
+    cat /tmp/review-it-tests-$$.log
+    echo "--- end test output ---"
+    rm -f /tmp/review-it-tests-$$.log
+    if [[ $TEST_EXIT -ne 0 ]]; then
+        echo ""
+        echo "review-it: tests FAILED (exit=$TEST_EXIT)"
+        exit $TEST_EXIT
+    else
+        echo ""
+        echo "review-it: tests passed"
+    fi
+fi
+
+# Cleanup
+if [[ "$REVIEW_MODE" == "branch" ]]; then
+    rm -f "$DIFF_FILE"
+fi
+
+echo ""
+echo "review-it: done"

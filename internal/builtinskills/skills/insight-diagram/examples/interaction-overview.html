@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NovaShield 风控交互概览图</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Geist', sans-serif;
+      background: #faf6f0;
+      min-height: 100vh;
+      padding: 2.5rem 2rem;
+      color: #1c1917;
+    }
+    .container { max-width: 960px; margin: 0 auto; }
+    .header { margin-bottom: 2rem; }
+    .eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #78716c;
+      margin-bottom: 0.375rem;
+    }
+    h1 {
+      font-family: 'Instrument Serif', serif;
+      font-size: 1.75rem;
+      font-weight: 400;
+      color: #1c1917;
+    }
+    .subtitle {
+      color: #78716c;
+      font-size: 0.8125rem;
+      margin-top: 0.375rem;
+    }
+    .diagram-desc {
+      color: #a8a29e;
+      font-size: 0.6875rem;
+      margin-top: 0.5rem;
+      line-height: 1.5;
+      font-style: italic;
+    }
+    .diagram-container {
+      background: #f0ebe3;
+      border: 1px solid rgba(28,25,23,0.12);
+      border-radius: 8px;
+      padding: 1.5rem;
+      overflow-x: auto;
+    }
+    svg { width: 100%; min-width: 640px; display: block; }
+    .cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid rgba(28,25,23,0.12);
+      border-radius: 6px;
+      padding: 1.25rem;
+    }
+    .card-eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #a8a29e;
+      margin-bottom: 0.5rem;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .card-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .card-dot.ink { background: #1c1917; }
+    .card-dot.accent { background: #d97706; }
+    .card-dot.muted { background: #78716c; }
+    .card-dot.link { background: #c05621; }
+    .card h3 { font-size: 0.8125rem; font-weight: 600; color: #1c1917; }
+    .card ul {
+      list-style: none;
+      color: #78716c;
+      font-size: 0.75rem;
+      line-height: 1.6;
+    }
+    .card li { margin-bottom: 0.25rem; }
+    .footer {
+      margin-top: 1.5rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(28,25,23,0.08);
+      text-align: center;
+      font-family: 'Geist Mono', monospace;
+      color: #a8a29e;
+      font-size: 0.625rem;
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <p class="eyebrow">Interaction Overview Diagram</p>
+      <h1>诊断交互概览</h1>
+      <p class="subtitle">5 个交互片段 · 3 个判断节点 · 1 条降级分支 · 主路径 5min 超时</p>
+      <p class="diagram-desc"><b>交互概览图 (Interaction Overview Diagram)</b> — 行为性图形·交互图。活动图变体，节点代表交互片段（序列图引用），展示控制流在交互之间的流转。</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 720 960">
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#78716c"/>
+          </marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#d97706"/>
+          </marker>
+          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#c05621"/>
+          </marker>
+          <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.9" fill="rgba(28,25,23,0.10)"/>
+          </pattern>
+        </defs>
+
+        <!-- Background -->
+        <rect width="100%" height="100%" fill="#faf6f0"/>
+        <rect width="100%" height="100%" fill="url(#dots)" opacity="0.6"/>
+
+        <!-- ============================================================
+             ARROWS (drawn first — z-order behind nodes)
+             ============================================================ -->
+
+        <!-- 1. Start → 去重? -->
+        <line x1="280" y1="60" x2="280" y2="100" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+
+        <!-- 2. 去重? → skip (重复, right) -->
+        <line x1="344" y1="132" x2="448" y2="132" stroke="#a8a29e" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+        <rect x="372" y="116" width="36" height="12" rx="2" fill="#faf6f0"/>
+        <text x="390" y="126" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">重复</text>
+
+        <!-- 3. 去重? → 数据补充 (新消息, down) -->
+        <line x1="280" y1="164" x2="280" y2="208" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="248" y="172" width="44" height="12" rx="2" fill="#faf6f0"/>
+        <text x="270" y="182" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">新消息</text>
+
+        <!-- 4. 数据补充 → 验证? -->
+        <line x1="280" y1="264" x2="280" y2="304" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+
+        <!-- 5. 验证? → Alert (失败, left L-path) -->
+        <path d="M 216,336 L 132,336 L 132,752 L 164,752" fill="none" stroke="#c05621" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow-link)"/>
+        <rect x="148" y="320" width="36" height="12" rx="2" fill="#faf6f0"/>
+        <text x="166" y="330" fill="#c05621" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">失败</text>
+
+        <!-- 6. 验证? → 预处理 (通过, down) -->
+        <line x1="280" y1="368" x2="280" y2="408" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="260" y="376" width="28" height="12" rx="2" fill="#faf6f0"/>
+        <text x="274" y="386" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">通过</text>
+
+        <!-- 7. 预处理 → 规则查询 (sequential — data flows) -->
+        <line x1="280" y1="472" x2="280" y2="512" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="244" y="480" width="56" height="12" rx="2" fill="#faf6f0"/>
+        <text x="272" y="490" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">RiskCtx</text>
+
+        <!-- 8. 规则查询 → 风控评分 (FOCAL — accent) -->
+        <line x1="280" y1="576" x2="280" y2="616" stroke="#d97706" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+
+        <!-- 9. 风控评分 → 成功? (accent) -->
+        <line x1="280" y1="680" x2="280" y2="720" stroke="#d97706" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+
+        <!-- 10. 成功? → 告警发送 (成功, down) -->
+        <line x1="280" y1="784" x2="280" y2="744" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <!-- Merge: both paths go to result reporting -->
+
+        <!-- 11. 成功? → Fallback (失败, right) -->
+        <path d="M 344,752 L 396,752 L 396,720 L 440,720" fill="none" stroke="#c05621" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow-link)"/>
+        <rect x="352" y="736" width="36" height="12" rx="2" fill="#faf6f0"/>
+        <text x="370" y="746" fill="#c05621" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">失败</text>
+
+        <!-- 12. Fallback → 告警发送 (merge) -->
+        <path d="M 532,740 L 532,768 L 396,768 L 396,752 L 396,752" fill="none" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+
+        <!-- 告警发送 → End -->
+        <line x1="280" y1="808" x2="280" y2="856" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+
+        <!-- ============================================================
+             NODES (drawn after arrows — z-order above)
+             ============================================================ -->
+
+        <!-- Start oval -->
+        <rect x="204" y="24" width="152" height="36" rx="18" fill="#faf6f0" stroke="#78716c" stroke-width="1"/>
+        <text x="280" y="47" fill="#1c1917" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">消息到达</text>
+
+        <!-- 去重? diamond -->
+        <polygon points="280,100 344,132 280,164 216,132" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+        <text x="280" y="136" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">去重?</text>
+
+        <!-- Skip label -->
+        <text x="460" y="136" fill="#a8a29e" font-size="9" font-family="'Geist Mono', monospace">跳过</text>
+
+        <!-- ── Interaction: 数据补充 ── -->
+        <rect x="156" y="208" width="248" height="56" rx="6" fill="#faf6f0"/>
+        <rect x="156" y="208" width="248" height="56" rx="6" fill="#ffffff" stroke="#1c1917" stroke-width="1"/>
+        <rect x="348" y="212" width="48" height="12" rx="2" fill="transparent" stroke="rgba(28,25,23,0.30)" stroke-width="0.8"/>
+        <text x="372" y="221" fill="rgba(28,25,23,0.70)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ref</text>
+        <text x="276" y="236" fill="#1c1917" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">数据补充</text>
+        <text x="276" y="252" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">Fetch + Download</text>
+
+        <!-- 验证? diamond -->
+        <polygon points="280,304 344,336 280,368 216,336" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+        <text x="280" y="340" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">验证?</text>
+
+        <!-- ── Interaction: 预处理 (4a) ── -->
+        <rect x="156" y="408" width="248" height="64" rx="6" fill="#faf6f0"/>
+        <rect x="156" y="408" width="248" height="64" rx="6" fill="#ffffff" stroke="#1c1917" stroke-width="1"/>
+        <rect x="348" y="412" width="48" height="12" rx="2" fill="transparent" stroke="rgba(28,25,23,0.30)" stroke-width="0.8"/>
+        <text x="372" y="421" fill="rgba(28,25,23,0.70)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ref</text>
+        <text x="276" y="440" fill="#1c1917" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">预处理</text>
+        <text x="276" y="456" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">fraud_log:log:event:device = 8:4:2:1</text>
+
+        <!-- ── Interaction: 规则查询 (4b) ── -->
+        <rect x="156" y="512" width="248" height="64" rx="6" fill="#faf6f0"/>
+        <rect x="156" y="512" width="248" height="64" rx="6" fill="rgba(139,111,138,0.04)" stroke="#8B6F8A" stroke-width="1"/>
+        <rect x="348" y="516" width="48" height="12" rx="2" fill="transparent" stroke="rgba(139,111,138,0.30)" stroke-width="0.8"/>
+        <text x="372" y="525" fill="rgba(139,111,138,0.70)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ref</text>
+        <text x="276" y="544" fill="#1c1917" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">规则查询</text>
+        <text x="276" y="560" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">GPT API · riskKB · 30min cache</text>
+
+        <!-- ── Interaction: 风控评分 (FOCAL — accent) ── -->
+        <rect x="156" y="616" width="248" height="64" rx="6" fill="#faf6f0"/>
+        <rect x="156" y="616" width="248" height="64" rx="6" fill="rgba(217,119,6,0.06)" stroke="#d97706" stroke-width="1.2"/>
+        <rect x="348" y="620" width="48" height="12" rx="2" fill="transparent" stroke="rgba(217,119,6,0.40)" stroke-width="0.8"/>
+        <text x="372" y="629" fill="rgba(217,119,6,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ref</text>
+        <text x="276" y="648" fill="#1c1917" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">风控评分</text>
+        <text x="276" y="664" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">GPT Engine → Fallback</text>
+
+        <!-- 成功? diamond -->
+        <polygon points="280,720 344,752 280,784 216,752" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+        <text x="280" y="756" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">成功?</text>
+
+        <!-- ── Interaction: Fallback (optional, dashed) ── -->
+        <rect x="440" y="700" width="168" height="40" rx="6" fill="#faf6f0"/>
+        <rect x="440" y="700" width="168" height="40" rx="6" fill="rgba(28,25,23,0.02)" stroke="rgba(28,25,23,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+        <rect x="556" y="704" width="44" height="12" rx="2" fill="transparent" stroke="rgba(28,25,23,0.20)" stroke-width="0.8"/>
+        <text x="578" y="713" fill="rgba(28,25,23,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ref</text>
+        <text x="520" y="724" fill="#78716c" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Fallback 降级</text>
+
+        <!-- ── Interaction: 告警发送 ── -->
+        <rect x="164" y="744" width="232" height="64" rx="6" fill="#faf6f0"/>
+        <rect x="164" y="744" width="232" height="64" rx="6" fill="#ffffff" stroke="#1c1917" stroke-width="1"/>
+        <rect x="340" y="748" width="48" height="12" rx="2" fill="transparent" stroke="rgba(28,25,23,0.30)" stroke-width="0.8"/>
+        <text x="364" y="757" fill="rgba(28,25,23,0.70)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ref</text>
+        <text x="276" y="776" fill="#1c1917" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">告警发送</text>
+        <text x="276" y="792" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">PostProcess + Alert</text>
+
+        <!-- End dot -->
+        <circle cx="280" cy="860" r="4" fill="#1c1917"/>
+
+        <!-- ============================================================
+             LEGEND (horizontal strip at bottom)
+             ============================================================ -->
+        <line x1="30" y1="900" x2="690" y2="900" stroke="rgba(28,25,23,0.10)" stroke-width="0.8"/>
+        <text x="30" y="928" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+        <!-- Start/end -->
+        <rect x="100" y="916" width="24" height="14" rx="7" fill="#faf6f0" stroke="#78716c" stroke-width="0.8"/>
+        <text x="132" y="928" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">开始/结束</text>
+
+        <!-- Interaction occurrence -->
+        <rect x="212" y="916" width="24" height="14" rx="4" fill="#ffffff" stroke="#1c1917" stroke-width="0.8"/>
+        <text x="244" y="928" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">交互片段</text>
+
+        <!-- Decision -->
+        <polygon points="340,916 348,923 340,930 332,923" fill="#faf6f0" stroke="#1c1917" stroke-width="0.8"/>
+        <text x="356" y="928" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">判断</text>
+
+        <!-- Focal -->
+        <rect x="408" y="916" width="24" height="14" rx="4" fill="rgba(217,119,6,0.06)" stroke="#d97706" stroke-width="0.8"/>
+        <text x="440" y="928" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">核心交互</text>
+
+        <!-- Rules -->
+        <rect x="520" y="916" width="24" height="14" rx="4" fill="rgba(139,111,138,0.04)" stroke="#8B6F8A" stroke-width="0.8"/>
+        <text x="552" y="928" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">规则查询</text>
+
+        <!-- Error path -->
+        <line x1="616" y1="923" x2="640" y2="923" stroke="#c05621" stroke-width="1" stroke-dasharray="5,4"/>
+        <text x="648" y="928" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">异常路径</text>
+
+      </svg>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="cards">
+      <div class="card">
+        <p class="card-eyebrow">INTERACTIONS</p>
+        <div class="card-header">
+          <div class="card-dot accent"></div>
+          <h3>5 个交互片段</h3>
+        </div>
+        <ul>
+          <li>• 数据补充: OrderService 元数据 + CustomerDB 日志下载</li>
+          <li>• 预处理: fraud_behavior/behavior/timeline/device 加权截断</li>
+          <li>• 规则查询: GPT API + llmRules 检索历史案例</li>
+          <li>• 风控评分: GPT Engine 调用，3min 独立超时</li>
+          <li>• 告警发送: 后处理 + POST /risk/alert</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <p class="card-eyebrow">CONTROL FLOW</p>
+        <div class="card-header">
+          <div class="card-dot muted"></div>
+          <h3>3 个判断节点</h3>
+        </div>
+        <ul>
+          <li>• 去重?: 重复消息跳过，IdempotentStore 幂等保障</li>
+          <li>• 验证?: 失败直接跳转告警，不走风控</li>
+          <li>• 成功?: 风控失败走 Fallback 降级</li>
+          <li>• 无论成功/失败，均走告警发送出口</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer">
+      nova-shield · github.com/novashield/risk-engine
+    </div>
+  </div>
+</body>
+</html>

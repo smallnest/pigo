@@ -1,0 +1,50 @@
+[
+  {
+    "prompt": "/smell",
+    "description": "Basic invocation — should trigger full project analysis"
+  },
+  {
+    "prompt": "find code smells in this project",
+    "description": "Natural language trigger — full code smell analysis"
+  },
+  {
+    "prompt": "detect architecture anti-patterns in the src/ directory",
+    "description": "Scoped analysis to a specific directory"
+  },
+  {
+    "prompt": "分析一下这个项目的架构坏味道",
+    "description": "Chinese trigger — architecture smell analysis"
+  },
+  {
+    "prompt": "找出反模式",
+    "description": "Chinese trigger — anti-pattern detection"
+  },
+  {
+    "prompt": "Does this codebase have any God Objects or Big Ball of Mud?",
+    "description": "Specific anti-pattern query"
+  },
+  {
+    "prompt": "run a quick architecture health check",
+    "description": "Quick scan — should use critical-only mode"
+  },
+  {
+    "prompt": "check the recent changes for code smells",
+    "description": "Git diff scoped analysis"
+  },
+  {
+    "prompt": "analyze code complexity and find algorithmic hotspots",
+    "description": "Complexity-focused analysis — detect N+1, nested loops, etc."
+  },
+  {
+    "prompt": "find N+1 queries and O(n^2) patterns",
+    "description": "Specific complexity anti-pattern query"
+  },
+  {
+    "prompt": "复杂度分析",
+    "description": "Chinese trigger — complexity analysis"
+  },
+  {
+    "prompt": "Are there any performance bottlenecks or inefficient algorithms?",
+    "description": "Performance/complexity smell query"
+  }
+]

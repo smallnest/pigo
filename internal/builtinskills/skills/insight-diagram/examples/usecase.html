@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NovaShield 风控用例图</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Geist', sans-serif;
+      background: #faf6f0;
+      min-height: 100vh;
+      padding: 2.5rem 2rem;
+      color: #1c1917;
+    }
+
+    .container { max-width: 960px; margin: 0 auto; }
+
+    .header { margin-bottom: 2rem; }
+
+    .eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #78716c;
+      margin-bottom: 0.375rem;
+    }
+
+    h1 {
+      font-family: 'Instrument Serif', serif;
+      font-size: 1.75rem;
+      font-weight: 400;
+      color: #1c1917;
+    }
+
+    .subtitle {
+      color: #78716c;
+      font-size: 0.8125rem;
+      margin-top: 0.375rem;
+    }
+
+    .diagram-desc {
+      color: #a8a29e;
+      font-size: 0.6875rem;
+      margin-top: 0.5rem;
+      line-height: 1.5;
+      font-style: italic;
+    }
+
+    .diagram-container {
+      background: #f0ebe3;
+      border: 1px solid rgba(28,25,23,0.12);
+      border-radius: 8px;
+      padding: 1.5rem;
+      overflow-x: auto;
+    }
+
+    svg { width: 100%; min-width: 720px; display: block; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+
+    .card {
+      background: #ffffff;
+      border: 1px solid rgba(28,25,23,0.12);
+      border-radius: 6px;
+      padding: 1.25rem;
+    }
+
+    .card-eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #a8a29e;
+      margin-bottom: 0.5rem;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .card-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .card-dot.ink { background: #1c1917; }
+    .card-dot.accent { background: #d97706; }
+    .card-dot.muted { background: #78716c; }
+
+    .card h3 { font-size: 0.8125rem; font-weight: 600; color: #1c1917; }
+
+    .card ul {
+      list-style: none;
+      color: #78716c;
+      font-size: 0.75rem;
+      line-height: 1.6;
+    }
+
+    .card li { margin-bottom: 0.25rem; }
+
+    .footer {
+      margin-top: 1.5rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(28,25,23,0.08);
+      text-align: center;
+      font-family: 'Geist Mono', monospace;
+      color: #a8a29e;
+      font-size: 0.625rem;
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <p class="eyebrow">Use Case Diagram</p>
+      <h1>NovaShield 风控用例</h1>
+      <p class="subtitle">3 类参与者 × 5 个用例，覆盖自动、手动、本地三种诊断入口</p>
+      <p class="diagram-desc"><b>用例图 (Use Case Diagram)</b> — 行为性图形。描述用户需求，展示用例、系统参与者和它们之间的关系。</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 760 560">
+        <defs>
+          <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.9" fill="rgba(28,25,23,0.10)"/>
+          </pattern>
+        </defs>
+
+        <!-- Background -->
+        <rect width="100%" height="100%" fill="#faf6f0"/>
+        <rect width="100%" height="100%" fill="url(#dots)" opacity="0.6"/>
+
+        <!-- ============================================================
+             SYSTEM BOUNDARY
+             ============================================================ -->
+        <rect x="248" y="28" width="492" height="460" rx="8"
+              fill="rgba(28,25,23,0.015)" stroke="rgba(28,25,23,0.20)" stroke-width="1"/>
+        <!-- Boundary label -->
+        <rect x="260" y="20" width="152" height="16" rx="2" fill="#faf6f0"/>
+        <text x="264" y="32" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace"
+              letter-spacing="0.14em">NOVA-SHIELD SYSTEM</text>
+
+        <!-- ============================================================
+             ACTORS (left side — stick figures with labels)
+             ============================================================ -->
+
+        <!-- Actor 1: CloudMart 平台 -->
+        <g transform="translate(80, 96)">
+          <circle cx="0" cy="-20" r="12" fill="none" stroke="#1c1917" stroke-width="1"/>
+          <line x1="0" y1="-8" x2="0" y2="16" stroke="#1c1917" stroke-width="1"/>
+          <line x1="-16" y1="4" x2="16" y2="4" stroke="#1c1917" stroke-width="1"/>
+          <line x1="0" y1="16" x2="-12" y2="32" stroke="#1c1917" stroke-width="1"/>
+          <line x1="0" y1="16" x2="12" y2="32" stroke="#1c1917" stroke-width="1"/>
+          <text x="0" y="48" fill="#1c1917" font-size="11" font-weight="600"
+                font-family="'Geist', sans-serif" text-anchor="middle">CloudMart 平台</text>
+        </g>
+
+        <!-- Actor 2: 风控运营 -->
+        <g transform="translate(80, 256)">
+          <circle cx="0" cy="-20" r="12" fill="none" stroke="#1c1917" stroke-width="1"/>
+          <line x1="0" y1="-8" x2="0" y2="16" stroke="#1c1917" stroke-width="1"/>
+          <line x1="-16" y1="4" x2="16" y2="4" stroke="#1c1917" stroke-width="1"/>
+          <line x1="0" y1="16" x2="-12" y2="32" stroke="#1c1917" stroke-width="1"/>
+          <line x1="0" y1="16" x2="12" y2="32" stroke="#1c1917" stroke-width="1"/>
+          <text x="0" y="48" fill="#1c1917" font-size="11" font-weight="600"
+                font-family="'Geist', sans-serif" text-anchor="middle">风控运营</text>
+        </g>
+
+        <!-- Actor 3: 数据分析师 -->
+        <g transform="translate(80, 404)">
+          <circle cx="0" cy="-20" r="12" fill="none" stroke="#1c1917" stroke-width="1"/>
+          <line x1="0" y1="-8" x2="0" y2="16" stroke="#1c1917" stroke-width="1"/>
+          <line x1="-16" y1="4" x2="16" y2="4" stroke="#1c1917" stroke-width="1"/>
+          <line x1="0" y1="16" x2="-12" y2="32" stroke="#1c1917" stroke-width="1"/>
+          <line x1="0" y1="16" x2="12" y2="32" stroke="#1c1917" stroke-width="1"/>
+          <text x="0" y="48" fill="#1c1917" font-size="11" font-weight="600"
+                font-family="'Geist', sans-serif" text-anchor="middle">数据分析师</text>
+        </g>
+
+        <!-- ============================================================
+             USE CASES (ellipses inside system boundary)
+             ============================================================ -->
+
+        <!-- UC1: 自动扫描 (focal — accent) -->
+        <ellipse cx="424" cy="96" rx="108" ry="28" fill="#faf6f0"/>
+        <ellipse cx="424" cy="96" rx="108" ry="28" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="1.2"/>
+        <text x="424" y="100" fill="#1c1917" font-size="12" font-weight="600"
+              font-family="'Geist', sans-serif" text-anchor="middle">自动扫描</text>
+
+        <!-- UC2: 手动触发扫描 -->
+        <ellipse cx="424" cy="196" rx="108" ry="28" fill="#faf6f0"/>
+        <ellipse cx="424" cy="196" rx="108" ry="28" fill="#ffffff" stroke="#1c1917" stroke-width="1"/>
+        <text x="424" y="200" fill="#1c1917" font-size="12" font-weight="600"
+              font-family="'Geist', sans-serif" text-anchor="middle">手动触发扫描</text>
+
+        <!-- UC3: 自然语言查询 -->
+        <ellipse cx="424" cy="276" rx="108" ry="28" fill="#faf6f0"/>
+        <ellipse cx="424" cy="276" rx="108" ry="28" fill="#ffffff" stroke="#1c1917" stroke-width="1"/>
+        <text x="424" y="280" fill="#1c1917" font-size="12" font-weight="600"
+              font-family="'Geist', sans-serif" text-anchor="middle">自然语言查询</text>
+
+        <!-- UC4: 本地数据扫描 -->
+        <ellipse cx="424" cy="356" rx="108" ry="28" fill="#faf6f0"/>
+        <ellipse cx="424" cy="356" rx="108" ry="28" fill="#ffffff" stroke="#1c1917" stroke-width="1"/>
+        <text x="424" y="360" fill="#1c1917" font-size="12" font-weight="600"
+              font-family="'Geist', sans-serif" text-anchor="middle">本地数据扫描</text>
+
+        <!-- UC5: 查看风控结果 -->
+        <ellipse cx="424" cy="436" rx="108" ry="28" fill="#faf6f0"/>
+        <ellipse cx="424" cy="436" rx="108" ry="28" fill="#ffffff" stroke="#1c1917" stroke-width="1"/>
+        <text x="424" y="440" fill="#1c1917" font-size="12" font-weight="600"
+              font-family="'Geist', sans-serif" text-anchor="middle">查看风控结果</text>
+
+        <!-- ============================================================
+             CONNECTIONS (actors → use cases)
+             ============================================================ -->
+
+        <!-- CloudMart 平台 → 自动扫描 -->
+        <line x1="96" y1="96" x2="316" y2="96" stroke="#78716c" stroke-width="1"/>
+
+        <!-- CloudMart 平台 → 查看风控结果 -->
+        <line x1="96" y1="120" x2="316" y2="436" stroke="#78716c" stroke-width="1"/>
+
+        <!-- 风控运营 → 手动触发扫描 -->
+        <line x1="96" y1="252" x2="316" y2="200" stroke="#78716c" stroke-width="1"/>
+
+        <!-- 风控运营 → 自然语言查询 -->
+        <line x1="96" y1="264" x2="316" y2="276" stroke="#78716c" stroke-width="1"/>
+
+        <!-- 风控运营 → 查看风控结果 -->
+        <line x1="96" y1="280" x2="316" y2="436" stroke="#78716c" stroke-width="1"/>
+
+        <!-- 数据分析师 → 本地数据扫描 -->
+        <line x1="96" y1="400" x2="316" y2="356" stroke="#78716c" stroke-width="1"/>
+
+        <!-- ============================================================
+             INCLUDE / EXTEND annotations (between use cases)
+             ============================================================ -->
+
+        <!-- 手动触发扫描 <<include>> 自动扫描 -->
+        <line x1="372" y1="172" x2="372" y2="124" stroke="#a8a29e" stroke-width="0.8" stroke-dasharray="4,3"/>
+        <rect x="348" y="136" width="52" height="14" rx="2" fill="#faf6f0"/>
+        <text x="374" y="147" fill="#a8a29e" font-size="7" font-family="'Geist Mono', monospace"
+              text-anchor="middle" letter-spacing="0.06em">«include»</text>
+
+        <!-- 自然语言查询 <<include>> 手动触发扫描 -->
+        <line x1="424" y1="248" x2="424" y2="224" stroke="#a8a29e" stroke-width="0.8" stroke-dasharray="4,3"/>
+        <rect x="400" y="228" width="52" height="14" rx="2" fill="#faf6f0"/>
+        <text x="426" y="239" fill="#a8a29e" font-size="7" font-family="'Geist Mono', monospace"
+              text-anchor="middle" letter-spacing="0.06em">«include»</text>
+
+        <!-- ============================================================
+             RIGHT SIDE ANNOTATIONS
+             ============================================================ -->
+
+        <!-- Trigger route labels -->
+        <text x="544" y="92" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace"
+              letter-spacing="0.06em">RouteFromRabbitMQ</text>
+        <text x="544" y="104" fill="#a8a29e" font-size="7" font-family="'Geist Mono', monospace"
+              letter-spacing="0.06em">RabbitMQ → Idempotent → Pipeline</text>
+
+        <text x="544" y="192" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace"
+              letter-spacing="0.06em">RouteFromOrderID</text>
+        <text x="544" y="204" fill="#a8a29e" font-size="7" font-family="'Geist Mono', monospace"
+              letter-spacing="0.06em">TriggerManual → Poll → Pipeline</text>
+
+        <text x="544" y="272" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace"
+              letter-spacing="0.06em">RouteFromQuery</text>
+        <text x="544" y="284" fill="#a8a29e" font-size="7" font-family="'Geist Mono', monospace"
+              letter-spacing="0.06em">Query → ManualRequest → OrderID路径</text>
+
+        <text x="544" y="352" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace"
+              letter-spacing="0.06em">RouteFromCSV</text>
+        <text x="544" y="364" fill="#a8a29e" font-size="7" font-family="'Geist Mono', monospace"
+              letter-spacing="0.06em">SkipEnrichment → Pipeline</text>
+
+        <text x="544" y="432" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace"
+              letter-spacing="0.06em">AlertClient</text>
+        <text x="544" y="444" fill="#a8a29e" font-size="7" font-family="'Geist Mono', monospace"
+              letter-spacing="0.06em">POST /risk/alert</text>
+
+        <!-- ============================================================
+             LEGEND (horizontal strip at bottom)
+             ============================================================ -->
+        <line x1="30" y1="508" x2="730" y2="508" stroke="rgba(28,25,23,0.10)" stroke-width="0.8"/>
+        <text x="30" y="532" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace"
+              letter-spacing="0.14em">LEGEND</text>
+
+        <!-- Actor -->
+        <g transform="translate(104, 524)">
+          <circle cx="0" cy="-4" r="5" fill="none" stroke="#1c1917" stroke-width="0.8"/>
+          <line x1="0" y1="1" x2="0" y2="10" stroke="#1c1917" stroke-width="0.8"/>
+          <line x1="-6" y1="5" x2="6" y2="5" stroke="#1c1917" stroke-width="0.8"/>
+        </g>
+        <text x="118" y="532" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">参与者</text>
+
+        <!-- Use case -->
+        <ellipse cx="188" cy="528" rx="20" ry="10" fill="#ffffff" stroke="#1c1917" stroke-width="0.8"/>
+        <text x="216" y="532" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">用例</text>
+
+        <!-- Focal use case -->
+        <ellipse cx="280" cy="528" rx="20" ry="10" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="0.8"/>
+        <text x="308" y="532" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">核心用例</text>
+
+        <!-- Association -->
+        <line x1="384" y1="528" x2="412" y2="528" stroke="#78716c" stroke-width="1"/>
+        <text x="420" y="532" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">关联</text>
+
+        <!-- Include -->
+        <line x1="468" y1="528" x2="496" y2="528" stroke="#a8a29e" stroke-width="0.8" stroke-dasharray="4,3"/>
+        <text x="504" y="532" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">«include»</text>
+
+      </svg>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="cards">
+      <div class="card">
+        <p class="card-eyebrow">ACTOR</p>
+        <div class="card-header">
+          <div class="card-dot ink"></div>
+          <h3>三类参与者</h3>
+        </div>
+        <ul>
+          <li>• CloudMart 平台: RabbitMQ 自动推送消息</li>
+          <li>• 风控运营: OrderID / 自然语言查询</li>
+          <li>• 数据分析师: 本地数据调试</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <p class="card-eyebrow">ENTRY</p>
+        <div class="card-header">
+          <div class="card-dot accent"></div>
+          <h3>四种入口路由</h3>
+        </div>
+        <ul>
+          <li>• RouteFromRabbitMQMessage</li>
+          <li>• RouteFromOrderID</li>
+          <li>• RouteFromQuery</li>
+          <li>• RouteFromCSV</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <p class="card-eyebrow">RESULT</p>
+        <div class="card-header">
+          <div class="card-dot muted"></div>
+          <h3>结果查看</h3>
+        </div>
+        <ul>
+          <li>• 所有参与者均可查看结果</li>
+          <li>• OrderService 上报 + 交易数据输出</li>
+          <li>• RiskResult[] 按 confidence 降序</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer">
+      nova-shield · github.com/novashield/risk-engine
+    </div>
+  </div>
+</body>
+</html>

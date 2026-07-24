@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NovaShield 风控数据流图</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Geist', sans-serif;
+      background: #faf6f0;
+      min-height: 100vh;
+      padding: 2.5rem 2rem;
+      color: #1c1917;
+    }
+    .container { max-width: 1120px; margin: 0 auto; }
+    .header { margin-bottom: 2rem; }
+    .eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #78716c;
+      margin-bottom: 0.375rem;
+    }
+    h1 {
+      font-family: 'Instrument Serif', serif;
+      font-size: 1.75rem;
+      font-weight: 400;
+      color: #1c1917;
+    }
+    .subtitle {
+      color: #78716c;
+      font-size: 0.8125rem;
+      margin-top: 0.375rem;
+    }
+    .diagram-desc {
+      color: #a8a29e;
+      font-size: 0.6875rem;
+      margin-top: 0.5rem;
+      line-height: 1.5;
+      font-style: italic;
+    }
+    .diagram-container {
+      background: #f0ebe3;
+      border: 1px solid rgba(28,25,23,0.12);
+      border-radius: 8px;
+      padding: 1.5rem;
+      overflow-x: auto;
+    }
+    svg { width: 100%; min-width: 880px; display: block; }
+    .cards {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid rgba(28,25,23,0.12);
+      border-radius: 6px;
+      padding: 1.25rem;
+    }
+    .card-eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #a8a29e;
+      margin-bottom: 0.5rem;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .card-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .card-dot.ink { background: #1c1917; }
+    .card-dot.accent { background: #d97706; }
+    .card-dot.muted { background: #78716c; }
+    .card-dot.link { background: #c05621; }
+    .card h3 { font-size: 0.8125rem; font-weight: 600; color: #1c1917; }
+    .card ul {
+      list-style: none;
+      color: #78716c;
+      font-size: 0.75rem;
+      line-height: 1.6;
+    }
+    .card li { margin-bottom: 0.25rem; }
+    .footer {
+      margin-top: 1.5rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(28,25,23,0.08);
+      text-align: center;
+      font-family: 'Geist Mono', monospace;
+      color: #a8a29e;
+      font-size: 0.625rem;
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <p class="eyebrow">Data Flow Diagram</p>
+      <h1>NovaShield 风控数据流</h1>
+      <p class="subtitle">4 个处理过程 · 2 个数据存储 · 2 个外部实体 · 9 条数据流</p>
+      <p class="diagram-desc"><b>数据流图 (DFD)</b> — 行为性图形。描述数据在系统中如何流动、被处理和存储，侧重业务流程和数据流向。</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 960 440">
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#78716c"/>
+          </marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#d97706"/>
+          </marker>
+          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#c05621"/>
+          </marker>
+          <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.9" fill="rgba(28,25,23,0.10)"/>
+          </pattern>
+        </defs>
+
+        <!-- Background -->
+        <rect width="100%" height="100%" fill="#faf6f0"/>
+        <rect width="100%" height="100%" fill="url(#dots)" opacity="0.6"/>
+
+        <!-- ============================================================
+             DATA FLOW ARROWS (drawn first — z-order behind nodes)
+             ============================================================ -->
+
+        <!-- 1. RabbitMQ → 消息幂等: OrderMessage -->
+        <line x1="124" y1="204" x2="180" y2="204" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="116" y="168" width="72" height="12" rx="2" fill="#faf6f0"/>
+        <text x="152" y="178" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">OrderMessage</text>
+
+        <!-- 2. 消息幂等 → IdempotentStore: 去重标记 (down, left of center) -->
+        <line x1="232" y1="224" x2="232" y2="300" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="184" y="256" width="44" height="12" rx="2" fill="#faf6f0"/>
+        <text x="206" y="266" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">去重标记</text>
+
+        <!-- 3. IdempotentStore → 消息幂等: 查重结果 (up, right of center) -->
+        <line x1="248" y1="300" x2="248" y2="224" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="256" y="256" width="44" height="12" rx="2" fill="#faf6f0"/>
+        <text x="278" y="266" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">查重结果</text>
+
+        <!-- 4. 消息幂等 → 数据补充: ScanInput -->
+        <line x1="300" y1="204" x2="364" y2="204" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="296" y="168" width="72" height="12" rx="2" fill="#faf6f0"/>
+        <text x="332" y="178" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">ScanInput</text>
+
+        <!-- 5. CloudMart 平台 → 数据补充: MetaInfo (L-path, exits CloudMart bottom-left) -->
+        <path d="M 900 96 V 136 Q 900 144 892 144 H 432 Q 424 144 424 152 V 184" fill="none" stroke="#c05621" stroke-width="1" marker-end="url(#arrow-link)"/>
+        <rect x="640" y="136" width="56" height="12" rx="2" fill="#faf6f0"/>
+        <text x="668" y="146" fill="#c05621" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">MetaInfo</text>
+
+        <!-- 6. 数据补充 → 交易数据: 交易数据 (down) -->
+        <line x1="424" y1="224" x2="424" y2="300" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="432" y="256" width="44" height="12" rx="2" fill="#faf6f0"/>
+        <text x="454" y="266" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">交易数据</text>
+
+        <!-- 7. 交易数据 → 风控评分: 特征摘要 (L-path right then up) -->
+        <path d="M 468 314 H 568 Q 580 314 580 302 V 236 Q 580 228 580 228" fill="none" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="496" y="298" width="44" height="12" rx="2" fill="#faf6f0"/>
+        <text x="518" y="308" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">特征摘要</text>
+
+        <!-- 8. 风控评分 → 告警发送: RiskResult[] (FOCAL — accent) -->
+        <line x1="684" y1="204" x2="732" y2="204" stroke="#d97706" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+        <rect x="676" y="168" width="64" height="12" rx="2" fill="#faf6f0"/>
+        <text x="708" y="178" fill="#d97706" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">RiskResult[]</text>
+
+        <!-- 9. 告警发送 → CloudMart 平台: 风控结果 (L-path up then right) -->
+        <path d="M 792 184 V 168 Q 792 160 800 160 H 908 Q 916 160 916 152 V 96" fill="none" stroke="#c05621" stroke-width="1" marker-end="url(#arrow-link)"/>
+        <rect x="844" y="144" width="44" height="12" rx="2" fill="#faf6f0"/>
+        <text x="866" y="154" fill="#c05621" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">风控结果</text>
+
+        <!-- ============================================================
+             NODES (drawn after arrows — z-order above)
+             ============================================================ -->
+
+        <!-- ── RabbitMQ (external entity, left) ── -->
+        <rect x="28" y="184" width="96" height="40" rx="4" fill="#faf6f0"/>
+        <rect x="28" y="184" width="96" height="40" rx="4" fill="rgba(28,25,23,0.03)" stroke="rgba(28,25,23,0.30)" stroke-width="1"/>
+        <rect x="36" y="188" width="28" height="12" rx="2" fill="transparent" stroke="rgba(28,25,23,0.25)" stroke-width="0.8"/>
+        <text x="50" y="197" fill="rgba(28,25,23,0.70)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">EXT</text>
+        <text x="76" y="210" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">RabbitMQ</text>
+
+        <!-- ── 消息幂等 (process) ── -->
+        <rect x="180" y="184" width="120" height="40" rx="6" fill="#faf6f0"/>
+        <rect x="180" y="184" width="120" height="40" rx="6" fill="#ffffff" stroke="#1c1917" stroke-width="1"/>
+        <rect x="188" y="188" width="44" height="12" rx="2" fill="transparent" stroke="rgba(28,25,23,0.30)" stroke-width="0.8"/>
+        <text x="210" y="197" fill="rgba(28,25,23,0.70)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">IDEMPOTENT</text>
+        <text x="240" y="210" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">消息幂等</text>
+
+        <!-- ── IdempotentStore (data store, below 消息幂等) ── -->
+        <rect x="200" y="300" width="80" height="28" fill="#faf6f0"/>
+        <line x1="200" y1="300" x2="280" y2="300" stroke="#78716c" stroke-width="1"/>
+        <line x1="200" y1="300" x2="200" y2="328" stroke="#78716c" stroke-width="1"/>
+        <line x1="200" y1="328" x2="280" y2="328" stroke="#78716c" stroke-width="1"/>
+        <text x="208" y="318" fill="#1c1917" font-size="9" font-weight="600" font-family="'Geist Mono', monospace">IdempotentStore</text>
+
+        <!-- ── 数据补充 (process) ── -->
+        <rect x="364" y="184" width="120" height="40" rx="6" fill="#faf6f0"/>
+        <rect x="364" y="184" width="120" height="40" rx="6" fill="#ffffff" stroke="#1c1917" stroke-width="1"/>
+        <rect x="372" y="188" width="44" height="12" rx="2" fill="transparent" stroke="rgba(28,25,23,0.30)" stroke-width="0.8"/>
+        <text x="394" y="197" fill="rgba(28,25,23,0.70)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ENRICH</text>
+        <text x="424" y="210" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">数据补充</text>
+
+        <!-- ── 交易数据 (data store, below 数据补充) ── -->
+        <rect x="388" y="300" width="80" height="28" fill="#faf6f0"/>
+        <line x1="388" y1="300" x2="468" y2="300" stroke="#78716c" stroke-width="1"/>
+        <line x1="388" y1="300" x2="388" y2="328" stroke="#78716c" stroke-width="1"/>
+        <line x1="388" y1="328" x2="468" y2="328" stroke="#78716c" stroke-width="1"/>
+        <text x="396" y="318" fill="#1c1917" font-size="10" font-weight="600" font-family="'Geist', sans-serif">交易数据</text>
+
+        <!-- ── 风控评分 (process, FOCAL — accent) ── -->
+        <rect x="548" y="180" width="136" height="48" rx="6" fill="#faf6f0"/>
+        <rect x="548" y="180" width="136" height="48" rx="6" fill="rgba(217,119,6,0.06)" stroke="#d97706" stroke-width="1.2"/>
+        <rect x="556" y="184" width="64" height="12" rx="2" fill="transparent" stroke="rgba(217,119,6,0.40)" stroke-width="0.8"/>
+        <text x="588" y="193" fill="rgba(217,119,6,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SCORE</text>
+        <text x="616" y="210" fill="#1c1917" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">风控评分</text>
+
+        <!-- ── 告警发送 (process) ── -->
+        <rect x="732" y="184" width="120" height="40" rx="6" fill="#faf6f0"/>
+        <rect x="732" y="184" width="120" height="40" rx="6" fill="#ffffff" stroke="#1c1917" stroke-width="1"/>
+        <rect x="740" y="188" width="52" height="12" rx="2" fill="transparent" stroke="rgba(28,25,23,0.30)" stroke-width="0.8"/>
+        <text x="766" y="197" fill="rgba(28,25,23,0.70)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ALERT</text>
+        <text x="792" y="210" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">告警发送</text>
+
+        <!-- ── CloudMart 平台 (external entity, top right) ── -->
+        <rect x="868" y="52" width="80" height="44" rx="4" fill="#faf6f0"/>
+        <rect x="868" y="52" width="80" height="44" rx="4" fill="rgba(28,25,23,0.03)" stroke="rgba(28,25,23,0.30)" stroke-width="1"/>
+        <rect x="876" y="56" width="28" height="12" rx="2" fill="transparent" stroke="rgba(28,25,23,0.25)" stroke-width="0.8"/>
+        <text x="890" y="65" fill="rgba(28,25,23,0.70)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">EXT</text>
+        <text x="908" y="82" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">CloudMart 平台</text>
+
+        <!-- ============================================================
+             LEGEND (horizontal strip at bottom)
+             ============================================================ -->
+        <line x1="30" y1="372" x2="930" y2="372" stroke="rgba(28,25,23,0.10)" stroke-width="0.8"/>
+        <text x="30" y="396" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+        <!-- Process -->
+        <rect x="100" y="384" width="24" height="16" rx="6" fill="#ffffff" stroke="#1c1917" stroke-width="0.8"/>
+        <text x="132" y="396" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">处理过程</text>
+
+        <!-- Focal process -->
+        <rect x="212" y="384" width="24" height="16" rx="6" fill="rgba(217,119,6,0.06)" stroke="#d97706" stroke-width="0.8"/>
+        <text x="244" y="396" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">核心过程</text>
+
+        <!-- External entity -->
+        <rect x="332" y="384" width="24" height="16" rx="4" fill="rgba(28,25,23,0.03)" stroke="rgba(28,25,23,0.30)" stroke-width="0.8"/>
+        <text x="364" y="396" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">外部实体</text>
+
+        <!-- Data store -->
+        <line x1="452" y1="388" x2="476" y2="388" stroke="#78716c" stroke-width="1"/>
+        <line x1="452" y1="396" x2="476" y2="396" stroke="#78716c" stroke-width="1"/>
+        <line x1="452" y1="388" x2="452" y2="396" stroke="#78716c" stroke-width="1"/>
+        <text x="484" y="396" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">数据存储</text>
+
+        <!-- Data flow -->
+        <line x1="572" y1="392" x2="596" y2="392" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <text x="604" y="396" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">数据流</text>
+
+        <!-- API flow -->
+        <line x1="676" y1="392" x2="700" y2="392" stroke="#c05621" stroke-width="1" marker-end="url(#arrow-link)"/>
+        <text x="708" y="396" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">API 数据流</text>
+
+      </svg>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="cards">
+      <div class="card">
+        <p class="card-eyebrow">DATA FLOWS</p>
+        <div class="card-header">
+          <div class="card-dot link"></div>
+          <h3>9 条数据流</h3>
+        </div>
+        <ul>
+          <li>• OrderMessage → ScanInput: 消息验证与转换</li>
+          <li>• MetaInfo + DBConfig → 交易数据: 采集与下载</li>
+          <li>• 特征摘要 → RiskResult[]: 风控评分 (核心转换)</li>
+          <li>• RiskResult[] → 风控结果: 后处理与上报</li>
+          <li>• 去重标记 / 查重结果: 幂等保障双向流</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <p class="card-eyebrow">DATA STORES</p>
+        <div class="card-header">
+          <div class="card-dot muted"></div>
+          <h3>2 个数据存储</h3>
+        </div>
+        <ul>
+          <li>• IdempotentStore: RabbitMQ 消息幂等标记，防重复消费</li>
+          <li>• 交易数据: dbcli export 下载的原始行为日志</li>
+          <li>• 两者均为短暂存储，订单完成后可清理</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer">
+      nova-shield · github.com/novashield/risk-engine
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NovaShield 风控类图</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Geist', sans-serif;
+      background: #faf6f0;
+      min-height: 100vh;
+      padding: 2.5rem 2rem;
+      color: #1c1917;
+    }
+    .container { max-width: 1120px; margin: 0 auto; }
+    .header { margin-bottom: 2rem; }
+    .eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #78716c;
+      margin-bottom: 0.375rem;
+    }
+    h1 {
+      font-family: 'Instrument Serif', serif;
+      font-size: 1.75rem;
+      font-weight: 400;
+      color: #1c1917;
+    }
+    .subtitle {
+      color: #78716c;
+      font-size: 0.8125rem;
+      margin-top: 0.375rem;
+    }
+    .diagram-desc {
+      color: #a8a29e;
+      font-size: 0.6875rem;
+      margin-top: 0.5rem;
+      line-height: 1.5;
+      font-style: italic;
+    }
+    .diagram-container {
+      background: #f0ebe3;
+      border: 1px solid rgba(28,25,23,0.12);
+      border-radius: 8px;
+      padding: 1.5rem;
+      overflow-x: auto;
+    }
+    svg { width: 100%; min-width: 880px; display: block; }
+    .cards {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid rgba(28,25,23,0.12);
+      border-radius: 6px;
+      padding: 1.25rem;
+    }
+    .card-eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.625rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #a8a29e;
+      margin-bottom: 0.5rem;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .card-dot { width: 7px; height: 7px; border-radius: 50%; }
+    .card-dot.ink { background: #1c1917; }
+    .card-dot.accent { background: #d97706; }
+    .card-dot.muted { background: #78716c; }
+    .card h3 { font-size: 0.8125rem; font-weight: 600; color: #1c1917; }
+    .card ul {
+      list-style: none;
+      color: #78716c;
+      font-size: 0.75rem;
+      line-height: 1.6;
+    }
+    .card li { margin-bottom: 0.25rem; }
+    .footer {
+      margin-top: 1.5rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(28,25,23,0.08);
+      text-align: center;
+      font-family: 'Geist Mono', monospace;
+      color: #a8a29e;
+      font-size: 0.625rem;
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <p class="eyebrow">Class Diagram</p>
+      <h1>NovaShield 风控类图</h1>
+      <p class="subtitle">8 个核心类型及其字段、方法与组合关系，覆盖输入→处理→输出全链路</p>
+      <p class="diagram-desc"><b>类图 (Class Diagram)</b> — 结构性图形。核心图，展现系统的静态结构，包括类、接口、属性和关系。</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1080 690">
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#78716c"/>
+          </marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#d97706"/>
+          </marker>
+          <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.9" fill="rgba(28,25,23,0.10)"/>
+          </pattern>
+        </defs>
+
+        <!-- Background -->
+        <rect width="100%" height="100%" fill="#faf6f0"/>
+        <rect width="100%" height="100%" fill="url(#dots)" opacity="0.6"/>
+
+        <!-- ============================================================
+             RELATIONSHIP LINES (drawn first — z-order behind boxes)
+             ============================================================ -->
+
+        <!-- ScanInput → OrderMessage (association: message *msg) -->
+        <line x1="272" y1="216" x2="272" y2="192" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="280" y="198" width="40" height="12" rx="2" fill="#faf6f0"/>
+        <text x="300" y="208" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">0..1</text>
+
+
+        <!-- ScanResult → StageResult (composition: stageResults map) — L-path -->
+        <path d="M 636 232 H 660 Q 672 232 672 244 V 334 Q 672 346 684 346 H 776" fill="none" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="624" y="283" width="36" height="12" rx="2" fill="#faf6f0"/>
+        <text x="642" y="293" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">1..*</text>
+        <!-- Composition diamond -->
+        <polygon points="620,232 628,226 636,232 628,238" fill="#78716c"/>
+
+        <!-- AlertReport → RiskResult (composition: results []) -->
+        <line x1="280" y1="420" x2="440" y2="420" stroke="#d97706" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+        <rect x="340" y="408" width="28" height="12" rx="2" fill="#faf6f0"/>
+        <text x="354" y="418" fill="#d97706" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">1..*</text>
+        <!-- Composition diamond -->
+        <polygon points="280,420 288,414 296,420 288,426" fill="#d97706"/>
+
+        <!-- AlertReport → AlertNote (composition: warnings []) -->
+        <line x1="152" y1="508" x2="152" y2="556" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="160" y="522" width="28" height="12" rx="2" fill="#faf6f0"/>
+        <text x="174" y="532" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">0..*</text>
+        <!-- Composition diamond -->
+        <polygon points="152,492 146,500 152,508 158,500" fill="#78716c"/>
+
+        <!-- OrderInfoResponse → DBConfig (composition) -->
+        <line x1="840" y1="124" x2="840" y2="200" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <rect x="848" y="152" width="20" height="12" rx="2" fill="#faf6f0"/>
+        <text x="858" y="162" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">0..1</text>
+        <!-- Composition diamond -->
+        <polygon points="840,108 834,116 840,124 846,116" fill="#78716c"/>
+
+        <!-- ============================================================
+             CLASS BOXES (drawn after lines — z-order above)
+             ============================================================ -->
+
+        <!-- ── OrderMessage (row 1, left) ── -->
+        <rect x="40" y="12" width="232" height="180" rx="6" fill="#faf6f0"/>
+        <rect x="40" y="12" width="232" height="24" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="40" y="32" width="232" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="40" y="12" width="232" height="180" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="40" y1="36" x2="272" y2="36" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <!-- Header -->
+        <rect x="48" y="16" width="52" height="12" rx="2" fill="transparent" stroke="rgba(28,25,23,0.40)" stroke-width="0.8"/>
+        <text x="74" y="25" fill="rgba(28,25,23,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">STRUCT</text>
+        <text x="156" y="28" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">OrderMessage</text>
+        <!-- Fields -->
+        <text x="52" y="52" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">region  string</text>
+        <text x="52" y="68" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">queue      string</text>
+        <text x="52" y="84" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">jobId      string</text>
+        <text x="52" y="100" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">tenant  string</text>
+        <text x="52" y="116" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">version    string</text>
+        <text x="52" y="132" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">triggerType string</text>
+        <text x="52" y="148" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">kind       string</text>
+        <text x="52" y="164" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">region     string</text>
+        <text x="52" y="180" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">userNotes string</text>
+
+        <!-- ── ScanInput (row 1, center-left) ── -->
+        <rect x="40" y="216" width="232" height="148" rx="6" fill="#faf6f0"/>
+        <rect x="40" y="216" width="232" height="24" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="40" y="236" width="232" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="40" y="216" width="232" height="148" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="40" y1="240" x2="272" y2="240" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <rect x="48" y="220" width="32" height="12" rx="2" fill="transparent" stroke="rgba(28,25,23,0.40)" stroke-width="0.8"/>
+        <text x="64" y="229" fill="rgba(28,25,23,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">IN</text>
+        <text x="156" y="232" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">ScanInput</text>
+        <text x="52" y="256" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">→ message    *OrderMessage</text>
+        <text x="52" y="272" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">  jobId      string</text>
+        <text x="52" y="288" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">  version    string</text>
+        <text x="52" y="304" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">  workDir string</text>
+        <text x="52" y="320" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">  skipEnrichment bool</text>
+        <text x="52" y="336" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">  tenant  string</text>
+        <text x="52" y="352" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">  region  string</text>
+
+        <!-- ── OrderInfoResponse (row 1, right) ── -->
+        <rect x="720" y="12" width="240" height="96" rx="6" fill="#faf6f0"/>
+        <rect x="720" y="12" width="240" height="24" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="720" y="32" width="240" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="720" y="12" width="240" height="96" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="720" y1="36" x2="960" y2="36" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <rect x="728" y="16" width="52" height="12" rx="2" fill="transparent" stroke="rgba(28,25,23,0.40)" stroke-width="0.8"/>
+        <text x="754" y="25" fill="rgba(28,25,23,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">STRUCT</text>
+        <text x="840" y="28" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">OrderInfoResponse</text>
+        <text x="732" y="52" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">→ storageConfig *DBConfig</text>
+        <text x="732" y="68" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">  status      string</text>
+        <text x="732" y="84" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">  replicas    int</text>
+        <text x="732" y="100" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">  payMethod    string</text>
+
+        <!-- ── DBConfig (row 2, far right) ── -->
+        <rect x="744" y="200" width="192" height="84" rx="6" fill="rgba(28,25,23,0.05)"/>
+        <rect x="744" y="200" width="192" height="24" rx="6" fill="rgba(28,25,23,0.05)"/>
+        <rect x="744" y="220" width="192" height="4" fill="rgba(28,25,23,0.05)"/>
+        <rect x="744" y="200" width="192" height="84" rx="6" fill="none" stroke="#78716c" stroke-width="1"/>
+        <line x1="744" y1="224" x2="936" y2="224" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <rect x="752" y="204" width="44" height="12" rx="2" fill="transparent" stroke="rgba(120,113,108,0.40)" stroke-width="0.8"/>
+        <text x="774" y="213" fill="rgba(120,113,108,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">STORE</text>
+        <text x="840" y="216" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">DBConfig</text>
+        <text x="756" y="240" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">region string</text>
+        <text x="756" y="256" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">ak     string</text>
+        <text x="756" y="272" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">sk     string</text>
+
+        <!-- ── ScanResult (row 2, center) ── -->
+        <rect x="380" y="156" width="240" height="112" rx="6" fill="#faf6f0"/>
+        <rect x="380" y="156" width="240" height="24" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="380" y="176" width="240" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="380" y="156" width="240" height="112" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="380" y1="180" x2="620" y2="180" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <rect x="388" y="160" width="32" height="12" rx="2" fill="transparent" stroke="rgba(28,25,23,0.40)" stroke-width="0.8"/>
+        <text x="404" y="169" fill="rgba(28,25,23,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">OUT</text>
+        <text x="500" y="172" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">ScanResult</text>
+        <text x="392" y="196" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">jobId       string</text>
+        <text x="392" y="212" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">traceID     string</text>
+        <text x="392" y="228" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">status      string</text>
+        <text x="392" y="244" fill="#d97706" font-size="9" font-family="'Geist Mono', monospace">→ riskResults []RiskResult</text>
+        <text x="392" y="260" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">→ stageResults map[string]*StageResult</text>
+
+        <!-- ── StageResult (row 2-3, far right) ── -->
+        <rect x="776" y="304" width="192" height="84" rx="6" fill="rgba(28,25,23,0.05)"/>
+        <rect x="776" y="304" width="192" height="24" rx="6" fill="rgba(28,25,23,0.05)"/>
+        <rect x="776" y="324" width="192" height="4" fill="rgba(28,25,23,0.05)"/>
+        <rect x="776" y="304" width="192" height="84" rx="6" fill="none" stroke="#78716c" stroke-width="1"/>
+        <line x1="776" y1="328" x2="968" y2="328" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <rect x="784" y="308" width="40" height="12" rx="2" fill="transparent" stroke="rgba(120,113,108,0.40)" stroke-width="0.8"/>
+        <text x="804" y="317" fill="rgba(120,113,108,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VALUE</text>
+        <text x="872" y="320" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">StageResult</text>
+        <text x="788" y="344" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">name     string</text>
+        <text x="788" y="360" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">status   string</text>
+        <text x="788" y="376" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">duration time.Duration</text>
+
+        <!-- ── RiskResult (FOCAL — accent, row 3 center) ── -->
+        <rect x="440" y="320" width="280" height="180" rx="6" fill="#faf6f0"/>
+        <rect x="440" y="320" width="280" height="24" rx="6" fill="rgba(217,119,6,0.10)"/>
+        <rect x="440" y="340" width="280" height="4" fill="rgba(217,119,6,0.10)"/>
+        <rect x="440" y="320" width="280" height="180" rx="6" fill="rgba(217,119,6,0.06)" stroke="#d97706" stroke-width="1.2"/>
+        <line x1="440" y1="344" x2="720" y2="344" stroke="rgba(217,119,6,0.25)" stroke-width="0.8"/>
+        <rect x="448" y="324" width="32" height="12" rx="2" fill="transparent" stroke="rgba(217,119,6,0.40)" stroke-width="0.8"/>
+        <text x="464" y="333" fill="rgba(217,119,6,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CORE</text>
+        <text x="580" y="336" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">RiskResult</text>
+        <text x="452" y="360" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace"># risk_category  string</text>
+        <text x="452" y="376" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace"># risk_subtype     string</text>
+        <text x="452" y="392" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace"># is_known_pattern   bool</text>
+        <text x="452" y="408" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace"># confidence  int (0-5)</text>
+        <text x="452" y="424" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace"># evidence     string</text>
+        <text x="452" y="440" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace"># remediation   string</text>
+        <text x="452" y="456" fill="#a8a29e" font-size="9" font-family="'Geist Mono', monospace">  risk_detail       string</text>
+        <text x="452" y="472" fill="#a8a29e" font-size="9" font-family="'Geist Mono', monospace">  extra_metadata   map[string]string</text>
+        <!-- Method section separator -->
+        <line x1="440" y1="476" x2="720" y2="476" stroke="rgba(217,119,6,0.20)" stroke-width="0.8"/>
+        <text x="452" y="492" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">+ Validate() error</text>
+
+        <!-- ── AlertReport (row 3, left) ── -->
+        <rect x="40" y="380" width="240" height="112" rx="6" fill="#faf6f0"/>
+        <rect x="40" y="380" width="240" height="24" rx="6" fill="rgba(28,25,23,0.04)"/>
+        <rect x="40" y="400" width="240" height="4" fill="rgba(28,25,23,0.04)"/>
+        <rect x="40" y="380" width="240" height="112" rx="6" fill="none" stroke="#1c1917" stroke-width="1"/>
+        <line x1="40" y1="404" x2="280" y2="404" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <rect x="48" y="384" width="52" height="12" rx="2" fill="transparent" stroke="rgba(28,25,23,0.40)" stroke-width="0.8"/>
+        <text x="74" y="393" fill="rgba(28,25,23,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">STRUCT</text>
+        <text x="160" y="396" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">AlertReport</text>
+        <text x="52" y="420" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace"># jobId     string</text>
+        <text x="52" y="436" fill="#d97706" font-size="9" font-family="'Geist Mono', monospace">→ results   []RiskResult</text>
+        <text x="52" y="452" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">→ warnings  []AlertNote</text>
+        <text x="52" y="468" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">  createdAt time.Time</text>
+        <line x1="40" y1="476" x2="280" y2="476" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <text x="52" y="488" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">+ Validate() error</text>
+
+        <!-- ── AlertNote (row 4, left) ── -->
+        <rect x="56" y="556" width="192" height="68" rx="6" fill="rgba(28,25,23,0.05)"/>
+        <rect x="56" y="556" width="192" height="24" rx="6" fill="rgba(28,25,23,0.05)"/>
+        <rect x="56" y="576" width="192" height="4" fill="rgba(28,25,23,0.05)"/>
+        <rect x="56" y="556" width="192" height="68" rx="6" fill="none" stroke="#78716c" stroke-width="1"/>
+        <line x1="56" y1="580" x2="248" y2="580" stroke="rgba(28,25,23,0.12)" stroke-width="0.8"/>
+        <rect x="64" y="560" width="44" height="12" rx="2" fill="transparent" stroke="rgba(120,113,108,0.40)" stroke-width="0.8"/>
+        <text x="86" y="569" fill="rgba(120,113,108,0.80)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">VALUE</text>
+        <text x="152" y="572" fill="#1c1917" font-size="11" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">AlertNote</text>
+        <text x="68" y="596" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">type    string</text>
+        <text x="68" y="612" fill="#78716c" font-size="9" font-family="'Geist Mono', monospace">message string</text>
+
+        <!-- ============================================================
+             LEGEND (horizontal strip at bottom)
+             ============================================================ -->
+        <line x1="30" y1="644" x2="1050" y2="644" stroke="rgba(28,25,23,0.10)" stroke-width="0.8"/>
+        <text x="30" y="668" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+        <!-- Focal class -->
+        <rect x="100" y="656" width="24" height="16" rx="4" fill="rgba(217,119,6,0.06)" stroke="#d97706" stroke-width="0.8"/>
+        <text x="132" y="668" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">核心类</text>
+
+        <!-- Normal class -->
+        <rect x="200" y="656" width="24" height="16" rx="4" fill="#ffffff" stroke="#1c1917" stroke-width="0.8"/>
+        <text x="232" y="668" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">普通类</text>
+
+        <!-- Value class -->
+        <rect x="300" y="656" width="24" height="16" rx="4" fill="rgba(28,25,23,0.05)" stroke="#78716c" stroke-width="0.8"/>
+        <text x="332" y="668" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">值类型</text>
+
+        <!-- Composition -->
+        <polygon points="412,672 404,664 412,656 420,664" fill="#78716c"/>
+        <line x1="420" y1="664" x2="440" y2="664" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+        <text x="448" y="668" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">组合</text>
+
+        <!-- Required field -->
+        <text x="512" y="668" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace"># 必填</text>
+
+        <!-- Optional field -->
+        <text x="572" y="668" fill="#a8a29e" font-size="8" font-family="'Geist Mono', monospace">  选填</text>
+
+        <!-- Reference -->
+        <text x="632" y="668" fill="#d97706" font-size="8" font-family="'Geist Mono', monospace">→ 引用</text>
+
+        <!-- Cardinality -->
+        <text x="700" y="668" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">0..1 / 1..* 基数</text>
+
+      </svg>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="cards">
+      <div class="card">
+        <p class="card-eyebrow">RELATIONSHIPS</p>
+        <div class="card-header">
+          <div class="card-dot ink"></div>
+          <h3>6 条组合关系</h3>
+        </div>
+        <ul>
+          <li>• ScanInput → OrderMessage (0..1, RabbitMQ 路径持有引用)</li>
+          <li>• ScanResult → RiskResult (1..*, 风控产出)</li>
+          <li>• ScanResult → StageResult (1..*, 每阶段执行记录)</li>
+          <li>• AlertReport → RiskResult (1..*, 按 confidence 降序)</li>
+          <li>• AlertReport → AlertNote (0..*, unknown_code 等)</li>
+          <li>• OrderInfoResponse → DBConfig (0..1, 数据库配置)</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <p class="card-eyebrow">RISKRESULT</p>
+        <div class="card-header">
+          <div class="card-dot accent"></div>
+          <h3>核心风控结果</h3>
+        </div>
+        <ul>
+          <li>• 6 个必填字段 (# 前缀) + 2 个选填</li>
+          <li>• is_known_pattern: bool (true=已知, false=未知)</li>
+          <li>• confidence: 0-5 整数, 0 合法</li>
+          <li>• Validate() 校验必填 + credibility 范围</li>
+          <li>• JSON tag 使用 snake_case</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer">
+      nova-shield · github.com/novashield/risk-engine
+    </div>
+  </div>
+</body>
+</html>
