@@ -61,11 +61,35 @@ func (e *replLineEditor) remember(line string) {
 	}
 }
 
+// suggestion returns the single best completion for input, or "" when there is
+// none. It is the head of the ordered candidate list (see suggestions).
 func (e *replLineEditor) suggestion(input string) string {
+	if cands := e.suggestions(input); len(cands) > 0 {
+		return cands[0]
+	}
+	return ""
+}
+
+// suggestions returns every completion candidate for input, best first, so the
+// caller can cycle through them with the arrow keys. Candidates are gathered in
+// priority order — slash commands, then recent inputs, then the /model catalog
+// — deduplicated, with the raw input itself excluded.
+func (e *replLineEditor) suggestions(input string) []string {
 	if input == "" {
-		return ""
+		return nil
 	}
 	lower := strings.ToLower(input)
+
+	var out []string
+	seen := map[string]bool{}
+	add := func(s string) {
+		if s == "" || s == input || seen[s] {
+			return
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+
 	if strings.HasPrefix(input, "/") && !strings.ContainsAny(input, " \t") {
 		var commands []string
 		for _, cmd := range e.slash.List() {
@@ -73,46 +97,35 @@ func (e *replLineEditor) suggestion(input string) string {
 		}
 		sort.Strings(commands)
 		for _, cmd := range commands {
-			if strings.HasPrefix(strings.ToLower(cmd), lower) && cmd != input {
-				return cmd
+			if strings.HasPrefix(strings.ToLower(cmd), lower) {
+				add(cmd)
 			}
 		}
 	}
 	for i := len(e.history) - 1; i >= 0; i-- {
-		if strings.HasPrefix(strings.ToLower(e.history[i]), lower) && e.history[i] != input {
-			return e.history[i]
+		if strings.HasPrefix(strings.ToLower(e.history[i]), lower) {
+			add(e.history[i])
 		}
 	}
 	if strings.HasPrefix(lower, "/model ") {
 		query := strings.TrimSpace(input[len("/model "):])
-		if query == "" {
-			for i := len(e.history) - 1; i >= 0; i-- {
-				if strings.HasPrefix(e.history[i], "/model ") {
-					return e.history[i]
-				}
-			}
-			if len(e.models) > 0 {
-				return "/model " + e.models[0]
-			}
-			return ""
-		}
 		for i := len(e.history) - 1; i >= 0; i-- {
 			h := e.history[i]
-			if strings.HasPrefix(h, "/model ") {
-				id := strings.TrimSpace(h[len("/model "):])
-				if modelMatches(id, query) {
-					return "/model " + id
-				}
+			if !strings.HasPrefix(h, "/model ") {
+				continue
+			}
+			id := strings.TrimSpace(h[len("/model "):])
+			if query == "" || modelMatches(id, query) {
+				add(h)
 			}
 		}
 		for _, id := range e.models {
-			if modelMatches(id, query) {
-				return "/model " + id
+			if query == "" || modelMatches(id, query) {
+				add("/model " + id)
 			}
 		}
-		return ""
 	}
-	return ""
+	return out
 }
 
 func modelMatches(id, query string) bool {
@@ -151,8 +164,28 @@ func (e *replLineEditor) readLine(prompt string) (string, error) {
 	}()
 
 	var input string
+	// selected indexes into the current candidate list. It advances with the
+	// up/down arrows so the user can cycle through suggestions; it resets to 0
+	// (the best match) whenever the input text changes, since the candidate list
+	// is recomputed from scratch.
+	selected := 0
+	// visible returns the suggestion currently shown/accepted: the candidate at
+	// the selected index, clamped to the available list.
+	visible := func() string {
+		cands := e.suggestions(input)
+		if len(cands) == 0 {
+			return ""
+		}
+		if selected >= len(cands) {
+			selected = len(cands) - 1
+		}
+		if selected < 0 {
+			selected = 0
+		}
+		return cands[selected]
+	}
 	render := func() {
-		s := e.suggestion(input)
+		s := visible()
 		fmt.Fprintf(e.out, "\r\033[2K%s%s", prompt, input)
 		if s != "" {
 			if strings.HasPrefix(s, input) {
@@ -182,22 +215,38 @@ func (e *replLineEditor) readLine(prompt string) (string, error) {
 				return "", io.EOF
 			}
 		case 9: // Tab accepts the visible suggestion.
-			if s := e.suggestion(input); s != "" {
+			if s := visible(); s != "" {
 				input = s
+				selected = 0
 			}
 		case 8, 127:
 			if input != "" {
 				_, size := utf8.DecodeLastRuneInString(input)
 				input = input[:len(input)-size]
+				selected = 0
 			}
 		case 27:
-			// Right arrow accepts the suggestion. Other escape sequences are
-			// consumed and ignored so they never leak into the submitted text.
+			// Arrow keys drive suggestion selection: → accepts the visible
+			// suggestion, ↑/↓ cycle to the previous/next candidate. Any other
+			// escape sequence is consumed and ignored so it never leaks into the
+			// submitted text.
 			b2, _ := e.in.ReadByte()
 			b3, _ := e.in.ReadByte()
-			if b2 == '[' && b3 == 'C' {
-				if s := e.suggestion(input); s != "" {
-					input = s
+			if b2 == '[' {
+				switch b3 {
+				case 'C': // right arrow accepts
+					if s := visible(); s != "" {
+						input = s
+						selected = 0
+					}
+				case 'A': // up arrow: previous suggestion
+					if n := len(e.suggestions(input)); n > 0 {
+						selected = (selected - 1 + n) % n
+					}
+				case 'B': // down arrow: next suggestion
+					if n := len(e.suggestions(input)); n > 0 {
+						selected = (selected + 1) % n
+					}
 				}
 			}
 		default:
@@ -219,6 +268,7 @@ func (e *replLineEditor) readLine(prompt string) (string, error) {
 				bytes = append(bytes, next)
 			}
 			input += string(bytes)
+			selected = 0
 		}
 		render()
 	}

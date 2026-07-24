@@ -44,3 +44,30 @@ func TestLineEditorCompletesModelsByRecentUseAndBasename(t *testing.T) {
 		t.Fatalf("catalog model suggestion = %q", got)
 	}
 }
+
+func TestLineEditorSuggestionsAreOrderedAndDeduped(t *testing.T) {
+	// Two recent inputs plus a slash command all sharing a prefix: the caller
+	// cycles this list with the arrow keys, so ordering (best first) and
+	// dedup both matter.
+	e := testLineEditor("explain old", "explain recent", "explain recent")
+	cands := e.suggestions("exp")
+	if len(cands) != 2 {
+		t.Fatalf("suggestions = %v, want 2 unique candidates", cands)
+	}
+	if cands[0] != "explain recent" || cands[1] != "explain old" {
+		t.Fatalf("suggestions = %v, want most-recent first", cands)
+	}
+	// The head of the list must match the single-suggestion helper.
+	if e.suggestion("exp") != cands[0] {
+		t.Fatalf("suggestion head %q != suggestions[0] %q", e.suggestion("exp"), cands[0])
+	}
+}
+
+func TestLineEditorSlashCommandsCycleAllMatches(t *testing.T) {
+	e := testLineEditor()
+	cands := e.suggestions("/mode")
+	// Both /model and /models share the prefix; cycling must expose both.
+	if len(cands) != 2 || cands[0] != "/model" || cands[1] != "/models" {
+		t.Fatalf("suggestions = %v, want [/model /models]", cands)
+	}
+}
