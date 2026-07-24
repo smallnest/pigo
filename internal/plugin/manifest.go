@@ -73,6 +73,35 @@ type CallResult struct {
 	IsError bool   `json:"isError,omitempty"`
 }
 
+// CommandCallParams is the parameter object for a commands/call request. It
+// mirrors CallParams' naming (name/arguments) so a plugin can decode tool and
+// command invocations with the same conventions. Name is the command's name;
+// Args carries its free-form arguments (e.g. the text following the slash
+// command) as raw JSON, passed through verbatim to the plugin.
+type CommandCallParams struct {
+	Name string          `json:"name"`
+	Args json.RawMessage `json:"arguments"`
+}
+
+// CommandCallResult is the reply to a commands/call request. Prompt is the text
+// injected as the next agent turn (matching the declarative-command
+// convention); it may be empty if the command produces no prompt. Notifications
+// are messages the plugin asks pigo to surface to the user out of band from the
+// prompt.
+type CommandCallResult struct {
+	Prompt        string                `json:"prompt,omitempty"`
+	Notifications []CommandNotification `json:"notifications,omitempty"`
+}
+
+// CommandNotification is a single message a command asks pigo to surface to the
+// user. Message is the human-readable text; Type is an optional severity or
+// category hint (e.g. "info", "warning", "error") that pigo may use to style
+// the message.
+type CommandNotification struct {
+	Message string `json:"message"`
+	Type    string `json:"type,omitempty"`
+}
+
 // EventParams is the parameter object for an `event` notification. Type is the
 // event discriminant (an agentcore.Event* value); Data carries a small,
 // wire-safe payload for that event (never secrets — see plugin.EventData).

@@ -77,6 +77,34 @@ func TestClassifyPerCapabilityKeys(t *testing.T) {
 	}
 }
 
+// TestClassifyPluralCapabilityKeys verifies the pi-ecosystem convention of
+// plural path arrays (pi.extensions, pi.skills, ...) registers each type. This
+// is the shape published packages actually use (pi-simplify, pi-ask-user, ...).
+func TestClassifyPluralCapabilityKeys(t *testing.T) {
+	dir := writePkg(t, `{"name":"pi-ask-user","version":"1.0.0","pi":{"extensions":["./index.ts"],"skills":["./skills"]}}`, nil)
+	_, _, types, err := Classify(dir)
+	if err != nil {
+		t.Fatalf("Classify: %v", err)
+	}
+	want := []PackageType{TypeExtension, TypeSkill}
+	if !reflect.DeepEqual(types, want) {
+		t.Errorf("types = %v, want %v", types, want)
+	}
+}
+
+// TestClassifyPluralExtensionsOnly verifies a pure extension declared via
+// pi.extensions (no bin) classifies as an extension — the pi-simplify case.
+func TestClassifyPluralExtensionsOnly(t *testing.T) {
+	dir := writePkg(t, `{"name":"pi-simplify","version":"0.2.3","pi":{"extensions":["dist/index.js"]}}`, nil)
+	_, _, types, err := Classify(dir)
+	if err != nil {
+		t.Fatalf("Classify: %v", err)
+	}
+	if !reflect.DeepEqual(types, []PackageType{TypeExtension}) {
+		t.Errorf("types = %v, want [extension]", types)
+	}
+}
+
 // TestClassifyStructuralBin verifies a bare package with a bin entry is an
 // extension even without pi metadata.
 func TestClassifyStructuralBin(t *testing.T) {

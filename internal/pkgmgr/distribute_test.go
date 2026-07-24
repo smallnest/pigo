@@ -122,6 +122,59 @@ func TestDistributeExtensionReinstallReplaces(t *testing.T) {
 	}
 }
 
+// TestDistributeExtensionPiExtensionsEntry verifies a pi extension with no npm
+// "bin" resolves its entrypoint from pi.extensions (the pi-simplify shape).
+func TestDistributeExtensionPiExtensionsEntry(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("extension install not supported on windows")
+	}
+	home := t.TempDir()
+	t.Setenv("PIGO_HOME", home)
+
+	pkg := writePkg(t, `{"name":"pi-simplify","version":"0.2.3","pi":{"extensions":["dist/index.js"]}}`, map[string]string{
+		"dist/index.js": "#!/usr/bin/env node\nconsole.log('hi')\n",
+	})
+
+	if _, err := DistributeExtension(pkg, "pi-simplify"); err != nil {
+		t.Fatalf("DistributeExtension: %v", err)
+	}
+
+	binAbs := filepath.Join(home, "plugins", "pi-simplify.pkg", "dist", "index.js")
+	bi, err := os.Stat(binAbs)
+	if err != nil {
+		t.Fatalf("stat payload bin: %v", err)
+	}
+	if bi.Mode()&0o111 == 0 {
+		t.Errorf("payload bin not executable: mode %v", bi.Mode())
+	}
+	script, _ := os.ReadFile(filepath.Join(home, "plugins", "pi-simplify"))
+	if !contains(string(script), binAbs) {
+		t.Errorf("launcher script = %q, want to exec %q", script, binAbs)
+	}
+}
+
+// TestDistributeExtensionMainEntry verifies the "main" field is used as a
+// last-resort entrypoint when neither bin nor pi.extensions is present.
+func TestDistributeExtensionMainEntry(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("extension install not supported on windows")
+	}
+	home := t.TempDir()
+	t.Setenv("PIGO_HOME", home)
+
+	pkg := writePkg(t, `{"name":"pi-main","version":"1.0.0","main":"./dist/index.js"}`, map[string]string{
+		"dist/index.js": "#!/usr/bin/env node\n",
+	})
+
+	if _, err := DistributeExtension(pkg, "pi-main"); err != nil {
+		t.Fatalf("DistributeExtension: %v", err)
+	}
+	binAbs := filepath.Join(home, "plugins", "pi-main.pkg", "dist", "index.js")
+	if bi, err := os.Stat(binAbs); err != nil || bi.Mode()&0o111 == 0 {
+		t.Errorf("expected main entrypoint executable, err=%v", err)
+	}
+}
+
 // TestDistributeExtensionNoBin verifies a package without a bin errors.
 func TestDistributeExtensionNoBin(t *testing.T) {
 	if runtime.GOOS == "windows" {

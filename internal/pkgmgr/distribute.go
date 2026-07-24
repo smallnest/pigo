@@ -76,30 +76,34 @@ func DistributeExtension(pkgDir, name string) ([]string, error) {
 	return created, nil
 }
 
-// extensionBin resolves the package's bin entrypoint (relative to the package
-// root) from package.json. npm's "bin" is either a string (single bin) or an
-// object mapping command name → path; for the object form we prefer the entry
-// keyed by the package name, else any single entry.
+// extensionBin resolves the package's entrypoint (relative to the package root)
+// from package.json. It prefers npm's "bin" field (a string, or a {command:
+// path} object keyed by the package name), matching how npm installs bins. When
+// there is no "bin" — the common case for pi extensions, which declare their
+// entrypoint in the pi metadata rather than as an npm bin — it falls back to the
+// first path listed in "pi.extensions", then to "main".
 func extensionBin(pkgDir, name string) (string, error) {
 	data, err := os.ReadFile(filepath.Join(pkgDir, "package.json"))
 	if err != nil {
 		return "", fmt.Errorf("pkgmgr: read package.json: %w", err)
 	}
 	var pj struct {
-		Bin json.RawMessage `json:"bin"`
+		Bin  json.RawMessage `json:"bin"`
+		Main string          `json:"main"`
+		Pi   struct {
+			Extensions []string `json:"extensions"`
+		} `json:"pi"`
 	}
 	if err := json.Unmarshal(data, &pj); err != nil {
 		return "", fmt.Errorf("pkgmgr: parse package.json: %w", err)
 	}
-	if len(pj.Bin) == 0 {
-		return "", fmt.Errorf("pkgmgr: extension %q has no bin entry in package.json", name)
-	}
-	// String form: a single bin path.
+
+	// 1. npm "bin": string form.
 	var s string
 	if err := json.Unmarshal(pj.Bin, &s); err == nil && s != "" {
 		return s, nil
 	}
-	// Object form: {command: path}.
+	// npm "bin": object form {command: path}.
 	var m map[string]string
 	if err := json.Unmarshal(pj.Bin, &m); err == nil && len(m) > 0 {
 		if p, ok := m[name]; ok && p != "" {
@@ -115,7 +119,20 @@ func extensionBin(pkgDir, name string) (string, error) {
 			}
 		}
 	}
-	return "", fmt.Errorf("pkgmgr: extension %q has an unreadable bin entry", name)
+
+	// 2. pi metadata entrypoint: pi.extensions is the pi-ecosystem convention.
+	for _, p := range pj.Pi.Extensions {
+		if p != "" {
+			return p, nil
+		}
+	}
+
+	// 3. npm "main" as a last resort.
+	if pj.Main != "" {
+		return pj.Main, nil
+	}
+
+	return "", fmt.Errorf("pkgmgr: extension %q has no bin, pi.extensions, or main entrypoint in package.json", name)
 }
 
 // copyTree recursively copies src into dst (created), preserving file modes and

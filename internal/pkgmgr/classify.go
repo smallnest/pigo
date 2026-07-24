@@ -38,15 +38,27 @@ type packageJSON struct {
 }
 
 // piMeta is the "pi" block of a package.json. It supports either a single
-// "type" or a "types" list, plus per-capability booleans/objects so a package
-// can declare, e.g., both an extension and a skill.
+// "type" or a "types" list, plus per-capability keys so a package can declare,
+// e.g., both an extension and a skill.
+//
+// The pi ecosystem convention (observed across published packages such as
+// pi-simplify, pi-mcp-adapter, pi-spark, pi-ask-user) declares capabilities as
+// PLURAL arrays of paths — "extensions", "skills", "prompts", "themes" — each
+// listing the files/dirs that provide that capability. We also accept the
+// singular forms ("extension", "skill", ...) so a package that declares a single
+// capability object is still recognized. Any present value (array or object)
+// registers that type; only its presence matters for classification.
 type piMeta struct {
-	Type      string          `json:"type,omitempty"`
-	Types     []string        `json:"types,omitempty"`
-	Extension json.RawMessage `json:"extension,omitempty"`
-	Skill     json.RawMessage `json:"skill,omitempty"`
-	Prompt    json.RawMessage `json:"prompt,omitempty"`
-	Theme     json.RawMessage `json:"theme,omitempty"`
+	Type       string          `json:"type,omitempty"`
+	Types      []string        `json:"types,omitempty"`
+	Extension  json.RawMessage `json:"extension,omitempty"`
+	Extensions json.RawMessage `json:"extensions,omitempty"`
+	Skill      json.RawMessage `json:"skill,omitempty"`
+	Skills     json.RawMessage `json:"skills,omitempty"`
+	Prompt     json.RawMessage `json:"prompt,omitempty"`
+	Prompts    json.RawMessage `json:"prompts,omitempty"`
+	Theme      json.RawMessage `json:"theme,omitempty"`
+	Themes     json.RawMessage `json:"themes,omitempty"`
 }
 
 // Classify inspects the fetched package directory and returns the set of pi
@@ -73,16 +85,16 @@ func Classify(pkgDir string) (name, version string, types []PackageType, err err
 				set[pt] = true
 			}
 		}
-		if len(pj.Pi.Extension) > 0 {
+		if len(pj.Pi.Extension) > 0 || len(pj.Pi.Extensions) > 0 {
 			set[TypeExtension] = true
 		}
-		if len(pj.Pi.Skill) > 0 {
+		if len(pj.Pi.Skill) > 0 || len(pj.Pi.Skills) > 0 {
 			set[TypeSkill] = true
 		}
-		if len(pj.Pi.Prompt) > 0 {
+		if len(pj.Pi.Prompt) > 0 || len(pj.Pi.Prompts) > 0 {
 			set[TypePrompt] = true
 		}
-		if len(pj.Pi.Theme) > 0 {
+		if len(pj.Pi.Theme) > 0 || len(pj.Pi.Themes) > 0 {
 			set[TypeTheme] = true
 		}
 	}

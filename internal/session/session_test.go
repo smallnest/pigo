@@ -102,6 +102,44 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
+// TestSaveLoadMalformedToolArguments verifies a transcript containing a tool
+// call whose arguments are syntactically invalid JSON (as a model can stream)
+// still saves and loads, rather than aborting the whole session write. This is
+// the regression for the "session save failed: ... invalid character '{' after
+// object key:value pair" crash.
+func TestSaveLoadMalformedToolArguments(t *testing.T) {
+	s := newStore(t)
+	now := time.Now().UTC()
+	h := SessionHeader{ID: "malformed", CreatedAt: now, UpdatedAt: now}
+	msgs := agentcore.MessageList{
+		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("go")}},
+		agentcore.AssistantMessage{
+			RoleField: agentcore.RoleAssistant,
+			Content: agentcore.ContentList{
+				agentcore.NewToolCallContent("c1", "todo", []byte(`{"todos": []{}"content": ""x"}`)),
+			},
+			StopReason: agentcore.StopReasonToolUse,
+		},
+	}
+	if err := s.Save(h, msgs); err != nil {
+		t.Fatalf("Save with malformed tool args: %v", err)
+	}
+	_, got, err := s.Load("malformed")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("message count = %d, want 2", len(got))
+	}
+	a, ok := got[1].(agentcore.AssistantMessage)
+	if !ok {
+		t.Fatalf("message[1] is not AssistantMessage: %T", got[1])
+	}
+	if calls := a.ToolCalls(); len(calls) != 1 || calls[0].Name != "todo" {
+		t.Errorf("tool calls = %+v, want one 'todo'", calls)
+	}
+}
+
 // TestSaveOverwrites verifies Save replaces an existing session file (same id)
 // atomically rather than appending.
 func TestSaveOverwrites(t *testing.T) {
