@@ -105,6 +105,24 @@ func (p *Plugin) call(ctx context.Context, name string, args json.RawMessage) (C
 	return res, nil
 }
 
+// CallCommand forwards a slash-command invocation to the plugin over JSON-RPC
+// (commands/call) and returns the plugin's result. args carries the command's
+// free-form arguments (passed through verbatim). A transport error (e.g. the
+// plugin crashed) or a malformed reply is surfaced as a returned error rather
+// than a panic — mirroring how pluginTool.Execute isolates a dead plugin, but
+// leaving the caller to decide how to present the failure.
+func (p *Plugin) CallCommand(ctx context.Context, name string, args json.RawMessage) (CommandCallResult, error) {
+	raw, err := p.client.Call(ctx, "commands/call", CommandCallParams{Name: name, Args: args})
+	if err != nil {
+		return CommandCallResult{}, fmt.Errorf("plugin %q: command %q: %w", p.Manifest.Name, name, err)
+	}
+	var res CommandCallResult
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return CommandCallResult{}, fmt.Errorf("plugin %q: decode command result for %q: %w", p.Manifest.Name, name, err)
+	}
+	return res, nil
+}
+
 // Subscribes reports whether the plugin asked to receive the given event type in
 // its manifest (US-017, #133). pigo only delivers subscribed events.
 func (p *Plugin) Subscribes(eventType string) bool {

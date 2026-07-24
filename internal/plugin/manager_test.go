@@ -86,3 +86,52 @@ func TestDiscoverLoadsAndIsolatesBad(t *testing.T) {
 		t.Errorf("aggregated tools = %+v, want one 'shout'", tools)
 	}
 }
+
+// TestManagerCommandsAggregatesInLoadOrder checks that Commands() returns every
+// loaded plugin's commands in load order (plugins ordered by discovery, and
+// within a plugin by manifest order), each carrying its owning plugin.
+func TestManagerCommandsAggregatesInLoadOrder(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-script/compiled plugins are unix-only in this test")
+	}
+	dir := t.TempDir()
+
+	// Two command plugins. Load order is by filename, so "a-cmd" loads before
+	// "b-cmd"; within each plugin the manifest declares greet then bye.
+	a := buildTestPlugin(t, "a-cmd", cmdPluginSrc)
+	if err := os.Rename(a, filepath.Join(dir, "a-cmd")); err != nil {
+		t.Fatal(err)
+	}
+	b := buildTestPlugin(t, "b-cmd", cmdPluginSrc)
+	if err := os.Rename(b, filepath.Join(dir, "b-cmd")); err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := Discover(dir, nil, os.Stderr)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	defer m.Close()
+
+	cmds := m.Commands()
+	// Both plugins report the same name "cmd" (from cmdPluginSrc's manifest), so
+	// the two loaded *Plugin pointers are what distinguish load order.
+	if len(m.Plugins()) != 2 {
+		t.Fatalf("want 2 plugins loaded, got %d", len(m.Plugins()))
+	}
+	p0, p1 := m.Plugins()[0], m.Plugins()[1]
+	want := []PluginCommand{
+		{Plugin: p0, Spec: CommandSpec{Name: "greet", Description: "greets"}},
+		{Plugin: p0, Spec: CommandSpec{Name: "bye", Description: "farewell"}},
+		{Plugin: p1, Spec: CommandSpec{Name: "greet", Description: "greets"}},
+		{Plugin: p1, Spec: CommandSpec{Name: "bye", Description: "farewell"}},
+	}
+	if len(cmds) != len(want) {
+		t.Fatalf("Commands() len = %d, want %d (%+v)", len(cmds), len(want), cmds)
+	}
+	for i, w := range want {
+		if cmds[i].Plugin != w.Plugin || cmds[i].Spec != w.Spec {
+			t.Errorf("Commands()[%d] = {%p, %+v}, want {%p, %+v}", i, cmds[i].Plugin, cmds[i].Spec, w.Plugin, w.Spec)
+		}
+	}
+}

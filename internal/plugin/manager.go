@@ -76,6 +76,29 @@ func (m *Manager) Tools() []agentcore.AgentTool {
 // Plugins returns the loaded plugins (for command aggregation and diagnostics).
 func (m *Manager) Plugins() []*Plugin { return m.plugins }
 
+// PluginCommand pairs a plugin-declared slash command with the plugin that owns
+// it, so a caller can dispatch the command back to its plugin via
+// Plugin.CallCommand.
+type PluginCommand struct {
+	// Plugin is the plugin that declared and handles this command.
+	Plugin *Plugin
+	// Spec is the command's declaration from the owning plugin's manifest.
+	Spec CommandSpec
+}
+
+// Commands returns the aggregated slash commands of every loaded plugin, in load
+// order (and, within a plugin, in manifest order). Each carries the owning
+// plugin so the caller can dispatch it via Plugin.CallCommand.
+func (m *Manager) Commands() []PluginCommand {
+	var out []PluginCommand
+	for _, p := range m.plugins {
+		for _, spec := range p.Manifest.Commands {
+			out = append(out, PluginCommand{Plugin: p, Spec: spec})
+		}
+	}
+	return out
+}
+
 // Subscribers reports whether any loaded plugin subscribes to the given event
 // type. It lets a caller skip building an event payload when nobody is listening
 // (US-017, #133).
