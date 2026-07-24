@@ -61,10 +61,15 @@ func TestDistributeExtensionStringBin(t *testing.T) {
 		t.Errorf("created files %v missing launcher", files)
 	}
 
-	// The launcher script should exec the bin path.
+	// A ".js" bin is a pi extension, so the launcher runs the Node host and a
+	// .pihost.mjs is dropped beside the payload.
+	host := filepath.Join(home, "plugins", "pi-demo.pkg", ".pihost.mjs")
+	if _, err := os.Stat(host); err != nil {
+		t.Errorf("expected embedded pi host at %q: %v", host, err)
+	}
 	script, _ := os.ReadFile(launcher)
-	if !contains(string(script), binAbs) {
-		t.Errorf("launcher script = %q, want to exec %q", script, binAbs)
+	if !contains(string(script), "exec node ") || !contains(string(script), host) {
+		t.Errorf("launcher script = %q, want node host exec of %q", script, host)
 	}
 }
 
@@ -135,7 +140,8 @@ func TestDistributeExtensionPiExtensionsEntry(t *testing.T) {
 		"dist/index.js": "#!/usr/bin/env node\nconsole.log('hi')\n",
 	})
 
-	if _, err := DistributeExtension(pkg, "pi-simplify"); err != nil {
+	files, err := DistributeExtension(pkg, "pi-simplify")
+	if err != nil {
 		t.Fatalf("DistributeExtension: %v", err)
 	}
 
@@ -147,9 +153,79 @@ func TestDistributeExtensionPiExtensionsEntry(t *testing.T) {
 	if bi.Mode()&0o111 == 0 {
 		t.Errorf("payload bin not executable: mode %v", bi.Mode())
 	}
-	script, _ := os.ReadFile(filepath.Join(home, "plugins", "pi-simplify"))
+
+	// A pi.extensions package must run under the Node host, dropping .pihost.mjs
+	// and pointing the launcher at `node <host> <pkgDir>`.
+	launcher := filepath.Join(home, "plugins", "pi-simplify")
+	host := filepath.Join(home, "plugins", "pi-simplify.pkg", ".pihost.mjs")
+	pkgDir := filepath.Join(home, "plugins", "pi-simplify.pkg")
+	if _, err := os.Stat(host); err != nil {
+		t.Errorf("expected embedded pi host at %q: %v", host, err)
+	}
+	script, _ := os.ReadFile(launcher)
+	if !contains(string(script), "exec node ") || !contains(string(script), host) || !contains(string(script), pkgDir) {
+		t.Errorf("launcher script = %q, want node host exec of %q with pkgDir %q", script, host, pkgDir)
+	}
+	if !contains(string(script), "node not found") {
+		t.Errorf("launcher script = %q, missing node-absent guard", script)
+	}
+
+	// Both the host and the launcher must be recorded for uninstall.
+	var sawHost, sawLauncher bool
+	for _, f := range files {
+		switch f {
+		case host:
+			sawHost = true
+		case launcher:
+			sawLauncher = true
+		}
+	}
+	if !sawHost || !sawLauncher {
+		t.Errorf("created files %v missing host or launcher", files)
+	}
+}
+
+// TestDistributeExtensionBinaryBinDirectExec verifies a native binary bin (no
+// pi.extensions, non-JS extension) keeps the historical direct-exec launcher —
+// no Node host, no .pihost.mjs.
+func TestDistributeExtensionBinaryBinDirectExec(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("extension install not supported on windows")
+	}
+	home := t.TempDir()
+	t.Setenv("PIGO_HOME", home)
+
+	pkg := writePkg(t, `{"name":"pi-native","version":"1.0.0","bin":"./server"}`, map[string]string{
+		"server": "#!/usr/bin/env node\n",
+	})
+
+	files, err := DistributeExtension(pkg, "pi-native")
+	if err != nil {
+		t.Fatalf("DistributeExtension: %v", err)
+	}
+
+	launcher := filepath.Join(home, "plugins", "pi-native")
+	binAbs := filepath.Join(home, "plugins", "pi-native.pkg", "server")
+	script, _ := os.ReadFile(launcher)
 	if !contains(string(script), binAbs) {
-		t.Errorf("launcher script = %q, want to exec %q", script, binAbs)
+		t.Errorf("launcher script = %q, want direct exec of %q", script, binAbs)
+	}
+	if contains(string(script), "exec node ") {
+		t.Errorf("binary bin launcher = %q, should not run the Node host", script)
+	}
+	if _, err := os.Stat(filepath.Join(home, "plugins", "pi-native.pkg", ".pihost.mjs")); !os.IsNotExist(err) {
+		t.Errorf("binary bin should not drop .pihost.mjs, err=%v", err)
+	}
+
+	// The launcher and payload dir must be recorded; the host must not be.
+	var sawLauncher bool
+	for _, f := range files {
+		if f == launcher {
+			sawLauncher = true
+		}
+	}
+	if !sawLauncher {
+		t.Errorf("created files %v missing launcher", files)
 	}
 }
 

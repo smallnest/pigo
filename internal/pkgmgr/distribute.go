@@ -26,6 +26,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+
+	"github.com/smallnest/pigo/internal/pihost"
 )
 
 // DistributeExtension copies the extension package at pkgDir into the plugins
@@ -67,6 +70,29 @@ func DistributeExtension(pkgDir, name string) ([]string, error) {
 	}
 
 	launcher := filepath.Join(pluginsDir, name)
+
+	// A pi extension is a JS module loaded by pi's runtime, not a native binary
+	// or JSON-RPC server, so it cannot be exec'd directly. Instead we drop the
+	// embedded Node host next to the payload and point the launcher at it. A
+	// native/JSON-RPC plugin keeps the historical direct-exec launcher.
+	if isPiExtension(pkgDir, binRel) {
+		hostAbs := filepath.Join(payloadDir, ".pihost.mjs")
+		if err := os.WriteFile(hostAbs, pihost.Script, 0o644); err != nil {
+			return nil, fmt.Errorf("pkgmgr: write pi host %q: %w", hostAbs, err)
+		}
+		script := fmt.Sprintf(
+			"#!/bin/sh\n"+
+				"command -v node >/dev/null 2>&1 || { echo \"pigo: node not found on PATH; pi extension %s skipped\" >&2; exit 127; }\n"+
+				"exec node %s %s \"$@\"\n",
+			name, shellQuote(hostAbs), shellQuote(payloadDir),
+		)
+		if err := os.WriteFile(launcher, []byte(script), 0o755); err != nil {
+			return nil, fmt.Errorf("pkgmgr: write launcher %q: %w", launcher, err)
+		}
+		created = append(created, payloadDir, hostAbs, launcher)
+		return created, nil
+	}
+
 	script := fmt.Sprintf("#!/bin/sh\nexec %s \"$@\"\n", shellQuote(binAbs))
 	if err := os.WriteFile(launcher, []byte(script), 0o755); err != nil {
 		return nil, fmt.Errorf("pkgmgr: write launcher %q: %w", launcher, err)
@@ -74,6 +100,33 @@ func DistributeExtension(pkgDir, name string) ([]string, error) {
 
 	created = append(created, payloadDir, launcher)
 	return created, nil
+}
+
+// isPiExtension reports whether the entrypoint should be run under pigo's Node
+// host rather than exec'd directly. The pi.extensions declaration is
+// authoritative and checked first; otherwise the resolved bin extension
+// (.js/.mjs/.cjs) identifies a JS module that needs the host. Native binaries
+// and self-hosted JSON-RPC servers match neither and keep the direct launcher.
+func isPiExtension(pkgDir, binRel string) bool {
+	if data, err := os.ReadFile(filepath.Join(pkgDir, "package.json")); err == nil {
+		var pj struct {
+			Pi struct {
+				Extensions []string `json:"extensions"`
+			} `json:"pi"`
+		}
+		if json.Unmarshal(data, &pj) == nil {
+			for _, p := range pj.Pi.Extensions {
+				if p != "" {
+					return true
+				}
+			}
+		}
+	}
+	switch strings.ToLower(filepath.Ext(binRel)) {
+	case ".js", ".mjs", ".cjs":
+		return true
+	}
+	return false
 }
 
 // extensionBin resolves the package's entrypoint (relative to the package root)
