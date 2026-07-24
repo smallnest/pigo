@@ -182,3 +182,139 @@ func TestPluginCrashIsolation(t *testing.T) {
 		t.Errorf("expected isolated error result, got %q", txt)
 	}
 }
+
+// cmdPluginSrc declares two slash commands and answers commands/call by echoing
+// the command name back as a prompt plus one notification. Its manifest command
+// order (greet, then bye) lets tests assert manifest-order aggregation.
+const cmdPluginSrc = `package main
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"os"
+)
+
+type req struct {
+	ID     *json.RawMessage ` + "`json:\"id\"`" + `
+	Method string           ` + "`json:\"method\"`" + `
+	Params json.RawMessage  ` + "`json:\"params\"`" + `
+}
+
+func main() {
+	sc := bufio.NewScanner(os.Stdin)
+	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	w := bufio.NewWriter(os.Stdout)
+	for sc.Scan() {
+		var r req
+		if err := json.Unmarshal(sc.Bytes(), &r); err != nil {
+			continue
+		}
+		switch r.Method {
+		case "initialize":
+			reply(w, r.ID, json.RawMessage(` + "`" + `{"name":"cmd","commands":[{"name":"greet","description":"greets"},{"name":"bye","description":"farewell"}]}` + "`" + `))
+		case "commands/call":
+			var p struct {
+				Name string          ` + "`json:\"name\"`" + `
+				Args json.RawMessage ` + "`json:\"arguments\"`" + `
+			}
+			json.Unmarshal(r.Params, &p)
+			res, _ := json.Marshal(map[string]any{
+				"prompt": "did:" + p.Name,
+				"notifications": []map[string]any{
+					{"message": "ran " + p.Name, "type": "info"},
+				},
+			})
+			reply(w, r.ID, res)
+		case "shutdown":
+			return
+		}
+	}
+}
+
+func reply(w *bufio.Writer, id *json.RawMessage, result json.RawMessage) {
+	if id == nil {
+		return
+	}
+	out, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
+	fmt.Fprintf(w, "%s\n", out)
+	w.Flush()
+}
+`
+
+// TestPluginCallCommand checks CallCommand round-trips a prompt and its
+// notifications from a plugin over the real subprocess transport.
+func TestPluginCallCommand(t *testing.T) {
+	bin := buildTestPlugin(t, "cmd", cmdPluginSrc)
+	p, err := Load(bin, nil, os.Stderr)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	defer p.Close()
+
+	res, err := p.CallCommand(context.Background(), "greet", json.RawMessage(`{"text":"hi"}`))
+	if err != nil {
+		t.Fatalf("CallCommand: %v", err)
+	}
+	if res.Prompt != "did:greet" {
+		t.Errorf("prompt = %q, want did:greet", res.Prompt)
+	}
+	if len(res.Notifications) != 1 {
+		t.Fatalf("notifications = %+v, want one", res.Notifications)
+	}
+	if res.Notifications[0].Message != "ran greet" || res.Notifications[0].Type != "info" {
+		t.Errorf("notification = %+v, want {ran greet, info}", res.Notifications[0])
+	}
+}
+
+// TestPluginCallCommandTransportError checks that a transport error (the plugin
+// crashed mid-call) surfaces as a returned error, never a panic.
+func TestPluginCallCommandTransportError(t *testing.T) {
+	bin := buildTestPlugin(t, "cmdcrash", cmdCrashPluginSrc)
+	p, err := Load(bin, nil, os.Stderr)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	defer p.Close()
+
+	_, err = p.CallCommand(context.Background(), "greet", json.RawMessage(`{}`))
+	if err == nil {
+		t.Fatal("CallCommand must return an error when the plugin crashes mid-call")
+	}
+}
+
+// cmdCrashPluginSrc initializes with one command then exits abruptly on the
+// first commands/call, so no response is ever sent.
+const cmdCrashPluginSrc = `package main
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"os"
+)
+
+type req struct {
+	ID     *json.RawMessage ` + "`json:\"id\"`" + `
+	Method string           ` + "`json:\"method\"`" + `
+}
+
+func main() {
+	sc := bufio.NewScanner(os.Stdin)
+	w := bufio.NewWriter(os.Stdout)
+	for sc.Scan() {
+		var r req
+		if err := json.Unmarshal(sc.Bytes(), &r); err != nil {
+			continue
+		}
+		switch r.Method {
+		case "initialize":
+			out, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": r.ID, "result": json.RawMessage(` + "`" + `{"name":"cmdcrash","commands":[{"name":"greet","description":"greets"}]}` + "`" + `)})
+			fmt.Fprintf(w, "%s\n", out)
+			w.Flush()
+		case "commands/call":
+			os.Exit(1) // crash mid-call: no response is ever sent
+		}
+	}
+}
+`
