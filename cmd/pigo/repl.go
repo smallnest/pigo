@@ -272,6 +272,14 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 			runSession(out, &deps)
 			continue
 		}
+		if line == "/status" || strings.HasPrefix(line, "/status ") {
+			// /status prints a colored multi-section status report with runtime
+			// config, context usage, and more — state a pure string→string Action
+			// closure cannot see. The exact-or-space-prefix guard keeps "/statusfoo"
+			// from being mistaken for "/status".
+			runStatus(out, &deps)
+			continue
+		}
 		if line == "/goal" || strings.HasPrefix(line, "/goal ") {
 			// /goal is intercepted here (like /compact) because it must run one or
 			// more agent streams and mutate the shared context/goal state — none of
