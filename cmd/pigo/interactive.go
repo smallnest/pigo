@@ -308,7 +308,7 @@ func buildSlashRegistry(live *liveRunConfig, noSkills bool, mgr *plugin.Manager)
 
 		skillCmds, serr := loadSkillCommands()
 		for _, c := range skillCmds {
-			reg.AddUser(c)
+			reg.AddSkill(c)
 		}
 		if serr != nil {
 			fmt.Fprintf(os.Stderr, "pigo: skills: some skills failed to load: %v\n", serr)
@@ -385,7 +385,7 @@ const defaultContextWindow = 128000
 // (Manager.Commands()) into the registry as a hybrid (Run) command. Invoking it
 // RPCs the owning plugin (Plugin.CallCommand), returns the plugin's
 // notifications as the outcome Message, and returns the plugin's Prompt to run
-// as the next turn. Plugin commands are registered with AddUser so a same-named
+// as the next turn. Plugin commands are registered with AddPlugin so a same-named
 // built-in still wins (existing precedence preserved) and a collision is
 // reported as shadowed. mgr may be nil (no plugins), in which case this is a
 // no-op.
@@ -401,7 +401,7 @@ func registerPluginCommands(reg *runtime.SlashRegistry, mgr *plugin.Manager) {
 	}
 	for _, pc := range mgr.Commands() {
 		pc := pc // capture per iteration
-		reg.AddUser(runtime.SlashCommand{
+		reg.AddPlugin(runtime.SlashCommand{
 			Name:        pc.Spec.Name,
 			Description: pc.Spec.Description,
 			Run: func(args string) (message, prompt string) {

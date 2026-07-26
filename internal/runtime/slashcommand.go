@@ -34,15 +34,30 @@ type SlashCommandSource int
 const (
 	// SourceBuiltin is a compile-time registered command (highest priority).
 	SourceBuiltin SlashCommandSource = iota
-	// SourceUser is a declarative markdown command loaded from disk.
+	// SourceUser is a declarative markdown command template loaded from disk
+	// (e.g. ~/.pigo/commands/*.md).
 	SourceUser
+	// SourceSkill is a skill loaded from ~/.agents/skills and surfaced as a
+	// /skill-name command. It behaves like SourceUser for the built-in-wins
+	// conflict rule; the finer tag is for display only (e.g. /status).
+	SourceSkill
+	// SourcePlugin is a command declared by a loaded plugin. It behaves like
+	// SourceUser for the built-in-wins conflict rule; the finer tag is for
+	// display only.
+	SourcePlugin
 )
 
 func (s SlashCommandSource) String() string {
-	if s == SourceBuiltin {
+	switch s {
+	case SourceBuiltin:
 		return "builtin"
+	case SourceSkill:
+		return "skill"
+	case SourcePlugin:
+		return "plugin"
+	default:
+		return "user"
 	}
-	return "user"
 }
 
 // SlashCommand is a resolved command: its name (without the leading "/"), a
@@ -189,6 +204,30 @@ func (r *SlashRegistry) AddUser(cmd SlashCommand) {
 		return
 	}
 	cmd.Source = SourceUser
+	r.commands[cmd.Name] = cmd
+}
+
+// AddSkill installs a skill command (loaded from ~/.agents/skills). It follows
+// the same built-in-wins rule as AddUser - a built-in owning the name shadows
+// the skill - only the source tag differs, so /status can report skills
+// separately from user templates and plugins.
+func (r *SlashRegistry) AddSkill(cmd SlashCommand) {
+	if existing, ok := r.commands[cmd.Name]; ok && existing.Source == SourceBuiltin {
+		r.shadowed = append(r.shadowed, cmd.Name)
+		return
+	}
+	cmd.Source = SourceSkill
+	r.commands[cmd.Name] = cmd
+}
+
+// AddPlugin installs a plugin-declared command, mirroring AddUser with a
+// SourcePlugin tag for display.
+func (r *SlashRegistry) AddPlugin(cmd SlashCommand) {
+	if existing, ok := r.commands[cmd.Name]; ok && existing.Source == SourceBuiltin {
+		r.shadowed = append(r.shadowed, cmd.Name)
+		return
+	}
+	cmd.Source = SourcePlugin
 	r.commands[cmd.Name] = cmd
 }
 
