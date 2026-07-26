@@ -105,6 +105,12 @@ type replDeps struct {
 	// is everything from this index on. Reopening replays only Messages[base:] so
 	// the whole main transcript is not reprinted.
 	lastBtwBase int
+
+	// telemetry holds the retained per-run telemetry events (US-001, #291) and
+	// the cumulative accumulator that sums metrics across all runs in the session.
+	// It is reset to "no telemetry yet" on any session switch (/fork, /clone,
+	// /import).
+	telemetry *TelemetryHolder
 }
 
 // replScanBufInit is the initial size of the shared input reader. A REPL user
@@ -418,7 +424,16 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 		reply.Reset()
 	}
 	_, err = runtime.DrainStream(ctx, stream, runtime.StreamHandler{
-		OnEvent: deps.notifierHandle(),
+		OnEvent: func(ev agentcore.AgentEvent) {
+			// First call the notifier if present.
+			if notifier := deps.notifierHandle(); notifier != nil {
+				notifier(ev)
+			}
+			// Capture TelemetryEvent and fold it into the holder.
+			if telemetry, ok := ev.(agentcore.TelemetryEvent); ok && deps.telemetry != nil {
+				deps.telemetry.Fold(telemetry)
+			}
+		},
 		OnText: func(delta string) {
 			reply.WriteString(delta)
 		},
@@ -545,6 +560,11 @@ func runForkClone(out io.Writer, deps *replDeps, line string) {
 	// new branch, so drop it (#281).
 	deps.lastBtw = nil
 	deps.lastBtwBase = 0
+	// Reset telemetry for the new session, since cumulative stats should not bleed
+	// across conversations.
+	if deps.telemetry != nil {
+		deps.telemetry.Reset()
+	}
 
 	action := "cloned"
 	if cmd == "/fork" {
@@ -678,6 +698,11 @@ func runImport(out io.Writer, deps *replDeps, line string) {
 	// the imported one, so drop it (#281).
 	deps.lastBtw = nil
 	deps.lastBtwBase = 0
+	// Reset telemetry for the imported session, since cumulative stats should not
+	// bleed across conversations.
+	if deps.telemetry != nil {
+		deps.telemetry.Reset()
+	}
 	fmt.Fprintf(out, "imported %d entries from %s → session %s\n", len(entries), path, newHeader.ID)
 }
 

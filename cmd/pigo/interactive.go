@@ -205,6 +205,7 @@ func runInteractive(opts interactiveOptions) error {
 		persisted: len(history),
 		notifier:  plugin.NewEventNotifier(opts.plugins, os.Stderr),
 		goal:      agenttool.NewGoalState(),
+		telemetry: NewTelemetryHolder(),
 	})
 }
 
