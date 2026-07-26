@@ -504,7 +504,7 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
 		{"import", "import a JSONL export as a new session: /import <path.jsonl>"},
 		{"copy", "copy the most recent assistant reply to the clipboard"},
 		{"session", "show session stats: messages, tokens, model, compactions"},
-		{"status", "show runtime config, context usage, and session status"},
+		{"status", "show session status: runtime config, context, telemetry, credentials, environment"},
 		{"goal", "run autonomously toward a goal: /goal [--tokens N] <objective> | pause | resume | clear"},
 		{"btw", "ask a quick side question without touching the main conversation: /btw <question> (bare /btw reopens the last one)"},
 	} {

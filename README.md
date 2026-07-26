@@ -287,7 +287,7 @@ pigo --resume 20260720-1530-abcd  # 续跑指定会话（无头/REPL 均可）
 pigo --continue                   # 续跑最近一次会话
 ```
 
-REPL 中的内置斜杠命令包括 `/model`、`/models`、`/help`、`/compact`、`/fork`、`/clone`、`/tree`、`/export`、`/import`、`/copy`、`/session`、`/exit` 等。
+REPL 中的内置斜杠命令包括 `/model`、`/models`、`/help`、`/compact`、`/fork`、`/clone`、`/tree`、`/export`、`/import`、`/copy`、`/session`、`/status`、`/exit` 等。其中 `/status` 一次性展示运行时模型配置、上下文占用与压缩、项目环境（信任 / 技能 / 插件）、凭据连通性，以及遥测数据（累计与最近一次 run 的轮次、工具耗时、上下文利用率）。
 
 在交互终端输入时，pigo 会用灰色文字提示最近匹配的输入或斜杠命令；
 输入 `/model ` 时还会从最近使用的模型和内置模型目录中匹配。按 `Tab`
