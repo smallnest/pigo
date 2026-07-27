@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes - Issue #0339</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/339">#339</a> &mdash; CLI flags --prompt-template / --no-prompt-templates &mdash; 2026-07-27</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Reused one tier-agnostic loader (<code>loadPromptPaths</code>) for both settings and CLI tiers</h3>
+      <p><strong>Ambiguity:</strong> #338 added <code>loadSettingsPrompts</code> for settings; should #339 add a parallel <code>loadCLIPrompts</code>?</p>
+      <p><strong>Choice:</strong> Renamed <code>loadSettingsPrompts</code> -&gt; <code>loadPromptPaths</code> (tier-agnostic: loads file/dir, warns on missing) and used it for both, with the caller doing <code>AddSettings</code> vs <code>AddCLI</code>.</p>
+      <p><strong>Rationale:</strong> The loading logic is identical across tiers; only the registration tier differs. One function avoids duplication.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>--no-prompt-templates</code> gates only prompt-template loading; skills and built-ins unaffected</h3>
+      <p><strong>Ambiguity:</strong> Should the disable flag also suppress skills (since skills surface as <code>/skill-name</code> commands)?</p>
+      <p><strong>Choice:</strong> <code>srcs.disable</code> gates the global/settings/CLI prompt-template loading only; skill registration (<code>AddSkill</code>) and built-ins run unconditionally.</p>
+      <p><strong>Rationale:</strong> The AC says &ldquo;built-in 斜杠命令不受影响&rdquo; and &ldquo;--no-prompt-templates 与 --no-skills 互相独立&rdquo;. Skills have their own <code>--no-skills</code> flag; conflating them would violate the independence requirement.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Carried the disable flag on <code>promptTemplateSources.disable</code></h3>
+      <p><strong>Ambiguity:</strong> Where to plumb <code>--no-prompt-templates</code>?</p>
+      <p><strong>Choice:</strong> Added <code>disable bool</code> to the <code>promptTemplateSources</code> struct introduced in #338 (no new signature change).</p>
+      <p><strong>Rationale:</strong> The struct was designed to carry all prompt-template discovery state; the disable flag is part of that state.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Renamed <code>loadSettingsPrompts</code> (from #338) to <code>loadPromptPaths</code></h3>
+      <p><strong>Spec said:</strong> #338 named the loader <code>loadSettingsPrompts</code> (settings-only intent).</p>
+      <p><strong>Implemented instead:</strong> <code>loadPromptPaths</code> (tier-agnostic), reused for CLI. Updated the #338 test call.</p>
+      <p><strong>Why:</strong> The function was already tier-agnostic in behavior; #339 just makes the name honest and reuses it. A rename is lower-cost than a parallel function.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Gate at load time (skip disk) vs load-then-filter</h3>
+      <p><strong>Alternatives:</strong> Always load all sources, then drop prompt-template commands if <code>disable</code> is set.</p>
+      <p><strong>Pros/cons:</strong> Load-time gating avoids touching disk (faster, no spurious warnings for paths that won&rsquo;t be used). Load-then-filter is simpler control flow but reads files pointlessly.</p>
+      <p><strong>Why it won:</strong> Skipping disk is cleaner and avoids warning about <code>--prompt-template</code> paths when the user explicitly disabled templates.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> <code>disable</code> on the sources struct vs a separate <code>buildSlashRegistry</code> param</h3>
+      <p><strong>Alternatives:</strong> A 5th boolean param.</p>
+      <p><strong>Pros/cons:</strong> The struct already exists; reusing it keeps the signature stable. A separate param would be more visible but means another churn.</p>
+      <p><strong>Why it won:</strong> Stability; <code>disable</code> is conceptually part of the prompt-template sources.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> #337 (project prompts) must also honor <code>--no-prompt-templates</code></h3>
+      <p><strong>Assumption:</strong> The AC says disable closes &ldquo;global/project/settings/CLI&rdquo;. Project loading (#337, not yet implemented) must be added inside the <code>if !srcs.disable</code> block.</p>
+      <p><strong>Verify:</strong> When implementing #337, place the <code>.pigo/prompts</code> load inside the disable gate so <code>--no-prompt-templates</code> covers it.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> CLI path missing warns to stderr</h3>
+      <p><strong>Assumption:</strong> A missing <code>--prompt-template</code> path warns and skips, same as settings paths.</p>
+      <p><strong>Verify:</strong> Acceptable; a user-explicit CLI path that doesn&rsquo;t resolve is almost certainly a typo. Consistent with #338&rsquo;s settings behavior.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

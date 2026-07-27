@@ -77,6 +77,12 @@ type interactiveOptions struct {
 	// configPrompts holds prompt-template paths from the config.toml `prompts`
 	// array (settings tier); each is a file or dir loaded non-recursively.
 	configPrompts []string
+	// cliPrompts holds --prompt-template paths (CLI tier, repeatable).
+	cliPrompts []string
+	// noPromptTemplates disables all prompt-template discovery (global, project,
+	// settings, CLI); built-in slash commands are unaffected. Independent of
+	// --no-skills.
+	noPromptTemplates bool
 }
 
 // runInteractive starts the line-based REPL over a persisted session. It keeps
@@ -174,7 +180,11 @@ func runInteractive(opts interactiveOptions) error {
 	// ~/.agents/skills. A load error is non-fatal — the REPL still runs with the
 	// built-ins. Instance built-ins that need live state (/model, /help) are
 	// registered against `live`.
-	slash, err := buildSlashRegistry(live, opts.skills, opts.plugins, promptTemplateSources{settings: opts.configPrompts})
+	slash, err := buildSlashRegistry(live, opts.skills, opts.plugins, promptTemplateSources{
+		settings: opts.configPrompts,
+		cli:      opts.cliPrompts,
+		disable:  opts.noPromptTemplates,
+	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pigo: slash-commands: %v\n", err)
 	}
@@ -269,11 +279,15 @@ func stdoutIsTerminal() bool {
 type promptTemplateSources struct {
 	settings []string
 	cli      []string
+	// disable (--no-prompt-templates) turns off all prompt-template discovery
+	// (global, settings, CLI); built-ins and skills are unaffected.
+	disable bool
 }
 
-// loadSettingsPrompts loads prompt templates from each settings-tier path (file
-// or dir), skipping and warning on paths that don't exist or fail to read.
-func loadSettingsPrompts(paths []string) []runtime.SlashCommand {
+// loadPromptPaths loads prompt templates from each path (file or dir), skipping
+// and warning on paths that don't exist or fail to read. It is tier-agnostic;
+// the caller registers each result at the desired tier (AddSettings/AddCLI).
+func loadPromptPaths(paths []string) []runtime.SlashCommand {
 	var out []runtime.SlashCommand
 	for _, p := range paths {
 		info, err := os.Stat(p)
@@ -315,32 +329,41 @@ func buildSlashRegistry(live *liveRunConfig, skills []*runtime.Skill, mgr *plugi
 	reg := runtime.NewSlashRegistry()
 	registerLiveCommands(reg, live)
 	registerPluginCommands(reg, mgr)
-	dir := os.Getenv("PIGO_HOME")
-	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return reg, nil // built-ins only
+	// --no-prompt-templates disables all prompt-template discovery (global,
+	// settings, CLI); built-in slash commands and skills are unaffected.
+	if !srcs.disable {
+		dir := os.Getenv("PIGO_HOME")
+		if dir == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return reg, nil // built-ins only
+			}
+			dir = filepath.Join(home, ".pigo")
 		}
-		dir = filepath.Join(home, ".pigo")
-	}
-	// Load user prompt templates from both the legacy ~/.pigo/commands and the
-	// pi-aligned ~/.pigo/prompts (both non-recursive, global tier). Loading
-	// commands first means a same-named template in prompts/ overrides the
-	// legacy one (last-write-wins within the global tier). A missing directory
-	// is not an error (LoadUserCommandsDir returns nil, nil for IsNotExist).
-	for _, sub := range []string{"commands", "prompts"} {
-		cmds, err := runtime.LoadUserCommandsDir(filepath.Join(dir, sub))
-		if err != nil {
-			return reg, err
+		// Load user prompt templates from both the legacy ~/.pigo/commands and
+		// the pi-aligned ~/.pigo/prompts (both non-recursive, global tier).
+		// Loading commands first means a same-named template in prompts/
+		// overrides the legacy one (last-write-wins within the global tier). A
+		// missing directory is not an error (LoadUserCommandsDir returns nil,
+		// nil for IsNotExist).
+		for _, sub := range []string{"commands", "prompts"} {
+			cmds, err := runtime.LoadUserCommandsDir(filepath.Join(dir, sub))
+			if err != nil {
+				return reg, err
+			}
+			for _, c := range cmds {
+				reg.AddUser(c)
+			}
 		}
-		for _, c := range cmds {
-			reg.AddUser(c)
+		// Settings-tier templates from the config.toml `prompts` array, then
+		// CLI-tier templates from --prompt-template. Each entry is a file or
+		// dir; missing paths are warned and skipped.
+		for _, c := range loadPromptPaths(srcs.settings) {
+			reg.AddSettings(c)
 		}
-	}
-	// Load settings-tier prompt templates from the config.toml `prompts` array
-	// (each entry is a file or dir). Missing paths are warned and skipped.
-	for _, c := range loadSettingsPrompts(srcs.settings) {
-		reg.AddSettings(c)
+		for _, c := range loadPromptPaths(srcs.cli) {
+			reg.AddCLI(c)
+		}
 	}
 	// Register skills as /skill-name commands from the pre-loaded set (shared with
 	// prompt injection in setupAgentEnv, so the directory is read once). All

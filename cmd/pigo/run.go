@@ -273,6 +273,13 @@ type cliOptions struct {
 	// array (settings tier); each is a file or directory loaded non-recursively.
 	// Populated by applyFileConfig; empty when the config omits `prompts`.
 	configPrompts []string
+	// promptTemplates holds --prompt-template paths (CLI tier, repeatable); each
+	// is a file or directory loaded non-recursively.
+	promptTemplates []string
+	// noPromptTemplates disables all prompt-template discovery (global, project,
+	// settings, CLI); built-in slash commands are unaffected. Independent of
+	// --no-skills.
+	noPromptTemplates bool
 	// subagentRPC selects the process-isolated sub-agent server mode (US-019,
 	// #135): pigo reads JSON-RPC sub-agent run requests from stdin and writes
 	// results to stdout. Internal, used by SubAgentTool's process mode.
@@ -358,8 +365,10 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			resumeID:      resumeID,
 			approve:       opts.approve,
 			skills:        env.skills,
-			plugins:       env.plugins,
-			configPrompts: opts.configPrompts,
+			plugins:           env.plugins,
+			configPrompts:     opts.configPrompts,
+			cliPrompts:        opts.promptTemplates,
+			noPromptTemplates: opts.noPromptTemplates,
 		}); err != nil {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
 			return 1

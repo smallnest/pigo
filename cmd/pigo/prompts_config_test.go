@@ -59,7 +59,7 @@ func TestLoadSettingsPromptsFileDirMissing(t *testing.T) {
 	// missing entry -> 0 cmds (warned, not fatal).
 	missing := filepath.Join(home, "nope")
 
-	cmds := loadSettingsPrompts([]string{filePath, dirPath, missing})
+	cmds := loadPromptPaths([]string{filePath, dirPath, missing})
 	if len(cmds) != 3 {
 		t.Fatalf("got %d cmds, want 3 (file=1 + dir=2 + missing=0)", len(cmds))
 	}
