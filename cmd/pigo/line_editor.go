@@ -301,6 +301,22 @@ func (e *replLineEditor) remember(line string) {
 	}
 }
 
+// formatSlashAutocompleteLabel renders a slash command for the Tab-completion
+// hint as "name <argument-hint> - description" (对标 pi's autocomplete). The
+// argument-hint is shown verbatim (frontmatter supplies its own <angle>/
+// [square] brackets); it and the description are omitted when absent, so a
+// bare command renders as just its name.
+func formatSlashAutocompleteLabel(cmd runtime.SlashCommand) string {
+	label := cmd.Name
+	if cmd.ArgumentHint != "" {
+		label += " " + cmd.ArgumentHint
+	}
+	if cmd.Description != "" {
+		label += " - " + cmd.Description
+	}
+	return label
+}
+
 // suggestion returns the single best completion for input, or "" when there is
 // none. It is the head of the ordered candidate list (see suggestions).
 func (e *replLineEditor) suggestion(input string) string {
@@ -501,7 +517,15 @@ func (e *replLineEditor) editLoop(prompt string) (string, error) {
 		if buf.single() && buf.col == utf8.RuneCountInString(buf.lines[0]) {
 			if s := visible(); s != "" {
 				input := buf.lines[0]
-				if strings.HasPrefix(s, input) {
+				if strings.HasPrefix(s, "/") {
+					// Slash command: render the argument-hint + description label
+					// (对标 pi autocomplete) instead of the bare name suffix.
+					label := s
+					if cmd, ok := e.slash.Lookup(s[1:]); ok {
+						label = formatSlashAutocompleteLabel(cmd)
+					}
+					fmt.Fprintf(e.out, "\033[2m -> %s\033[0m", label)
+				} else if strings.HasPrefix(s, input) {
 					fmt.Fprintf(e.out, "\033[2m%s\033[0m", s[len(input):])
 				} else {
 					fmt.Fprintf(e.out, "\033[2m → %s\033[0m", s)
