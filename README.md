@@ -28,6 +28,7 @@ pigo 可以读写文件、执行命令、检索代码、抓取网页，并借助
 - [系统提示词组装](#系统提示词组装)
 - [项目信任](#项目信任)
 - [技能 Skills](#技能-skills)
+- [提示词模板](#提示词模板)
 - [插件](#插件)
 - [包管理](#包管理)
 - [发布release](#发布release)
@@ -46,6 +47,7 @@ pigo 可以读写文件、执行命令、检索代码、抓取网页，并借助
 - **系统提示词分层组装**：base 指令 + 环境块 + `AGENTS.md`（general→specific）+ `--append-system-prompt`。
 - **项目信任**：副作用工具（bash/write/edit）在未信任目录需确认，`--approve` 一次性授权。
 - **技能与插件**：`~/.agents/skills` 下的 `/slash` 命令、`~/.pigo/plugins` 下的外部插件。
+- **提示词模板**：`~/.pigo/prompts`、项目 `.pigo/prompts`（受信任时）、config `prompts`、`--prompt-template` 下的可复用 `/name` 模板，支持 `$1`/`$@`/`${1:-default}`/`${@:N}` 等参数语法。
 - **上下文自动压缩**：接近上下文窗口上限时自动摘要，亦可 `/compact` 手动触发。
 - **包管理**：`pigo install npm:<pkg>` 安装 pi 生态的 extension / skill / prompt / theme。
 
@@ -159,6 +161,8 @@ pigo -m ollama/qwen2.5-coder -u http://localhost:11434/v1 -p "解释 main.go 做
 | `--continue` | `-c` | `false` | 续跑最近一次的会话 |
 | `--approve` | `-a` | `false` | 为本次运行信任工作目录：跳过首次信任提示，副作用工具免逐次确认 |
 | `--no-skills` | | `false` | 禁用技能发现（不加载 `~/.agents/skills` 为 `/skill-name` 命令） |
+| `--no-prompt-templates` | | `false` | 禁用提示词模板发现（不加载 `~/.pigo/{commands,prompts}`、`.pigo/prompts`、config `prompts`、`--prompt-template`）；内置斜杠命令不受影响 |
+| `--prompt-template` | | `nil` | 从文件或目录（非递归）加载提示词模板；可重复（对标 pi `--prompt-template`） |
 | `--system-prompt` | | `""` | 用自定义系统提示词替换默认的 coding-assistant 提示词 |
 | `--append-system-prompt` | | `nil` | 向系统提示词末尾追加文本或文件内容；可重复 |
 | `--version` | `-v` | `false` | 打印版本信息并退出 |
@@ -317,6 +321,62 @@ REPL 中的内置斜杠命令包括 `/model`、`/models`、`/help`、`/compact`�
 
 ---
 
+## 提示词模板
+
+提示词模板是可复用的 Markdown 片段，在 REPL 中输入 `/name` 即可展开为完整 prompt（对标 [pi prompt templates](https://pi.dev/docs/latest/prompt-templates)）。模板可带 YAML frontmatter，支持位置参数、默认值与切片。
+
+### 发现来源与优先级
+
+pigo 从以下来源非递归加载 `*.md` 模板（文件名去掉 `.md` 即命令名）：
+
+| 来源 | 路径 / 配置 | 优先级 tier |
+|------|-------------|-------------|
+| 项目级（受信任时） | `.pigo/prompts/*.md`（仅当项目受信任） | project |
+| 全局 | `~/.pigo/prompts/*.md` 与 legacy `~/.pigo/commands/*.md` | global |
+| 包安装 | `pigo install` 安装到 `~/.pigo/prompts` | global（并入全局） |
+| 配置 | `~/.config/pigo/config.toml` 的 `prompts = ["./my-prompts", "/abs/x.md"]` | settings |
+| CLI | `--prompt-template <path>`（可重复，文件或目录） | cli |
+
+同名模板按 tier 解析：**project > global > settings > cli**，败者丢弃并在启动时报告；built-in 斜杠命令始终胜出。`--no-prompt-templates` 关闭全部模板发现（内置命令与技能不受影响，与 `--no-skills` 互相独立）。
+
+### 模板格式
+
+````markdown
+---
+description: Review PRs from URLs with structured issue and code analysis
+argument-hint: "<PR-URL>"
+---
+Review the PR at $1. Focus on:
+- Bugs and logic errors
+- Security issues
+- Error handling gaps
+````
+
+- `description`：可选；缺省时回退为正文首个非空行。
+- `argument-hint`：可选；在 Tab 补全与 `/help` 中以 `name <hint> - description` 形式展示。用 `<angle>` 表示必选参数、`[square]` 表示可选。
+- 正文是 prompt 模板，支持下面的参数语法。
+
+### 参数语法
+
+| 语法 | 含义 |
+|------|------|
+| `$1`、`$2`、… `$N` | 第 N 个位置参数（1-indexed；越界为空） |
+| `$@` / `$ARGUMENTS` | 全部参数以单空格连接 |
+| `${1:-default}` | arg1 存在且非空则用 arg1，否则用 `default` |
+| `${@:-default}` / `${ARGUMENTS:-default}` | 全部参数非空则用之，否则 `default` |
+| `${@:N}` | 从第 N 个起的所有参数 |
+| `${@:N:L}` | 从第 N 个起的 L 个参数 |
+
+调用示例：
+
+```
+/review https://github.com/owner/repo/pull/123
+/component Button "onClick handler" "disabled support"
+/summarize            # 模板用 ${1:-7} 时回退为 7 条要点
+```
+
+> 分词遵循 shell 引号规则：`Button "click handler"` 被切分为 `["Button", "click handler"]`。未闭合引号会回退为把原始串整体作为 `$ARGUMENTS`，保证可用。
+
 ## 技能 Skills
 
 技能是带 YAML frontmatter（`name`、`description`，可选 `allowed-tools`、`model`、`disable-model-invocation`）的 Markdown 文件，位于 `~/.agents/skills`（可用 `PIGO_SKILLS_DIR` 覆盖）：
@@ -392,11 +452,15 @@ git push origin v0.2.0
 
 | 变量 / 路径 | 用途 |
 |-------------|------|
-| `PIGO_HOME` | 覆盖 `~/.pigo` 基础目录（影响 plugins 与 commands） |
+| `PIGO_HOME` | 覆盖 `~/.pigo` 基础目录（影响 plugins、commands、prompts） |
 | `PIGO_SKILLS_DIR` | 覆盖技能目录（默认 `~/.agents/skills`） |
 | `~/.pigo/sessions` | 会话存储（JSONL） |
 | `~/.pigo/plugins` | 外部插件 |
-| `~/.pigo/commands` | 用户自定义命令模板 |
+| `~/.pigo/prompts` | 提示词模板（pi 对齐；`pigo install` 的安装目标） |
+| `~/.pigo/commands` | 用户自定义命令模板（legacy，仍加载） |
+| `.pigo/prompts` | 项目级提示词模板（仅当项目受信任时加载） |
+| `~/.config/pigo/config.toml` 的 `prompts` | 配置追加的模板来源（settings tier） |
+| `--prompt-template <path>` | CLI 追加的模板来源（cli tier，可重复） |
 | `<PROVIDER>_API_KEY` | 各 Provider 的 API Key（见[模型与 Provider](#模型与-provider)） |
 
 ### 内置 Provider 一览（`--provider`）

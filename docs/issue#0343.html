@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes - Issue #0343</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/343">#343</a> &mdash; 文档更新：README + 电子书 &mdash; 2026-07-27</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Added a dedicated &ldquo;## 提示词模板&rdquo; README section</h3>
+      <p><strong>Ambiguity:</strong> Document prompt templates inline in existing sections, or as a new section?</p>
+      <p><strong>Choice:</strong> A new section with: a discovery-sources table (path + tier), the template format (frontmatter + example), and an argument-syntax cheat sheet (<code>$1</code>/<code>$@</code>/<code>${1:-default}</code>/<code>${@:N}</code>/<code>${@:N:L}</code>) with a usage example.</p>
+      <p><strong>Rationale:</strong> Prompt templates are a substantial feature (6 sources, tiered priority, full arg syntax) deserving a self-contained reference; scattering would undersell it.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Synced chapter10.md (the extensibility book chapter) at 5 factual points</h3>
+      <p><strong>Ambiguity:</strong> How much of the book to rewrite?</p>
+      <p><strong>Choice:</strong> Surgical edits at 5 points: discovery dir (<code>commands</code> -&gt; <code>prompts</code>), the expansion engine (<code>$ARGUMENTS</code> -&gt; <code>ExpandTemplate</code> with full syntax), the tiered conflict rule, <code>buildSlashRegistry</code> loading sources, and the distribute target (<code>commands</code> -&gt; <code>prompts</code>).</p>
+      <p><strong>Rationale:</strong> The book is a narrative; surgical edits keep the prose intact while correcting the now-changed facts. A full rewrite would disrupt the chapter.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Updated 目录与环境变量 table, CLI args table, feature line, and TOC</h3>
+      <p><strong>Ambiguity:</strong> Where else to surface the new flags/paths?</p>
+      <p><strong>Choice:</strong> Added <code>--no-prompt-templates</code>/<code>--prompt-template</code> rows to the CLI args table; added <code>~/.pigo/prompts</code>, <code>.pigo/prompts</code>, config <code>prompts</code>, <code>--prompt-template</code> rows to the env/paths table; updated the <code>PIGO_HOME</code> row and the feature bullet; added a TOC entry for the new section.</p>
+      <p><strong>Rationale:</strong> These are the surfaces users scan for flags and paths; keeping them current is the AC&rsquo;s core.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None &mdash; documentation follows US-013 as written. README records all required paths/flags, the CLI args table has both new rows, the arg-syntax cheat sheet + example are present, chapter10 is synced, and markdown anchors/links verify (TOC <code>#提示词模板</code> matches the heading; the pi.dev link is well-formed).</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Dedicated README section vs inline mentions</h3>
+      <p><strong>Alternatives:</strong> Mention prompts briefly under &ldquo;技能与插件&rdquo; and the env table only.</p>
+      <p><strong>Pros/cons:</strong> A dedicated section is comprehensive (discovery, format, syntax, example) but adds length. Inline is terse but hides the arg syntax users need.</p>
+      <p><strong>Why it won:</strong> The arg syntax (<code>${@:N:L}</code> etc.) is non-obvious; a reference table is the usable form.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Surgical chapter10 edits vs a full rewrite</h3>
+      <p><strong>Alternatives:</strong> Rewrite the Skills/斜杠命令 and 分发 sections to fully incorporate prompt templates.</p>
+      <p><strong>Pros/cons:</strong> A rewrite would be more thorough but risks the narrative flow and is disproportionate to a docs-sync issue. Surgical edits correct the facts that changed (#336-#342) without restructuring.</p>
+      <p><strong>Why it won:</strong> The AC says &ldquo;同步更新&rdquo; (sync), not &ldquo;rewrite&rdquo;. Correcting the 5 changed facts is the right scope.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> The PDF eBook is not regenerated</h3>
+      <p><strong>Assumption:</strong> Only the markdown source (<code>book/chapter10.md</code>) is updated; the published <code>write_pi_agent_in_go.pdf</code> is built separately via <code>book/build_pdf.sh</code> and not run here.</p>
+      <p><strong>Verify:</strong> The PDF regen is a separate release step; the markdown is the source of truth. Confirm the book build pipeline picks up these edits on next PDF release.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> <code>argument-hint</code> rendering documented consistently with #340/#341</h3>
+      <p><strong>Assumption:</strong> The README documents <code>argument-hint</code> as shown in Tab autocomplete (<code>name &lt;hint&gt; - description</code>) and <code>/help</code>, matching the #340/#341 implementations.</p>
+      <p><strong>Verify:</strong> Cross-check the documented format against the actual <code>formatSlashAutocompleteLabel</code> (#340) and <code>formatHelpLine</code> (#341) output.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

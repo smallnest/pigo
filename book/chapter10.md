@@ -16,7 +16,7 @@
 
 **包管理器**回答"这些扩展怎么分发、安装、版本化"。它把前两者（以及提示词模板、主题）当作发布到 npm 上的包，`pigo install npm:<name>` 负责拉取、判断这是什么类型、分发到对应目录，并记进锁文件以便日后卸载升级。
 
-一条线索贯穿始终：**pigo 不为扩展另造发现机制，而是让每种扩展落到一个它本来就会扫描的目录里**。技能落到技能目录（`LoadSkillsDir` 会扫），提示词落到 `commands` 目录（`LoadUserCommandsDir` 会扫），扩展落到 `plugins` 目录（`plugin.Discover` 会扫）。包管理器的"分发"本质上就是把包里的东西摆到正确的位置，剩下的交给既有的加载逻辑。下面就从最轻的一层说起。
+一条线索贯穿始终：**pigo 不为扩展另造发现机制，而是让每种扩展落到一个它本来就会扫描的目录里**。技能落到技能目录（`LoadSkillsDir` 会扫），提示词落到 `prompts` 目录（legacy `commands` 仍兼容，`LoadUserCommandsDir` 都扫），扩展落到 `plugins` 目录（`plugin.Discover` 会扫）。包管理器的"分发"本质上就是把包里的东西摆到正确的位置，剩下的交给既有的加载逻辑。下面就从最轻的一层说起。
 
 <!--
 生图prompt：
@@ -131,11 +131,11 @@ func (s *Skill) SlashCommand() SlashCommand {
 }
 ```
 
-两种挂法的区别是语义上的：子 Agent 版让技能带着独立上下文另跑一轮、只回结论；斜杠命令版让技能的指令**就地展开**进当前对话，参数通过 `$ARGUMENTS` 占位符替换（没有占位符就把参数追加到末尾）。pigo 在 REPL 里选的是后者——`cmd/pigo/interactive.go` 的 `loadSkillCommands` 把每个技能都注册成一条 `/skill-name`。
+两种挂法的区别是语义上的：子 Agent 版让技能带着独立上下文另跑一轮、只回结论；斜杠命令版让技能的指令**就地展开**进当前对话，参数经 `ExpandTemplate` 展开（`$1`/`$@`/`$ARGUMENTS` 位置参数、`${1:-default}` 默认值、`${@:N}`/`${@:N:L}` 切片）（没有占位符就把参数追加到末尾）。pigo 在 REPL 里选的是后者——`cmd/pigo/interactive.go` 的 `loadSkillCommands` 把每个技能都注册成一条 `/skill-name`。
 
 ### 斜杠命令注册表：内置优先，动作与提示分家
 
-斜杠命令本身是 pigo REPL 的一等公民，定义在 `internal/runtime/slashcommand.go`。它有两个来源，按固定优先级解析：**内置命令**在编译期通过 `RegisterBuiltin`（在 `init()` 里）注册，永远可用；**用户命令**是从目录加载的声明式 Markdown 模板。冲突规则很明确——同名时内置命令赢，因为内置命令是"承重"的、不能被悄悄遮蔽；一个撞名的用户命令会被记进 `shadowed` 列表提示用户改名，但内置的照旧生效。
+斜杠命令本身是 pigo REPL 的一等公民，定义在 `internal/runtime/slashcommand.go`。它有两个来源，按固定优先级解析：**内置命令**在编译期通过 `RegisterBuiltin`（在 `init()` 里）注册，永远可用；**用户命令**是从目录加载的声明式 Markdown 模板。冲突规则很明确——按来源 tier 解析（project > global > settings > cli），内置命令 tier 最高、始终胜出，因为内置命令是"承重"的、不能被悄悄遮蔽；一个撞名的用户命令会被记进 `shadowed` 列表提示用户改名，但内置的照旧生效。
 
 更关键的是一条命令有两种"性格"，由设置哪个回调决定：
 
@@ -174,7 +174,7 @@ Constraints: One image explains only one core structure. Main subject 40%-60% of
 
 `ResolveOutcome` 是解析一行输入的统一入口。它区分三种结局：不是斜杠命令，原样返回让调用方直接运行；是已知的提示命令，返回展开后的提示文本；是已知的动作命令，**当场执行动作**并返回状态消息、不启动运行。未知的 `/name` 则报错。这三态被打包进 `SlashOutcome`，REPL 据此决定"跑一轮"还是"只显示一行"。
 
-装配这一切的是 `cmd/pigo/interactive.go` 的 `buildSlashRegistry`：先用 `NewSlashRegistry` 播种全部编译期内置命令，再挂上 `/model`、`/help` 这类需要捕获活状态的实例内置命令，然后从 `~/.pigo/commands`（或 `$PIGO_HOME/commands`）加载用户声明式模板，最后——除非带了 `--no-skills`——从 `~/.agents/skills` 加载技能并各自注册成一条 `/skill-name`。技能加载遵循前面说的容错约定：加载成功的照常注册，出错的只在 stderr 上报一句警告。这条 `--no-skills` 开关，我们在第 1 章 `dispatch` 的标志里就见过它的名字，这里才落到实处。
+装配这一切的是 `cmd/pigo/interactive.go` 的 `buildSlashRegistry`：先用 `NewSlashRegistry` 播种全部编译期内置命令，再挂上 `/model`、`/help` 这类需要捕获活状态的实例内置命令，然后从 `~/.pigo/prompts` 与 legacy `~/.pigo/commands`（或 `$PIGO_HOME` 下同名子目录）加载用户声明式模板（另有项目 `.pigo/prompts`、config `prompts`、`--prompt-template` 等来源，`--no-prompt-templates` 可整体关闭），最后——除非带了 `--no-skills`——从 `~/.agents/skills` 加载技能并各自注册成一条 `/skill-name`。技能加载遵循前面说的容错约定：加载成功的照常注册，出错的只在 stderr 上报一句警告。这条 `--no-skills` 开关，我们在第 1 章 `dispatch` 的标志里就见过它的名字，这里才落到实处。
 
 ## Plugin 系统：进程隔离的外部工具
 
@@ -357,7 +357,7 @@ if dirExists(filepath.Join(pkgDir, "commands")) {
 
 这套靠结构兜底的判断，让一个"没好好声明元数据、但明摆着是某类型"的包也能被认出来；什么都匹配不上时它宁可报错也不瞎猜，好让 `pigo install` 在一个根本不是 pi 包的东西上清清楚楚地失败。
 
-**分发**（`distribute.go` 及同族文件）。这是包管理器最能体现全章那条线索的地方——分发不是别的，就是**把包里的东西摆到 pigo 本来就会扫描的目录**。`install.go` 的 `distribute` 按类型路由到四个分发器，各自的目标目录由 `layout.go` 定义：扩展进 `$PIGO_HOME/plugins`（`plugin.Discover` 扫）、提示词进 `$PIGO_HOME/commands`（`LoadUserCommandsDir` 扫）、技能进 `~/.agents/skills`（`LoadSkillsDir` 扫）、主题进 `$PIGO_HOME/themes`（暂无运行时消费者，只是先存着）。
+**分发**（`distribute.go` 及同族文件）。这是包管理器最能体现全章那条线索的地方——分发不是别的，就是**把包里的东西摆到 pigo 本来就会扫描的目录**。`install.go` 的 `distribute` 按类型路由到四个分发器，各自的目标目录由 `layout.go` 定义：扩展进 `$PIGO_HOME/plugins`（`plugin.Discover` 扫）、提示词进 `$PIGO_HOME/prompts`（`LoadUserCommandsDir` 扫，legacy `commands` 仍兼容）、技能进 `~/.agents/skills`（`LoadSkillsDir` 扫）、主题进 `$PIGO_HOME/themes`（暂无运行时消费者，只是先存着）。
 
 技能分发最直白：`DistributeSkill` 就是把包整棵树拷进 `<skillsDir>/<name>/`，因为一个 npm 技能包恰好就是 `LoadSkillsDir` 认得的那种"一个目录一个 `SKILL.md`"布局。扩展分发要多一道弯：`plugin.Discover` 只跑目录里"直接的可执行文件"，可一个 npm 扩展是整棵包树、入口还依赖同级文件，没法只丢一个文件进去。`DistributeExtension` 的解法是摆两样东西——`<name>.pkg/` 放完整包树（是目录，Discover 会跳过），`<name>` 放一个 tiny 的 shell 启动脚本 `exec` 真正的 bin 入口（是文件，Discover 会跑）。每个分发器都会先清掉自己上一次的旧产物再写，所以分发是幂等的，重跑一次 install 不会留下陈货。
 
