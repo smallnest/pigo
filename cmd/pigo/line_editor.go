@@ -92,6 +92,57 @@ func (b *mlBuffer) newline() {
 	b.col = 0
 }
 
+// left moves the cursor one rune left, crossing to the end of the previous
+// line when already at column 0. It is a no-op at the buffer origin.
+func (b *mlBuffer) left() {
+	if b.col > 0 {
+		b.col--
+	} else if b.row > 0 {
+		b.row--
+		b.col = utf8.RuneCountInString(b.lines[b.row])
+	}
+}
+
+// right moves the cursor one rune right, crossing to the start of the next
+// line when already at the end of the current line. It is a no-op at the end
+// of the last line.
+func (b *mlBuffer) right() {
+	if b.col < utf8.RuneCountInString(b.lines[b.row]) {
+		b.col++
+	} else if b.row < len(b.lines)-1 {
+		b.row++
+		b.col = 0
+	}
+}
+
+// up moves the cursor to the previous line, clamping the column to that line's
+// length. It is a no-op on the first line.
+func (b *mlBuffer) up() {
+	if b.row > 0 {
+		b.row--
+		if n := utf8.RuneCountInString(b.lines[b.row]); b.col > n {
+			b.col = n
+		}
+	}
+}
+
+// down moves the cursor to the next line, clamping the column to that line's
+// length. It is a no-op on the last line.
+func (b *mlBuffer) down() {
+	if b.row < len(b.lines)-1 {
+		b.row++
+		if n := utf8.RuneCountInString(b.lines[b.row]); b.col > n {
+			b.col = n
+		}
+	}
+}
+
+// home moves the cursor to the start of the current line.
+func (b *mlBuffer) home() { b.col = 0 }
+
+// end moves the cursor to the end of the current line.
+func (b *mlBuffer) end() { b.col = utf8.RuneCountInString(b.lines[b.row]) }
+
 // runeOffset converts a rune column into a byte offset within s.
 func runeOffset(s string, col int) int {
 	off := 0
@@ -338,6 +389,10 @@ func (e *replLineEditor) editLoop(prompt string) (string, error) {
 		case '\r', '\n':
 			fmt.Fprint(e.out, "\r\n")
 			return buf.String(), nil
+		case 1: // Ctrl+A moves to line start.
+			buf.home()
+		case 5: // Ctrl+E moves to line end.
+			buf.end()
 		case 3: // Ctrl+C
 			fmt.Fprint(e.out, "^C\r\n")
 			return "", errLineInterrupted
@@ -395,7 +450,7 @@ func (e *replLineEditor) editLoop(prompt string) (string, error) {
 							return buf.String(), nil
 						}
 					}
-				case '~': // modifyOtherKeys form: "27;<mod>;<code>~".
+				case '~': // modifyOtherKeys ("27;<mod>;<code>~") or Home/End ("1~"/"4~").
 					parts := strings.Split(string(params), ";")
 					if len(parts) == 3 && atoiDefault(parts[0], -1) == 27 {
 						mod := atoiDefault(parts[1], 1)
@@ -410,18 +465,41 @@ func (e *replLineEditor) editLoop(prompt string) (string, error) {
 								return buf.String(), nil
 							}
 						}
+					} else if len(parts) == 1 {
+						switch atoiDefault(parts[0], -1) {
+						case 1, 7: // Home
+							buf.home()
+						case 4, 8: // End
+							buf.end()
+						}
 					}
-				case 'C': // right arrow accepts
+				case 'C': // right arrow: accept a visible suggestion, else move the cursor
 					if len(params) == 0 {
 						if s := visible(); s != "" {
 							buf.setString(s)
 							selected = 0
 							histNav = -1
+						} else {
+							buf.right()
 						}
+					}
+				case 'D': // left arrow moves the cursor (cross-line at column 0)
+					if len(params) == 0 {
+						buf.left()
+					}
+				case 'H': // Home
+					if len(params) == 0 {
+						buf.home()
+					}
+				case 'F': // End
+					if len(params) == 0 {
+						buf.end()
 					}
 				case 'A': // up arrow
 					if len(params) == 0 {
-						if buf.isEmpty() || histNav >= 0 {
+						if !buf.single() {
+							buf.up()
+						} else if buf.isEmpty() || histNav >= 0 {
 							// Browse history: step toward older entries.
 							if histNav < 0 {
 								histNav = len(e.history)
@@ -437,7 +515,9 @@ func (e *replLineEditor) editLoop(prompt string) (string, error) {
 					}
 				case 'B': // down arrow
 					if len(params) == 0 {
-						if histNav >= 0 {
+						if !buf.single() {
+							buf.down()
+						} else if histNav >= 0 {
 							// Browse history: step toward newer entries; past the
 							// newest, return to a blank line.
 							if histNav < len(e.history)-1 {

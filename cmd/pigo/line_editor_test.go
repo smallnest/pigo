@@ -213,3 +213,99 @@ func TestEditLoopCSIuPlainEnterSubmits(t *testing.T) {
 		t.Fatalf("submitted %q, want %q", got, "hi")
 	}
 }
+
+func TestMLBufferLeftRightCrossLines(t *testing.T) {
+	b := newMLBuffer()
+	b.setString("ab\ncd") // cursor at end of "cd" → (1,2)
+	b.left()              // (1,1)
+	b.left()              // (1,0)
+	if b.row != 1 || b.col != 0 {
+		t.Fatalf("after two lefts = (%d,%d), want (1,0)", b.row, b.col)
+	}
+	b.left() // cross to end of "ab" → (0,2)
+	if b.row != 0 || b.col != 2 {
+		t.Fatalf("left at line start = (%d,%d), want (0,2)", b.row, b.col)
+	}
+	b.right() // cross to start of "cd" → (1,0)
+	if b.row != 1 || b.col != 0 {
+		t.Fatalf("right at line end = (%d,%d), want (1,0)", b.row, b.col)
+	}
+	// Left at the very origin is a no-op.
+	b.setString("x")
+	b.home()
+	b.left()
+	if b.row != 0 || b.col != 0 {
+		t.Fatalf("left at origin moved cursor: (%d,%d)", b.row, b.col)
+	}
+	// Right at the very end is a no-op.
+	b.end()
+	b.right()
+	if b.row != 0 || b.col != 1 {
+		t.Fatalf("right at end moved cursor: (%d,%d)", b.row, b.col)
+	}
+}
+
+func TestMLBufferUpDownClampColumn(t *testing.T) {
+	b := newMLBuffer()
+	b.setString("long line\nhi") // cursor at end of "hi" → (1,2)
+	b.up()                        // move to "long line", col stays 2
+	if b.row != 0 || b.col != 2 {
+		t.Fatalf("up = (%d,%d), want (0,2)", b.row, b.col)
+	}
+	b.end() // col = 9
+	b.down()
+	// Down to "hi" (len 2) clamps col from 9 to 2.
+	if b.row != 1 || b.col != 2 {
+		t.Fatalf("down clamp = (%d,%d), want (1,2)", b.row, b.col)
+	}
+	// Up on the first line is a no-op; down on the last line is a no-op.
+	b.setString("a\nb")
+	b.up()
+	b.up()
+	if b.row != 0 {
+		t.Fatalf("up past first line: row=%d", b.row)
+	}
+	b.down()
+	b.down()
+	if b.row != 1 {
+		t.Fatalf("down past last line: row=%d", b.row)
+	}
+}
+
+func TestMLBufferHomeEnd(t *testing.T) {
+	b := newMLBuffer()
+	b.setString("héllo") // multi-byte, 5 runes
+	b.home()
+	if b.col != 0 {
+		t.Fatalf("home col = %d, want 0", b.col)
+	}
+	b.end()
+	if b.col != 5 {
+		t.Fatalf("end col = %d, want 5", b.col)
+	}
+}
+
+func TestEditLoopLeftArrowThenInsert(t *testing.T) {
+	// Type "abc", move left once (\x1b[D), insert "X", submit → "abXc".
+	e := editorWithInput("abc\x1b[DX\r")
+	got, err := e.editLoop("")
+	if err != nil {
+		t.Fatalf("editLoop error: %v", err)
+	}
+	if got != "abXc" {
+		t.Fatalf("submitted %q, want %q", got, "abXc")
+	}
+}
+
+func TestEditLoopUpArrowEditsPreviousLine(t *testing.T) {
+	// "a" + Shift+Enter + "b", then up-arrow to line 0, End, insert "Z":
+	// line 0 becomes "aZ", line 1 stays "b" → "aZ\nb".
+	e := editorWithInput("a\x1b[13;2ub\x1b[A\x1b[FZ\r")
+	got, err := e.editLoop("")
+	if err != nil {
+		t.Fatalf("editLoop error: %v", err)
+	}
+	if got != "aZ\nb" {
+		t.Fatalf("submitted %q, want %q", got, "aZ\nb")
+	}
+}
