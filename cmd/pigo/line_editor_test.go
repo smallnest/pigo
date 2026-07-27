@@ -71,3 +71,75 @@ func TestLineEditorSlashCommandsCycleAllMatches(t *testing.T) {
 		t.Fatalf("suggestions = %v, want [/model /models]", cands)
 	}
 }
+
+func TestMLBufferEmptyBehavesLikeEmptyString(t *testing.T) {
+	b := newMLBuffer()
+	if !b.isEmpty() {
+		t.Fatalf("fresh buffer should be empty")
+	}
+	if !b.single() {
+		t.Fatalf("fresh buffer should be single-line")
+	}
+	if got := b.String(); got != "" {
+		t.Fatalf("empty buffer String() = %q, want \"\"", got)
+	}
+}
+
+func TestMLBufferSingleLineInsert(t *testing.T) {
+	b := newMLBuffer()
+	b.insert("hello")
+	if got := b.String(); got != "hello" {
+		t.Fatalf("String() = %q, want %q", got, "hello")
+	}
+	if b.col != 5 {
+		t.Fatalf("col = %d, want 5", b.col)
+	}
+	if b.isEmpty() {
+		t.Fatalf("buffer with text should not be empty")
+	}
+}
+
+func TestMLBufferBackspaceRemovesLastRune(t *testing.T) {
+	b := newMLBuffer()
+	b.insert("héllo") // multi-byte rune to exercise UTF-8 handling
+	b.backspace()
+	if got := b.String(); got != "héll" {
+		t.Fatalf("after backspace String() = %q, want %q", got, "héll")
+	}
+	// Remove the multi-byte rune specifically.
+	b.setString("café")
+	b.backspace()
+	if got := b.String(); got != "caf" {
+		t.Fatalf("multi-byte backspace String() = %q, want %q", got, "caf")
+	}
+}
+
+func TestMLBufferBackspaceEmptyIsNoop(t *testing.T) {
+	b := newMLBuffer()
+	b.backspace()
+	if got := b.String(); got != "" {
+		t.Fatalf("backspace on empty buffer String() = %q, want \"\"", got)
+	}
+	if b.col != 0 || b.row != 0 {
+		t.Fatalf("cursor moved on empty backspace: row=%d col=%d", b.row, b.col)
+	}
+}
+
+func TestMLBufferSetStringJoinsWithNewline(t *testing.T) {
+	b := newMLBuffer()
+	b.setString("line1\nline2\nline3")
+	if got := b.String(); got != "line1\nline2\nline3" {
+		t.Fatalf("String() = %q, want round-trip", got)
+	}
+	if b.single() {
+		t.Fatalf("multi-line buffer reported single()")
+	}
+	// Cursor lands at end of last line.
+	if b.row != 2 || b.col != 5 {
+		t.Fatalf("cursor = (%d,%d), want (2,5)", b.row, b.col)
+	}
+	// No trailing newline is introduced.
+	if strings.HasSuffix(b.String(), "\n") {
+		t.Fatalf("String() has trailing newline: %q", b.String())
+	}
+}

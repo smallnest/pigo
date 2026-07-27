@@ -17,6 +17,76 @@ import (
 
 var errLineInterrupted = errors.New("line input interrupted")
 
+// mlBuffer models the readLine input as one or more lines with a cursor at
+// (row, col), col counted in runes within the current line. A fresh buffer
+// holds a single empty line with the cursor at the origin. It is the data
+// model the multi-line REPL editor (continuation, Shift+Enter, cross-line
+// movement/editing, rendering, history) is built on; single-line input behaves
+// exactly as a plain string with the cursor at its end.
+type mlBuffer struct {
+	lines []string
+	row   int
+	col   int
+}
+
+func newMLBuffer() *mlBuffer { return &mlBuffer{lines: []string{""}} }
+
+// String joins the lines with "\n" for submission. A single empty line yields
+// "" and there is never a trailing newline.
+func (b *mlBuffer) String() string { return strings.Join(b.lines, "\n") }
+
+// isEmpty reports whether the buffer is a single empty line.
+func (b *mlBuffer) isEmpty() bool { return len(b.lines) == 1 && b.lines[0] == "" }
+
+// single reports whether the buffer holds exactly one line.
+func (b *mlBuffer) single() bool { return len(b.lines) == 1 }
+
+// line returns the text of the current cursor line.
+func (b *mlBuffer) line() string { return b.lines[b.row] }
+
+// setString replaces the whole buffer with s (which may contain "\n"), placing
+// the cursor at the end of the last line. Used when the entire input is swapped
+// wholesale — accepting a suggestion, browsing history, or restoring a
+// multi-line entry.
+func (b *mlBuffer) setString(s string) {
+	b.lines = strings.Split(s, "\n")
+	b.row = len(b.lines) - 1
+	b.col = utf8.RuneCountInString(b.lines[b.row])
+}
+
+// insert adds s (which must not contain "\n") at the cursor on the current
+// line and advances col past it.
+func (b *mlBuffer) insert(s string) {
+	line := b.lines[b.row]
+	off := runeOffset(line, b.col)
+	b.lines[b.row] = line[:off] + s + line[off:]
+	b.col += utf8.RuneCountInString(s)
+}
+
+// backspace deletes the rune immediately left of the cursor on the current
+// line. It is a no-op at column 0 (line-merge across rows is handled by the
+// cross-line editing story). Multi-byte runes are removed whole.
+func (b *mlBuffer) backspace() {
+	if b.col == 0 {
+		return
+	}
+	line := b.lines[b.row]
+	start := runeOffset(line, b.col-1)
+	end := runeOffset(line, b.col)
+	b.lines[b.row] = line[:start] + line[end:]
+	b.col--
+}
+
+// runeOffset converts a rune column into a byte offset within s.
+func runeOffset(s string, col int) int {
+	off := 0
+	for i := 0; i < col && off < len(s); i++ {
+		_, size := utf8.DecodeRuneInString(s[off:])
+		off += size
+	}
+	return off
+}
+
 // replLineEditor adds a small shell-style editing layer without turning the
 // line-oriented REPL back into a full-screen TUI. On terminals it shows the
 // best completion in dim text as the user types. Pipes and tests keep using the
@@ -163,7 +233,11 @@ func (e *replLineEditor) readLine(prompt string) (string, error) {
 		_ = restore.Run()
 	}()
 
-	var input string
+	// buf models the input as a multi-line buffer with a cursor. For this
+	// single-line editing layer the cursor stays at the end of the sole line,
+	// so buf behaves exactly like the former input string; the buffer model is
+	// what later cross-line editing/rendering is built on.
+	buf := newMLBuffer()
 	// selected indexes into the current candidate list. It advances with the
 	// up/down arrows so the user can cycle through suggestions; it resets to 0
 	// (the best match) whenever the input text changes, since the candidate list
@@ -177,7 +251,7 @@ func (e *replLineEditor) readLine(prompt string) (string, error) {
 	// visible returns the suggestion currently shown/accepted: the candidate at
 	// the selected index, clamped to the available list.
 	visible := func() string {
-		cands := e.suggestions(input)
+		cands := e.suggestions(buf.String())
 		if len(cands) == 0 {
 			return ""
 		}
@@ -190,6 +264,7 @@ func (e *replLineEditor) readLine(prompt string) (string, error) {
 		return cands[selected]
 	}
 	render := func() {
+		input := buf.String()
 		s := visible()
 		fmt.Fprintf(e.out, "\r\033[2K%s%s", prompt, input)
 		if s != "" {
@@ -205,33 +280,30 @@ func (e *replLineEditor) readLine(prompt string) (string, error) {
 	for {
 		b, err := e.in.ReadByte()
 		if err != nil {
-			return input, err
+			return buf.String(), err
 		}
 		switch b {
 		case '\r', '\n':
 			fmt.Fprint(e.out, "\r\n")
-			return input, nil
+			return buf.String(), nil
 		case 3: // Ctrl+C
 			fmt.Fprint(e.out, "^C\r\n")
 			return "", errLineInterrupted
 		case 4: // Ctrl+D
-			if input == "" {
+			if buf.isEmpty() {
 				fmt.Fprint(e.out, "\r\n")
 				return "", io.EOF
 			}
 		case 9: // Tab accepts the visible suggestion.
 			if s := visible(); s != "" {
-				input = s
+				buf.setString(s)
 				selected = 0
 				histNav = -1
 			}
 		case 8, 127:
-			if input != "" {
-				_, size := utf8.DecodeLastRuneInString(input)
-				input = input[:len(input)-size]
-				selected = 0
-				histNav = -1
-			}
+			buf.backspace()
+			selected = 0
+			histNav = -1
 		case 27:
 			// Arrow keys drive suggestion selection: → accepts the visible
 			// suggestion, ↑/↓ cycle to the previous/next candidate. On a blank
@@ -244,22 +316,22 @@ func (e *replLineEditor) readLine(prompt string) (string, error) {
 				switch b3 {
 				case 'C': // right arrow accepts
 					if s := visible(); s != "" {
-						input = s
+						buf.setString(s)
 						selected = 0
 						histNav = -1
 					}
 				case 'A': // up arrow
-					if input == "" || histNav >= 0 {
+					if buf.isEmpty() || histNav >= 0 {
 						// Browse history: step toward older entries.
 						if histNav < 0 {
 							histNav = len(e.history)
 						}
 						if histNav > 0 {
 							histNav--
-							input = e.history[histNav]
+							buf.setString(e.history[histNav])
 							selected = 0
 						}
-					} else if n := len(e.suggestions(input)); n > 0 {
+					} else if n := len(e.suggestions(buf.String())); n > 0 {
 						selected = (selected - 1 + n) % n
 					}
 				case 'B': // down arrow
@@ -268,13 +340,13 @@ func (e *replLineEditor) readLine(prompt string) (string, error) {
 						// newest, return to a blank line.
 						if histNav < len(e.history)-1 {
 							histNav++
-							input = e.history[histNav]
+							buf.setString(e.history[histNav])
 						} else {
 							histNav = -1
-							input = ""
+							buf.setString("")
 						}
 						selected = 0
-					} else if n := len(e.suggestions(input)); n > 0 {
+					} else if n := len(e.suggestions(buf.String())); n > 0 {
 						selected = (selected + 1) % n
 					}
 				}
@@ -293,11 +365,11 @@ func (e *replLineEditor) readLine(prompt string) (string, error) {
 			for len(bytes) < want {
 				next, readErr := e.in.ReadByte()
 				if readErr != nil {
-					return input, readErr
+					return buf.String(), readErr
 				}
 				bytes = append(bytes, next)
 			}
-			input += string(bytes)
+			buf.insert(string(bytes))
 			selected = 0
 			histNav = -1
 		}
