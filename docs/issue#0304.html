@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0304</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EDE8; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/304">#304</a> &mdash; 在 run/repl 装配层加载 skills 并注入 prompt &mdash; 2026-07-27</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Load skills once in <code>setupAgentEnv</code>, share between prompt and slash commands</h3>
+      <p><strong>Ambiguity:</strong> Skills are needed in two places — the system prompt's <code>&lt;available_skills&gt;</code> block and the REPL's <code>/skill-name</code> registry. The spec didn't say where to load them.</p>
+      <p><strong>Choice:</strong> Introduced <code>loadSkills(noSkills)</code> (bootstrap + <code>LoadSkillsDir</code>) called once in <code>setupAgentEnv</code>; the result is stored on <code>agentEnv.skills</code>, injected into the prompt, and threaded through <code>interactiveOptions.skills</code> into <code>buildSlashRegistry</code>.</p>
+      <p><strong>Rationale:</strong> The skills directory is read a single time per launch. <code>buildSlashRegistry</code> shrinks to a pure registration loop over the pre-loaded set — no disk I/O, no bootstrap side effect buried in the REPL wiring.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Reorder <code>setupAgentEnv</code>: build tools before the prompt</h3>
+      <p><strong>Ambiguity:</strong> <code>BuildSystemPrompt</code> now needs <code>ReadToolAvailable</code>, but the prompt was previously built before the tool set existed.</p>
+      <p><strong>Choice:</strong> Moved tool + plugin assembly above <code>BuildSystemPrompt</code>, then computed <code>hasReadTool(tools)</code> and passed it plus the loaded skills into <code>PromptConfig</code>.</p>
+      <p><strong>Rationale:</strong> The read-tool signal is derived from the actual resolved tool set (respecting <code>--no-tools</code>), not guessed. Mirrors pi's <code>selectedTools.includes("read")</code> check performed at assembly time.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Built-in skill bootstrap now also runs in headless mode</h3>
+      <p><strong>Spec:</strong> Bootstrap was previously REPL-only (it lived inside <code>buildSlashRegistry</code>, reached only from <code>runInteractive</code>).</p>
+      <p><strong>Implemented:</strong> Bootstrap moved into <code>loadSkills</code>, which <code>setupAgentEnv</code> calls on both the REPL and headless (<code>-p</code>) paths.</p>
+      <p><strong>Why better:</strong> Model-invocable skills must be advertised in the prompt in every mode, including headless. Bootstrap stays silent unless <code>PIGO_DEBUG</code> is set, so no new output noise. Consistent with the feature goal that headless runs also see skills.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Removed the now-dead <code>interactiveOptions.noSkills</code> field</h3>
+      <p><strong>Alternatives:</strong> Keep the field for symmetry with the CLI flag, vs delete it since <code>buildSlashRegistry</code> no longer gates on it.</p>
+      <p><strong>Chosen:</strong> Deleted it (surfaced during review — it was set but never read after the refactor).</p>
+      <p><strong>Why it wins:</strong> <code>--no-skills</code> is already honored upstream in <code>loadSkills(noSkills)</code>, so an empty <code>skills</code> slice fully expresses the disabled state. A set-but-unread field would mislead future readers into thinking the REPL re-checks the flag.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <p class="none">None — build, vet, and <code>go test ./cmd/pigo/ ./internal/runtime/</code> all pass; behavior matches the PRD (skills loaded once, injected when read tool present, slash commands preserved).</p>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

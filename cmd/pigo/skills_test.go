@@ -20,21 +20,33 @@ func writeSkill(t *testing.T, dir, name, content string) {
 	}
 }
 
-// TestLoadSkillCommandsFromDir verifies skills in PIGO_SKILLS_DIR are loaded and
-// exposed as /skill-name commands whose expansion is the skill body.
-func TestLoadSkillCommandsFromDir(t *testing.T) {
+// findSkill returns the skill with the given name from the set, or nil.
+func findSkill(skills []*runtime.Skill, name string) *runtime.Skill {
+	for _, s := range skills {
+		if s.Frontmatter.Name == name {
+			return s
+		}
+	}
+	return nil
+}
+
+// TestLoadSkillsFromDir verifies skills in PIGO_SKILLS_DIR are loaded and expose
+// a /skill-name slash command whose expansion is the skill body.
+func TestLoadSkillsFromDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("PIGO_SKILLS_DIR", dir)
+	t.Setenv("PIGO_HOME", t.TempDir())
 	writeSkill(t, dir, "greet.md", "---\nname: greet\ndescription: say hello\n---\nYou are a friendly greeter.")
 
-	cmds, err := loadSkillCommands()
+	skills, err := loadSkills(false)
 	if err != nil {
-		t.Fatalf("loadSkillCommands: %v", err)
+		t.Fatalf("loadSkills: %v", err)
 	}
-	if len(cmds) != 1 {
-		t.Fatalf("got %d commands, want 1", len(cmds))
+	s := findSkill(skills, "greet")
+	if s == nil {
+		t.Fatal("greet skill not loaded")
 	}
-	c := cmds[0]
+	c := s.SlashCommand()
 	if c.Name != "greet" {
 		t.Errorf("Name = %q, want greet", c.Name)
 	}
@@ -49,21 +61,31 @@ func TestLoadSkillCommandsFromDir(t *testing.T) {
 	}
 }
 
-// TestLoadSkillCommandsMissingDir verifies a missing skills directory yields no
-// commands and no error (skills are optional).
-func TestLoadSkillCommandsMissingDir(t *testing.T) {
-	t.Setenv("PIGO_SKILLS_DIR", filepath.Join(t.TempDir(), "does-not-exist"))
-	cmds, err := loadSkillCommands()
+// TestLoadSkillsNoSkills verifies --no-skills skips discovery entirely: no
+// skills are loaded and the skills dir is left untouched (no bootstrap).
+func TestLoadSkillsNoSkills(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PIGO_SKILLS_DIR", dir)
+	t.Setenv("PIGO_HOME", t.TempDir())
+
+	skills, err := loadSkills(true)
 	if err != nil {
-		t.Fatalf("missing dir must not error: %v", err)
+		t.Fatalf("loadSkills(true): %v", err)
 	}
-	if len(cmds) != 0 {
-		t.Errorf("got %d commands, want 0", len(cmds))
+	if len(skills) != 0 {
+		t.Errorf("got %d skills, want 0 under --no-skills", len(skills))
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read skills dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("--no-skills must not bootstrap; skills dir has %d entries", len(entries))
 	}
 }
 
-// TestBuildSlashRegistryIncludesSkills verifies buildSlashRegistry wires loaded
-// skills into the registry so /skill-name resolves.
+// TestBuildSlashRegistryIncludesSkills verifies buildSlashRegistry wires the
+// pre-loaded skills into the registry so /skill-name resolves.
 func TestBuildSlashRegistryIncludesSkills(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("PIGO_SKILLS_DIR", dir)
@@ -71,7 +93,11 @@ func TestBuildSlashRegistryIncludesSkills(t *testing.T) {
 	t.Setenv("PIGO_HOME", t.TempDir())
 	writeSkill(t, dir, "summarize.md", "---\nname: summarize\ndescription: summarize input\n---\nSummarize the following: $ARGUMENTS")
 
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, false, nil)
+	skills, err := loadSkills(false)
+	if err != nil {
+		t.Fatalf("loadSkills: %v", err)
+	}
+	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, skills, nil)
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}
@@ -90,36 +116,36 @@ func TestBuildSlashRegistryIncludesSkills(t *testing.T) {
 	}
 }
 
-// TestBuildSlashRegistryNoSkills verifies that when noSkills is true, skill
-// discovery is skipped so a /skill-name command is not registered even though a
-// skill file exists on disk (对标 pi 的 --no-skills).
+// TestBuildSlashRegistryNoSkills verifies that when no skills are passed (as
+// under --no-skills, where loadSkills returns nil), a /skill-name command is not
+// registered even though a skill file exists on disk (对标 pi 的 --no-skills).
 func TestBuildSlashRegistryNoSkills(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("PIGO_SKILLS_DIR", dir)
 	t.Setenv("PIGO_HOME", t.TempDir())
-	writeSkill(t, dir, "summarize.md", "---\nname: summarize\ndescription: summarize input\n---\nSummarize the following: $ARGUMENTS")
 
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, true, nil)
+	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, nil, nil)
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}
-	// With discovery disabled, /summarize was never registered, so the registry
-	// treats it as an unknown command (an error) rather than a handled one.
+	// With no skills registered, /summarize is an unknown command (an error)
+	// rather than a handled one.
 	if _, err := reg.ResolveOutcome("/summarize hello world"); err == nil {
-		t.Error("/summarize must be unknown when --no-skills disables discovery")
+		t.Error("/summarize must be unknown when no skills are registered")
 	}
 }
 
-// TestBuildSlashRegistryBootstrapsBuiltinSkills verifies that on a fresh
-// PIGO_SKILLS_DIR the built-in skills are installed and registered as
-// /skill-name commands (first-run bootstrap), so e.g. /prd resolves without any
-// manual install.
-func TestBuildSlashRegistryBootstrapsBuiltinSkills(t *testing.T) {
+// TestLoadSkillsBootstrapsBuiltinSkills verifies that on a fresh
+// PIGO_SKILLS_DIR the built-in skills are installed and loaded (first-run
+// bootstrap), so e.g. /prd resolves without any manual install.
+func TestLoadSkillsBootstrapsBuiltinSkills(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("PIGO_SKILLS_DIR", dir)
 	t.Setenv("PIGO_HOME", t.TempDir())
 
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, false, nil)
+	skills, err := loadSkills(false)
+	if err != nil {
+		t.Fatalf("loadSkills: %v", err)
+	}
+	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, skills, nil)
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}
@@ -132,24 +158,5 @@ func TestBuildSlashRegistryBootstrapsBuiltinSkills(t *testing.T) {
 		if !out.Handled {
 			t.Errorf("%s should be handled by the registry after bootstrap", name)
 		}
-	}
-}
-
-// TestBuildSlashRegistryNoSkillsSkipsBootstrap verifies --no-skills skips the
-// first-run bootstrap entirely: nothing is written to the skills dir.
-func TestBuildSlashRegistryNoSkillsSkipsBootstrap(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("PIGO_SKILLS_DIR", dir)
-	t.Setenv("PIGO_HOME", t.TempDir())
-
-	if _, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, true, nil); err != nil {
-		t.Fatalf("buildSlashRegistry: %v", err)
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read skills dir: %v", err)
-	}
-	if len(entries) != 0 {
-		t.Errorf("--no-skills must not bootstrap; skills dir has %d entries", len(entries))
 	}
 }

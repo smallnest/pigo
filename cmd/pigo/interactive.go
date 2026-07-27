@@ -65,9 +65,10 @@ type interactiveOptions struct {
 	// run so the first-launch trust prompt is skipped and side-effect tools run
 	// without per-call confirmation (对标 pi 的 --approve/-a).
 	approve bool
-	// noSkills, when true, skips skill discovery so no /skill-name commands are
-	// registered from ~/.agents/skills (对标 pi 的 --no-skills).
-	noSkills bool
+	// skills is the pre-loaded skill set (loaded once by setupAgentEnv, shared
+	// with prompt injection). Each is registered as a /skill-name command. Empty
+	// under --no-skills, so nothing is registered.
+	skills []*runtime.Skill
 
 	// plugins holds the loaded plugin manager so the REPL can deliver lifecycle
 	// events to subscribed plugins (US-017, #133). It may be nil (no plugins).
@@ -169,7 +170,7 @@ func runInteractive(opts interactiveOptions) error {
 	// ~/.agents/skills. A load error is non-fatal — the REPL still runs with the
 	// built-ins. Instance built-ins that need live state (/model, /help) are
 	// registered against `live`.
-	slash, err := buildSlashRegistry(live, opts.noSkills, opts.plugins)
+	slash, err := buildSlashRegistry(live, opts.skills, opts.plugins)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pigo: slash-commands: %v\n", err)
 	}
@@ -260,14 +261,13 @@ func stdoutIsTerminal() bool {
 // built-ins seeded by runtime.NewSlashRegistry, the live-state action commands
 // (/model, /help) bound to live, user declarative templates loaded from
 // ~/.pigo/commands (or $PIGO_HOME/commands), plugin-declared commands from the
-// loaded Manager, plus skills loaded from ~/.agents/skills — each surfaced as a
-// "/skill-name" command (对标 Claude Code's /skill invocation). A missing
-// directory is not an error. Names that collide with a built-in are shadowed
-// (the built-in wins) and reported on stderr. When noSkills is true, skill
-// discovery is skipped entirely (对标 pi 的 --no-skills): user command
-// templates and plugin commands still load, but no /skill-name commands are
-// registered. mgr may be nil (no plugins loaded).
-func buildSlashRegistry(live *liveRunConfig, noSkills bool, mgr *plugin.Manager) (*runtime.SlashRegistry, error) {
+// loaded Manager, plus the pre-loaded skills — each surfaced as a "/skill-name"
+// command (对标 Claude Code's /skill invocation). A missing directory is not an
+// error. Names that collide with a built-in are shadowed (the built-in wins) and
+// reported on stderr. The skills slice is loaded once by setupAgentEnv (empty
+// under --no-skills), so no /skill-name commands are registered when it is
+// empty. mgr may be nil (no plugins loaded).
+func buildSlashRegistry(live *liveRunConfig, skills []*runtime.Skill, mgr *plugin.Manager) (*runtime.SlashRegistry, error) {
 	reg := runtime.NewSlashRegistry()
 	registerLiveCommands(reg, live)
 	registerPluginCommands(reg, mgr)
@@ -286,33 +286,13 @@ func buildSlashRegistry(live *liveRunConfig, noSkills bool, mgr *plugin.Manager)
 	for _, c := range cmds {
 		reg.AddUser(c)
 	}
-	// Load skills from ~/.agents/skills and register each as a /skill-name
-	// command, unless discovery is disabled. A skill invocation expands to the
-	// skill's instructions as the next prompt. A partial parse error is
-	// non-fatal: the skills that DID load are still registered, and the error is
-	// only reported on stderr — so one malformed skill file cannot hide every
-	// other skill.
-	if !noSkills {
-		// First-run bootstrap: copy the built-in skill collections into the
-		// skills directory so they load as /skill-name commands out of the box.
-		// It is silent and best-effort — a failure never blocks the REPL — and
-		// runs before loadSkillCommands so freshly installed skills are picked up
-		// this launch. Skipped entirely under --no-skills, matching the "don't
-		// load ⇒ don't install" expectation. Debug output goes to stderr only
-		// when PIGO_DEBUG is set, keeping normal launches quiet.
-		var blog io.Writer
-		if os.Getenv("PIGO_DEBUG") != "" {
-			blog = os.Stderr
-		}
-		builtinskills.Bootstrap(configDir(), skillsDir(), blog)
-
-		skillCmds, serr := loadSkillCommands()
-		for _, c := range skillCmds {
-			reg.AddSkill(c)
-		}
-		if serr != nil {
-			fmt.Fprintf(os.Stderr, "pigo: skills: some skills failed to load: %v\n", serr)
-		}
+	// Register skills as /skill-name commands from the pre-loaded set (shared with
+	// prompt injection in setupAgentEnv, so the directory is read once). All
+	// skills — including disable-model-invocation ones — get a slash command; the
+	// prompt-injection side filters the disabled ones. Under --no-skills the set
+	// is empty, so nothing is registered.
+	for _, s := range skills {
+		reg.AddSkill(s.SlashCommand())
 	}
 	if shadowed := reg.Shadowed(); len(shadowed) > 0 {
 		fmt.Fprintf(os.Stderr, "pigo: user commands shadowed by built-ins (rename to use): %v\n", shadowed)
@@ -335,23 +315,28 @@ func skillsDir() string {
 	return filepath.Join(home, ".agents", "skills")
 }
 
-// loadSkillCommands loads skills from skillsDir() and returns each as a
-// /skill-name slash command. A missing directory yields no commands and no
-// error (skills are optional). A partial parse error is returned alongside the
-// skills that DID load — callers should register the returned commands and
-// treat the error as a non-fatal warning, so one malformed skill file does not
-// suppress every other skill.
-func loadSkillCommands() ([]runtime.SlashCommand, error) {
+// loadSkills discovers skills from skillsDir() once, for both prompt injection
+// (setupAgentEnv) and /skill-name registration (buildSlashRegistry), so the
+// directory is read a single time. It first bootstraps the built-in skill
+// collections into the skills dir (best-effort, first-run) so freshly installed
+// skills are picked up this launch, then loads every skill. --no-skills disables
+// discovery entirely: no bootstrap, no load, nil result. A partial parse error
+// is returned alongside the skills that DID load, so one malformed file cannot
+// hide the rest; callers treat it as a non-fatal warning.
+func loadSkills(noSkills bool) ([]*runtime.Skill, error) {
+	if noSkills {
+		return nil, nil
+	}
+	var blog io.Writer
+	if os.Getenv("PIGO_DEBUG") != "" {
+		blog = os.Stderr
+	}
+	builtinskills.Bootstrap(configDir(), skillsDir(), blog)
 	dir := skillsDir()
 	if dir == "" {
 		return nil, nil
 	}
-	skills, err := runtime.LoadSkillsDir(dir)
-	cmds := make([]runtime.SlashCommand, 0, len(skills))
-	for _, s := range skills {
-		cmds = append(cmds, s.SlashCommand())
-	}
-	return cmds, err
+	return runtime.LoadSkillsDir(dir)
 }
 
 // liveRunConfig is the mutable run configuration a control command may change

@@ -33,6 +33,12 @@ type agentEnv struct {
 	providerName string
 	sysPrompt    string
 
+	// skills is the discovered skill set (loaded once here, empty under
+	// --no-skills). It is threaded into the REPL so each skill is registered as a
+	// /skill-name command, and the model-invocable subset is already injected into
+	// sysPrompt.
+	skills []*runtime.Skill
+
 	// plugins holds any loaded external plugins so the caller can Close them
 	// when the run ends. It is nil when no plugins were discovered.
 	plugins *plugin.Manager
@@ -46,22 +52,13 @@ type agentEnv struct {
 // read, otherwise the value is literal text) and layered onto the end of the
 // prompt (对标 pi 的 --append-system-prompt). It returns an error rather than
 // exiting so the caller owns exit-code mapping.
-func setupAgentEnv(model, baseURL, protocol, providerName string, noTools bool, systemPrompt string, appendSystemPrompt []string) (agentEnv, error) {
+func setupAgentEnv(model, baseURL, protocol, providerName string, noTools, noSkills bool, systemPrompt string, appendSystemPrompt []string) (agentEnv, error) {
 	cwd, _ := os.Getwd()
 	prov, resolvedName, err := resolveProvider(model, baseURL, protocol, providerName)
 	if err != nil {
 		return agentEnv{}, err
 	}
 	appends, err := resolveAppendInstructions(appendSystemPrompt)
-	if err != nil {
-		return agentEnv{}, err
-	}
-	sysPrompt, err := runtime.BuildSystemPrompt(runtime.PromptConfig{
-		BaseInstruction:    systemPrompt,
-		WorkingDir:         cwd,
-		Root:               cwd,
-		AppendInstructions: appends,
-	})
 	if err != nil {
 		return agentEnv{}, err
 	}
@@ -78,14 +75,47 @@ func setupAgentEnv(model, baseURL, protocol, providerName string, noTools bool, 
 			fmt.Fprintf(os.Stderr, "pigo: plugin discovery failed: %v\n", err)
 		}
 	}
+	// Load skills once (shared between prompt injection and /skill-name
+	// registration). A partial parse error still yields the skills that DID load,
+	// so one malformed file is a non-fatal warning rather than a hard failure.
+	skills, err := loadSkills(noSkills)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "pigo: skills: %v\n", err)
+	}
+	// The model can only load a skill's body when the read tool is present, so
+	// advertise skills in the prompt only then (对标 pi 的 selectedTools check).
+	sysPrompt, err := runtime.BuildSystemPrompt(runtime.PromptConfig{
+		BaseInstruction:    systemPrompt,
+		WorkingDir:         cwd,
+		Root:               cwd,
+		AppendInstructions: appends,
+		Skills:             skills,
+		ReadToolAvailable:  hasReadTool(tools),
+	})
+	if err != nil {
+		return agentEnv{}, err
+	}
 	return agentEnv{
 		cwd:          cwd,
 		tools:        tools,
 		provider:     prov,
 		providerName: resolvedName,
 		sysPrompt:    sysPrompt,
+		skills:       skills,
 		plugins:      mgr,
 	}, nil
+}
+
+// hasReadTool reports whether the read tool is present in the tool set. Skills
+// are advertised in the system prompt only when it is, since the model needs
+// the read tool to load a skill's body on demand.
+func hasReadTool(tools []agentcore.AgentTool) bool {
+	for _, t := range tools {
+		if t.Name() == "read" {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveAppendInstructions maps each --append-system-prompt value to the text
@@ -298,7 +328,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			fmt.Fprintln(errOut, "pigo: no prompt (use -p \"...\" or positional args)")
 			return 2
 		}
-		env, err := setupAgentEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.noTools, opts.systemPrompt, opts.appendSystemPrompt)
+		env, err := setupAgentEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.noTools, opts.noSkills, opts.systemPrompt, opts.appendSystemPrompt)
 		if err != nil {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
 			return 1
@@ -323,7 +353,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			sysPrompt:     env.sysPrompt,
 			resumeID:      resumeID,
 			approve:       opts.approve,
-			noSkills:      opts.noSkills,
+			skills:        env.skills,
 			plugins:       env.plugins,
 		}); err != nil {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
@@ -338,7 +368,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		return 2
 	}
 
-	env, err := setupAgentEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.noTools, opts.systemPrompt, opts.appendSystemPrompt)
+	env, err := setupAgentEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.noTools, opts.noSkills, opts.systemPrompt, opts.appendSystemPrompt)
 	if err != nil {
 		fmt.Fprintf(errOut, "pigo: %v\n", err)
 		return 1
