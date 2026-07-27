@@ -152,6 +152,29 @@ func (b *mlBuffer) home() { b.col = 0 }
 // end moves the cursor to the end of the current line.
 func (b *mlBuffer) end() { b.col = utf8.RuneCountInString(b.lines[b.row]) }
 
+// enterContinues collapses the current line's trailing backslash run and
+// reports whether a pressed Enter should continue onto a new line instead of
+// submitting. A run of k trailing backslashes pairs up as k/2 literal
+// backslashes (each "\\" → one "\"); an odd run has one extra backslash that
+// escapes the newline, so the caller inserts a continuation line. The run is
+// always collapsed to k/2 backslashes, so the escaping "\" never survives into
+// submitted text.
+func (b *mlBuffer) enterContinues() bool {
+	line := b.lines[b.row]
+	k := 0
+	for i := len(line) - 1; i >= 0 && line[i] == '\\'; i-- {
+		k++
+	}
+	if k == 0 {
+		return false
+	}
+	b.lines[b.row] = line[:len(line)-k] + strings.Repeat("\\", k/2)
+	if n := utf8.RuneCountInString(b.lines[b.row]); b.col > n {
+		b.col = n
+	}
+	return k%2 == 1
+}
+
 // runeOffset converts a rune column into a byte offset within s.
 func runeOffset(s string, col int) int {
 	off := 0
@@ -388,6 +411,21 @@ func (e *replLineEditor) editLoop(prompt string) (string, error) {
 			}
 		}
 	}
+	// tryEnter handles a pressed Enter shared by the raw, CSI-u, and
+	// modifyOtherKeys report paths: if the current line ends with an unescaped
+	// backslash it continues onto a new line and reports submitted=false;
+	// otherwise it emits the newline and reports the block as submitted.
+	tryEnter := func() (string, bool) {
+		if buf.enterContinues() {
+			buf.end()
+			buf.newline()
+			selected = 0
+			histNav = -1
+			return "", false
+		}
+		fmt.Fprint(e.out, "\r\n")
+		return buf.String(), true
+	}
 	render()
 	for {
 		b, err := e.in.ReadByte()
@@ -396,8 +434,9 @@ func (e *replLineEditor) editLoop(prompt string) (string, error) {
 		}
 		switch b {
 		case '\r', '\n':
-			fmt.Fprint(e.out, "\r\n")
-			return buf.String(), nil
+			if res, done := tryEnter(); done {
+				return res, nil
+			}
 		case 1: // Ctrl+A moves to line start.
 			buf.home()
 		case 5: // Ctrl+E moves to line end.
@@ -454,9 +493,8 @@ func (e *replLineEditor) editLoop(prompt string) (string, error) {
 							buf.newline()
 							selected = 0
 							histNav = -1
-						} else {
-							fmt.Fprint(e.out, "\r\n")
-							return buf.String(), nil
+						} else if res, done := tryEnter(); done {
+							return res, nil
 						}
 					}
 				case '~': // modifyOtherKeys ("27;<mod>;<code>~") or Home/End ("1~"/"4~").
@@ -469,9 +507,8 @@ func (e *replLineEditor) editLoop(prompt string) (string, error) {
 								buf.newline()
 								selected = 0
 								histNav = -1
-							} else {
-								fmt.Fprint(e.out, "\r\n")
-								return buf.String(), nil
+							} else if res, done := tryEnter(); done {
+								return res, nil
 							}
 						}
 					} else if len(parts) == 1 {

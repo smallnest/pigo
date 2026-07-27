@@ -372,3 +372,68 @@ func TestEditLoopCrossLineBackspaceMerges(t *testing.T) {
 		t.Fatalf("submitted %q, want %q", got, "abcd")
 	}
 }
+
+func TestEditLoopBackslashContinues(t *testing.T) {
+	// A line ending with a single unescaped "\" + Enter continues; a second
+	// line + Enter submits the two-line block without the continuation "\".
+	e := editorWithInput("foo\\\rbar\r")
+	got, err := e.editLoop("")
+	if err != nil {
+		t.Fatalf("editLoop error: %v", err)
+	}
+	if got != "foo\nbar" {
+		t.Fatalf("submitted %q, want %q", got, "foo\nbar")
+	}
+}
+
+func TestEditLoopEscapedBackslashSubmits(t *testing.T) {
+	// A line ending with "\\" (escaped) + Enter submits, keeping one literal
+	// backslash — it does not continue.
+	e := editorWithInput("foo\\\\\r")
+	got, err := e.editLoop("")
+	if err != nil {
+		t.Fatalf("editLoop error: %v", err)
+	}
+	if got != "foo\\" {
+		t.Fatalf("submitted %q, want %q", got, "foo\\")
+	}
+}
+
+func TestEditLoopBackslashMultipleContinuations(t *testing.T) {
+	// Three continued lines accumulate into a three-line block.
+	e := editorWithInput("a\\\rb\\\rc\r")
+	got, err := e.editLoop("")
+	if err != nil {
+		t.Fatalf("editLoop error: %v", err)
+	}
+	if got != "a\nb\nc" {
+		t.Fatalf("submitted %q, want %q", got, "a\nb\nc")
+	}
+}
+
+func TestMLBufferEnterContinuesTrailingRuns(t *testing.T) {
+	// Odd run continues and collapses to k/2 backslashes; even run submits and
+	// halves the run.
+	b := newMLBuffer()
+	b.setString("x\\") // one trailing backslash
+	if !b.enterContinues() {
+		t.Fatalf("single trailing backslash should continue")
+	}
+	if got := b.line(); got != "x" {
+		t.Fatalf("line after continue = %q, want %q", got, "x")
+	}
+	b.setString("y\\\\") // two trailing backslashes
+	if b.enterContinues() {
+		t.Fatalf("escaped double backslash should not continue")
+	}
+	if got := b.line(); got != "y\\" {
+		t.Fatalf("line after submit = %q, want %q", got, "y\\")
+	}
+	b.setString("z\\\\\\") // three trailing backslashes → continue, keep one
+	if !b.enterContinues() {
+		t.Fatalf("triple trailing backslash should continue")
+	}
+	if got := b.line(); got != "z\\" {
+		t.Fatalf("line after triple continue = %q, want %q", got, "z\\")
+	}
+}
