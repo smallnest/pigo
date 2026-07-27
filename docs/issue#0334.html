@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes - Issue #0334</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/334">#334</a> &mdash; frontmatter argument-hint + description 回退 &mdash; 2026-07-27</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Description fallback uses the body <em>after</em> frontmatter removal; for no-frontmatter templates it uses the whole content</h3>
+      <p><strong>Ambiguity:</strong> Which text does the &ldquo;first non-empty line&rdquo; fallback scan &mdash; the raw file or the body after the frontmatter fence?</p>
+      <p><strong>Choice:</strong> Scan <code>body</code> (the content after <code>splitFrontmatter</code>), which equals the whole file when there is no frontmatter.</p>
+      <p><strong>Rationale:</strong> pi says &ldquo;the first non-empty line is used&rdquo; &mdash; that line is part of the prompt body, not the frontmatter. Scanning post-frontmatter body avoids ever picking up a YAML key as the description.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>ArgumentHint</code> is stored verbatim with no format validation</h3>
+      <p><strong>Ambiguity:</strong> Should the <code>&lt;angle&gt;</code>/<code>[square]</code> convention be enforced?</p>
+      <p><strong>Choice:</strong> Store the hint as-is; the <code>&lt;angle&gt;</code>/<code>[square]</code> convention is display-only (per the PRD&rsquo;s Design Considerations: &ldquo;仅展示约定，不做语义校验&rdquo;).</p>
+      <p><strong>Rationale:</strong> The hint is free-form text rendered in autocomplete; validating it would reject legitimate hints and add no behavior.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None &mdash; implementation follows US-004 as written. <code>argument-hint</code> is parsed from frontmatter, <code>SlashCommand.ArgumentHint</code> carries it, description falls back to the first non-empty body line, both fields are optional, and the <code>name</code> override is preserved. The four test cases (only-description, only-hint, both, neither) match the acceptance criteria.</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> <code>firstNonEmptyLine</code> as a named helper vs inline</h3>
+      <p><strong>Alternatives:</strong> Inline the loop where the fallback is computed.</p>
+      <p><strong>Pros/cons:</strong> A named helper is reusable and independently testable; inlining saves one function but mixes concerns.</p>
+      <p><strong>Why it won:</strong> The fallback is a distinct, testable rule; a helper documents its contract (&ldquo;first trimmed non-empty line&rdquo;) in one place.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> No markdown stripping in the description fallback</h3>
+      <p><strong>Alternatives:</strong> Strip a leading <code>#</code> from the first line so a heading isn&rsquo;t used verbatim as the description.</p>
+      <p><strong>Pros/cons:</strong> Stripping is friendlier for bodies that start with a heading; but pi&rsquo;s spec just says &ldquo;first non-empty line&rdquo; with no mention of markdown stripping.</p>
+      <p><strong>Why it won:</strong> Match the spec literally; avoid guessing pi&rsquo;s markdown handling. Revisit if descriptions render poorly in autocomplete.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should the description fallback strip a leading markdown heading?</h3>
+      <p><strong>Assumption:</strong> The first non-empty body line is used verbatim, so a body starting with <code># Review</code> yields description <code>"# Review"</code>.</p>
+      <p><strong>Verify:</strong> If pi strips leading <code>#</code> / markup for the description, align. Low-risk to leave as-is for now.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> <code>argument-hint</code> rendering in autocomplete</h3>
+      <p><strong>Assumption:</strong> The hint is rendered verbatim (e.g. <code>&lt;PR-URL&gt;</code>) in the Tab autocomplete, which #340 implements.</p>
+      <p><strong>Verify:</strong> #340 must read <code>SlashCommand.ArgumentHint</code> and render <code>name &lt;hint&gt; - description</code>; this issue only stores the field.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

@@ -138,7 +138,11 @@ func (e ShadowedEntry) String() string { return fmt.Sprintf("%s (%s)", e.Name, e
 type SlashCommand struct {
 	Name        string
 	Description string
-	Source      SlashCommandSource
+	// ArgumentHint is an optional frontmatter hint shown before the description
+	// in autocomplete (e.g. "<PR-URL>"). Convention: <angle> for required args,
+	// [square] for optional. Empty when not set; display-only, not enforced.
+	ArgumentHint string
+	Source       SlashCommandSource
 	// Tier is the priority tier used to resolve same-name conflicts across
 	// sources (built-in > project > global > package > settings > CLI). It is
 	// set by the AddX method matching the command's source; callers should not
@@ -417,6 +421,18 @@ func (r *SlashRegistry) ResolveOutcome(input string) (SlashOutcome, error) {
 	return SlashOutcome{Handled: true, Kind: SlashPrompt, Prompt: cmd.Expand(args)}, nil
 }
 
+// firstNonEmptyLine returns the first line of s whose trimmed form is non-empty,
+// itself trimmed. It is the description fallback for templates whose frontmatter
+// omits a description (对标 pi: "If missing, the first non-empty line is used").
+func firstNonEmptyLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if t := strings.TrimSpace(line); t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
 // LoadUserCommandsDir loads declarative markdown command templates from dir
 // (non-recursively). Each "*.md" file defines a command named after the file
 // (without extension). The file may carry an optional YAML frontmatter block
@@ -460,6 +476,7 @@ func LoadUserCommandsDir(dir string) ([]SlashCommand, error) {
 func ParseUserCommand(name string, content []byte) (SlashCommand, error) {
 	body := string(content)
 	description := ""
+	hint := ""
 	// Reuse the skills frontmatter splitter when a fence is present; otherwise
 	// treat the whole file as the template body.
 	if strings.HasPrefix(strings.TrimLeft(strings.TrimPrefix(body, "\ufeff"), "\r\n"), "---") {
@@ -468,23 +485,31 @@ func ParseUserCommand(name string, content []byte) (SlashCommand, error) {
 			return SlashCommand{}, fmt.Errorf("command %s: %w", name, splitErr)
 		}
 		var meta struct {
-			Description string `yaml:"description"`
-			Name        string `yaml:"name"`
+			Description  string `yaml:"description"`
+			Name         string `yaml:"name"`
+			ArgumentHint string `yaml:"argument-hint"`
 		}
 		if err := yaml.Unmarshal(fm, &meta); err != nil {
 			return SlashCommand{}, fmt.Errorf("command %s: parse frontmatter: %w", name, err)
 		}
 		description = meta.Description
+		hint = meta.ArgumentHint
 		if meta.Name != "" {
 			name = meta.Name
 		}
 		body = string(rest)
 	}
+	// When the frontmatter omits a description, fall back to the first non-empty
+	// line of the body (\u5bf9\u6807 pi: "If missing, the first non-empty line is used").
+	if description == "" {
+		description = firstNonEmptyLine(body)
+	}
 	template := strings.TrimSpace(body)
 	return SlashCommand{
-		Name:        name,
-		Description: description,
-		Source:      SourceUser,
+		Name:         name,
+		Description:  description,
+		ArgumentHint: hint,
+		Source:       SourceUser,
 		Expand: func(args string) string {
 			tokens, err := SplitArgs(args)
 			if err != nil {

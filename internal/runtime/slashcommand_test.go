@@ -139,3 +139,44 @@ func TestParseUserCommandSplitFailureFallback(t *testing.T) {
 		t.Errorf("no-placeholder split failure: got %q", got)
 	}
 }
+
+// TestParseUserCommandArgumentHintAndDescriptionFallback (US-004, #334):
+// argument-hint is parsed from frontmatter, and description falls back to the
+// first non-empty body line when absent.
+func TestParseUserCommandArgumentHintAndDescriptionFallback(t *testing.T) {
+	// Both description and argument-hint.
+	cmd, err := ParseUserCommand("pr", []byte("---\ndescription: review PR\nargument-hint: \"<PR-URL>\"\n---\nReview the PR"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd.Description != "review PR" {
+		t.Errorf("description = %q, want \"review PR\"", cmd.Description)
+	}
+	if cmd.ArgumentHint != "<PR-URL>" {
+		t.Errorf("argument-hint = %q, want \"<PR-URL>\"", cmd.ArgumentHint)
+	}
+	// Only argument-hint: description falls back to first non-empty body line.
+	hintOnly, _ := ParseUserCommand("wr", []byte("---\nargument-hint: \"[instructions]\"\n---\nFinish the current task\nend-to-end"))
+	if hintOnly.Description != "Finish the current task" {
+		t.Errorf("description fallback = %q, want first body line", hintOnly.Description)
+	}
+	if hintOnly.ArgumentHint != "[instructions]" {
+		t.Errorf("argument-hint = %q, want \"[instructions]\"", hintOnly.ArgumentHint)
+	}
+	// Only description: argument-hint stays empty.
+	descOnly, _ := ParseUserCommand("cl", []byte("---\ndescription: audit changelog\n---\nAudit changelog entries"))
+	if descOnly.Description != "audit changelog" {
+		t.Errorf("description = %q", descOnly.Description)
+	}
+	if descOnly.ArgumentHint != "" {
+		t.Errorf("argument-hint should be empty, got %q", descOnly.ArgumentHint)
+	}
+	// No frontmatter at all: description falls back to first non-empty line.
+	neither, _ := ParseUserCommand("bare", []byte("First line is the desc\nSecond line is body"))
+	if neither.Description != "First line is the desc" {
+		t.Errorf("no-frontmatter fallback = %q, want first line", neither.Description)
+	}
+	if neither.ArgumentHint != "" {
+		t.Errorf("argument-hint should be empty, got %q", neither.ArgumentHint)
+	}
+}
