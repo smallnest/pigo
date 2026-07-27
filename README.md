@@ -319,11 +319,18 @@ REPL 中的内置斜杠命令包括 `/model`、`/models`、`/help`、`/compact`�
 
 ## 技能 Skills
 
-技能是带 YAML frontmatter（`name`、`description`，可选 `allowed-tools`、`model`）的 Markdown 文件，位于 `~/.agents/skills`（可用 `PIGO_SKILLS_DIR` 覆盖）：
+技能是带 YAML frontmatter（`name`、`description`，可选 `allowed-tools`、`model`、`disable-model-invocation`）的 Markdown 文件，位于 `~/.agents/skills`（可用 `PIGO_SKILLS_DIR` 覆盖）：
 
 - 支持扁平的 `*.md` 与嵌套的 `<name>/SKILL.md`。
 - 每个技能在 REPL 中暴露为 `/skill-name` 斜杠命令（展开正文为 prompt，支持 `$ARGUMENTS` 替换），也可作为子 Agent 工具运行。
 - `--no-skills` 禁用技能发现；格式错误的技能会被非致命地跳过。
+
+### 模型自动调用（渐进式披露）
+
+除了手动的 `/skill-name` 调用，技能还可被模型**自动调用**。pigo 采用渐进式披露：仅将每个技能的 `name`、`description` 和文件路径（location）注入系统提示的 `<available_skills>` 块，模型在任务匹配某技能的描述时，用 `read` 工具按需加载 `SKILL.md` 正文，而非把所有技能正文常驻上下文。
+
+- **仅当 `read` 工具可用时**自动调用才生效（`--no-tools` 或屏蔽 `read` 时不注入 `<available_skills>`），因为模型需要 `read` 才能加载技能正文。
+- 在 frontmatter 中设置 `disable-model-invocation: true` 可将某技能排除出 `<available_skills>`（模型不会自动调用它），但它仍可通过 `/skill-name` 斜杠命令显式调用。
 
 ---
 
