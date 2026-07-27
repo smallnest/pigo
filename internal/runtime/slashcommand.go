@@ -420,9 +420,9 @@ func (r *SlashRegistry) ResolveOutcome(input string) (SlashOutcome, error) {
 // LoadUserCommandsDir loads declarative markdown command templates from dir
 // (non-recursively). Each "*.md" file defines a command named after the file
 // (without extension). The file may carry an optional YAML frontmatter block
-// with a "description" (对标 skills); the remaining body is the prompt template.
-// $ARGUMENTS in the body is replaced with the invocation arguments at expand
-// time. A missing directory yields no commands and no error.
+// with a "description" (对标 skills); the remaining body is the prompt template,
+// expanded via ExpandTemplate at invoke time. A missing directory yields no
+// commands and no error.
 func LoadUserCommandsDir(dir string) ([]SlashCommand, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -453,8 +453,10 @@ func LoadUserCommandsDir(dir string) ([]SlashCommand, error) {
 }
 
 // ParseUserCommand parses a declarative command template. An optional YAML
-// frontmatter block supplies a description; the body is the prompt template
-// with $ARGUMENTS substitution.
+// frontmatter block supplies a description; the body is the prompt template,
+// expanded at invoke time via ExpandTemplate (positional $N, $@/$ARGUMENTS,
+// ${1:-default}, ${@:N}). If arg tokenization fails (e.g. an unterminated
+// quote) the raw arg string is used as $ARGUMENTS so the invocation still works.
 func ParseUserCommand(name string, content []byte) (SlashCommand, error) {
 	body := string(content)
 	description := ""
@@ -484,15 +486,14 @@ func ParseUserCommand(name string, content []byte) (SlashCommand, error) {
 		Description: description,
 		Source:      SourceUser,
 		Expand: func(args string) string {
-			if strings.Contains(template, "$ARGUMENTS") {
-				return strings.ReplaceAll(template, "$ARGUMENTS", args)
+			tokens, err := SplitArgs(args)
+			if err != nil {
+				// Split failure (e.g. an unterminated quote): treat the raw arg
+				// string as a single $ARGUMENTS rather than feeding a malformed
+				// arg list to the engine, so a bad invocation stays usable.
+				tokens = []string{args}
 			}
-			// No placeholder: append args (if any) so a bare template still
-			// receives the user's input.
-			if args == "" {
-				return template
-			}
-			return template + "\n\n" + args
+			return ExpandTemplate(template, tokens)
 		},
 	}, nil
 }

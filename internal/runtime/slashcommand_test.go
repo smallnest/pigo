@@ -98,3 +98,44 @@ func TestSlashTierFullOrdering(t *testing.T) {
 		t.Errorf("expected 5 shadowed entries, got %d: %v", len(r.Shadowed()), r.Shadowed())
 	}
 }
+
+// Tests for ParseUserCommand wiring to the expansion engine (US-003, #333):
+// Expand tokenizes args via SplitArgs and expands via ExpandTemplate, falling
+// back to the raw arg string as $ARGUMENTS when tokenization fails.
+
+// TestParseUserCommandPositionalAndQuoted verifies multi-arg invocation,
+// quoted-arg preservation, and the ${1:-default} form through ParseUserCommand.
+func TestParseUserCommandPositionalAndQuoted(t *testing.T) {
+	// /review with no args: $ARGUMENTS expands to empty.
+	review, _ := ParseUserCommand("review", []byte("Review: $ARGUMENTS"))
+	if got := review.Expand(""); got != "Review: " {
+		t.Errorf("no args: got %q, want \"Review: \"", got)
+	}
+	// /component Button "click handler": quoted arg stays one token ($2).
+	comp, _ := ParseUserCommand("component", []byte("name=$1 feat=$2"))
+	if got := comp.Expand(`Button "click handler"`); got != "name=Button feat=click handler" {
+		t.Errorf("quoted args: got %q", got)
+	}
+	// ${1:-7} default: no arg -> 7, explicit -> the arg.
+	bul, _ := ParseUserCommand("summarize", []byte("in ${1:-7} bullets"))
+	if got := bul.Expand(""); got != "in 7 bullets" {
+		t.Errorf("default no arg: got %q", got)
+	}
+	if got := bul.Expand("5"); got != "in 5 bullets" {
+		t.Errorf("explicit arg: got %q", got)
+	}
+}
+
+// TestParseUserCommandSplitFailureFallback verifies that an unterminated quote
+// (SplitArgs error) falls back to treating the raw arg string as $ARGUMENTS.
+func TestParseUserCommandSplitFailureFallback(t *testing.T) {
+	cmd, _ := ParseUserCommand("t", []byte("echo $ARGUMENTS"))
+	if got := cmd.Expand(`"unterminated`); got != `echo "unterminated` {
+		t.Errorf("split-failure fallback: got %q, want raw string as $ARGUMENTS", got)
+	}
+	// A no-placeholder template with split failure still appends the raw string.
+	bare, _ := ParseUserCommand("note", []byte("Take a note"))
+	if got := bare.Expand(`"unterminated`); got != "Take a note\n\n\"unterminated" {
+		t.Errorf("no-placeholder split failure: got %q", got)
+	}
+}
