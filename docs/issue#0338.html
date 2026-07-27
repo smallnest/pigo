@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes - Issue #0338</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/338">#338</a> &mdash; config.toml prompts 数组 &mdash; 2026-07-27</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Pass prompt sources to <code>buildSlashRegistry</code> via a <code>promptTemplateSources</code> struct</h3>
+      <p><strong>Ambiguity:</strong> How to plumb config-provided prompt paths into the registry without churning the signature again for #339 (CLI flag + disable)?</p>
+      <p><strong>Choice:</strong> A small struct <code>promptTemplateSources{settings, cli}</code> as a 4th param. #338 fills <code>settings</code>; #339 will fill <code>cli</code> and the disable flag without another signature change.</p>
+      <p><strong>Rationale:</strong> One signature change covers both issues; the struct documents the discovery sources in one place.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>loadSettingsPrompts</code> lives in <code>cmd/pigo</code> (stderr access); <code>LoadPromptFile</code> in <code>runtime</code></h3>
+      <p><strong>Ambiguity:</strong> Where does the &ldquo;file or dir, warn on missing&rdquo; loader belong?</p>
+      <p><strong>Choice:</strong> <code>runtime.LoadPromptFile</code> (single-file parse, pure) + <code>cmd/pigo.loadSettingsPrompts</code> (stat/warn/collect, has stderr).</p>
+      <p><strong>Rationale:</strong> Keeps the runtime package free of stderr I/O; the warning is a user-facing concern owned by the CLI layer.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Config <code>prompts</code> is always passed through (no CLI-flag override)</h3>
+      <p><strong>Ambiguity:</strong> The AC said &ldquo;applyFileConfig 把 prompts 透传到运行时（CLI flag 未覆盖时）&rdquo;, implying an override relationship.</p>
+      <p><strong>Choice:</strong> Config <code>prompts</code> (settings tier) and #339&rsquo;s <code>--prompt-template</code> (CLI tier) are additive, distinct tiers &mdash; both load, priority resolved by tier. So config is always passed when present.</p>
+      <p><strong>Rationale:</strong> Tiered priority (global &gt; settings &gt; CLI) already handles same-name resolution; treating them as additive matches pi&rsquo;s model. The &ldquo;CLI flag 未覆盖时&rdquo; phrasing is the generic applyFileConfig boilerplate, not a real override here.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Changed 3 pre-existing <code>config_file_test.go</code> struct comparisons to <code>reflect.DeepEqual</code></h3>
+      <p><strong>Spec said:</strong> (existing tests) <code>cfg != (fileConfig{})</code> and <code>cfg != want</code>.</p>
+      <p><strong>Implemented instead:</strong> <code>!reflect.DeepEqual(cfg, fileConfig{})</code> / <code>!reflect.DeepEqual(cfg, want)</code>.</p>
+      <p><strong>Why:</strong> Adding the <code>Prompts []string</code> slice field makes <code>fileConfig</code> non-comparable (<code>!=</code> on a struct containing a slice is a compile error). This is a necessary side effect of the new field, not a behavior change.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> <code>promptTemplateSources</code> struct vs separate params</h3>
+      <p><strong>Alternatives:</strong> Add <code>settingsPrompts []string</code> now and <code>cliPrompts</code> + <code>disable</code> in #339 as more params.</p>
+      <p><strong>Pros/cons:</strong> Separate params mean two signature churns (and re-updating ~8 call sites each time). A struct is one churn.</p>
+      <p><strong>Why it won:</strong> One signature change; #339 just fills more struct fields.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Warn to stderr on missing settings path vs silent skip</h3>
+      <p><strong>Alternatives:</strong> Silent skip (like missing global dirs).</p>
+      <p><strong>Pros/cons:</strong> The AC explicitly wants a one-line warning for missing settings paths (they&rsquo;re explicitly user-listed, unlike ambient global dirs). Silent skip would hide config typos.</p>
+      <p><strong>Why it won:</strong> Match the AC; an explicit <code>prompts = [...]</code> entry that doesn&rsquo;t resolve is almost certainly a typo the user wants to know about.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Config <code>prompts</code> vs <code>--prompt-template</code>: additive confirmed?</h3>
+      <p><strong>Assumption:</strong> Both load (settings and CLI tiers), resolved by priority. Config is always passed through; the CLI flag (in #339) adds more, it does not replace config.</p>
+      <p><strong>Verify:</strong> If pi instead makes <code>--prompt-template</code> suppress config <code>prompts</code>, revisit. Tiered priority makes additive the natural choice.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> <code>buildSlashRegistry</code> signature change touched ~8 call sites</h3>
+      <p><strong>Assumption:</strong> All in-repo callers (1 production + 7 tests) were updated to pass <code>promptTemplateSources{}</code> or the real sources.</p>
+      <p><strong>Verify:</strong> No external callers exist (internal <code>cmd/pigo</code>); the change is safe. Future test helpers can use a zero-value struct.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

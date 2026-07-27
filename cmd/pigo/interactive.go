@@ -73,6 +73,10 @@ type interactiveOptions struct {
 	// plugins holds the loaded plugin manager so the REPL can deliver lifecycle
 	// events to subscribed plugins (US-017, #133). It may be nil (no plugins).
 	plugins *plugin.Manager
+
+	// configPrompts holds prompt-template paths from the config.toml `prompts`
+	// array (settings tier); each is a file or dir loaded non-recursively.
+	configPrompts []string
 }
 
 // runInteractive starts the line-based REPL over a persisted session. It keeps
@@ -170,7 +174,7 @@ func runInteractive(opts interactiveOptions) error {
 	// ~/.agents/skills. A load error is non-fatal — the REPL still runs with the
 	// built-ins. Instance built-ins that need live state (/model, /help) are
 	// registered against `live`.
-	slash, err := buildSlashRegistry(live, opts.skills, opts.plugins)
+	slash, err := buildSlashRegistry(live, opts.skills, opts.plugins, promptTemplateSources{settings: opts.configPrompts})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pigo: slash-commands: %v\n", err)
 	}
@@ -257,6 +261,46 @@ func stdoutIsTerminal() bool {
 	return fi.Mode()&os.ModeCharDevice != 0
 }
 
+// promptTemplateSources carries the prompt-template discovery sources that
+// buildSlashRegistry loads beyond the global ~/.pigo/{commands,prompts} dirs.
+// settings is the config.toml `prompts` array (TierSettings); cli is the
+// --prompt-template flag list (TierCLI, wired in #339). Each entry is a file or
+// directory (loaded non-recursively). Missing paths are warned and skipped.
+type promptTemplateSources struct {
+	settings []string
+	cli      []string
+}
+
+// loadSettingsPrompts loads prompt templates from each settings-tier path (file
+// or dir), skipping and warning on paths that don't exist or fail to read.
+func loadSettingsPrompts(paths []string) []runtime.SlashCommand {
+	var out []runtime.SlashCommand
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "pigo: prompts path %q not found, skipping\n", p)
+			continue
+		}
+		var cmds []runtime.SlashCommand
+		if info.IsDir() {
+			cmds, err = runtime.LoadUserCommandsDir(p)
+		} else {
+			c, e := runtime.LoadPromptFile(p)
+			if e != nil {
+				err = e
+			} else {
+				cmds = []runtime.SlashCommand{c}
+			}
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "pigo: prompts path %q: %v\n", p, err)
+			continue
+		}
+		out = append(out, cmds...)
+	}
+	return out
+}
+
 // buildSlashRegistry assembles the REPL slash-command registry: compile-time
 // built-ins seeded by runtime.NewSlashRegistry, the live-state action commands
 // (/model, /help) bound to live, user declarative templates loaded from
@@ -267,7 +311,7 @@ func stdoutIsTerminal() bool {
 // reported on stderr. The skills slice is loaded once by setupAgentEnv (empty
 // under --no-skills), so no /skill-name commands are registered when it is
 // empty. mgr may be nil (no plugins loaded).
-func buildSlashRegistry(live *liveRunConfig, skills []*runtime.Skill, mgr *plugin.Manager) (*runtime.SlashRegistry, error) {
+func buildSlashRegistry(live *liveRunConfig, skills []*runtime.Skill, mgr *plugin.Manager, srcs promptTemplateSources) (*runtime.SlashRegistry, error) {
 	reg := runtime.NewSlashRegistry()
 	registerLiveCommands(reg, live)
 	registerPluginCommands(reg, mgr)
@@ -292,6 +336,11 @@ func buildSlashRegistry(live *liveRunConfig, skills []*runtime.Skill, mgr *plugi
 		for _, c := range cmds {
 			reg.AddUser(c)
 		}
+	}
+	// Load settings-tier prompt templates from the config.toml `prompts` array
+	// (each entry is a file or dir). Missing paths are warned and skipped.
+	for _, c := range loadSettingsPrompts(srcs.settings) {
+		reg.AddSettings(c)
 	}
 	// Register skills as /skill-name commands from the pre-loaded set (shared with
 	// prompt injection in setupAgentEnv, so the directory is read once). All

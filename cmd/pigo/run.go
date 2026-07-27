@@ -269,6 +269,10 @@ type cliOptions struct {
 	// each is a path to a file whose contents are appended, or literal text when
 	// it is not an existing file. Appended after the base prompt and AGENTS.md.
 	appendSystemPrompt []string
+	// configPrompts holds prompt-template paths from the config.toml `prompts`
+	// array (settings tier); each is a file or directory loaded non-recursively.
+	// Populated by applyFileConfig; empty when the config omits `prompts`.
+	configPrompts []string
 	// subagentRPC selects the process-isolated sub-agent server mode (US-019,
 	// #135): pigo reads JSON-RPC sub-agent run requests from stdin and writes
 	// results to stdout. Internal, used by SubAgentTool's process mode.
@@ -355,6 +359,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			approve:       opts.approve,
 			skills:        env.skills,
 			plugins:       env.plugins,
+			configPrompts: opts.configPrompts,
 		}); err != nil {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
 			return 1

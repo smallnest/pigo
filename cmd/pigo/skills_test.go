@@ -97,7 +97,7 @@ func TestBuildSlashRegistryIncludesSkills(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadSkills: %v", err)
 	}
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, skills, nil)
+	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, skills, nil, promptTemplateSources{})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestBuildSlashRegistryIncludesSkills(t *testing.T) {
 func TestBuildSlashRegistryNoSkills(t *testing.T) {
 	t.Setenv("PIGO_HOME", t.TempDir())
 
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, nil, nil)
+	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, nil, nil, promptTemplateSources{})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestLoadSkillsBootstrapsBuiltinSkills(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadSkills: %v", err)
 	}
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, skills, nil)
+	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, skills, nil, promptTemplateSources{})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -33,7 +34,7 @@ func TestLoadFileConfig_Missing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missing file should not error, got %v", err)
 	}
-	if cfg != (fileConfig{}) {
+	if !reflect.DeepEqual(cfg, fileConfig{}) {
 		t.Fatalf("missing file should yield zero config, got %+v", cfg)
 	}
 }
@@ -43,7 +44,7 @@ func TestLoadFileConfig_EmptyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("empty path should not error, got %v", err)
 	}
-	if cfg != (fileConfig{}) {
+	if !reflect.DeepEqual(cfg, fileConfig{}) {
 		t.Fatalf("empty path should yield zero config, got %+v", cfg)
 	}
 }
@@ -83,7 +84,7 @@ system_prompt = "be terse"
 		Approve:       true,
 		SystemPrompt:  "be terse",
 	}
-	if cfg != want {
+	if !reflect.DeepEqual(cfg, want) {
 		t.Fatalf("parsed config = %+v, want %+v", cfg, want)
 	}
 }

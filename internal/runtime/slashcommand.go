@@ -433,6 +433,20 @@ func firstNonEmptyLine(s string) string {
 	return ""
 }
 
+// LoadPromptFile loads a single prompt-template file. The command name is the
+// filename without its extension (e.g. /x/review.md -> "review"). It is the
+// single-file counterpart of LoadUserCommandsDir, used for settings/CLI paths
+// that point at one file rather than a directory.
+func LoadPromptFile(path string) (SlashCommand, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return SlashCommand{}, fmt.Errorf("read prompt %s: %w", path, err)
+	}
+	base := filepath.Base(path)
+	name := strings.TrimSuffix(base, filepath.Ext(base))
+	return ParseUserCommand(name, content)
+}
+
 // LoadUserCommandsDir loads declarative markdown command templates from dir
 // (non-recursively). Each "*.md" file defines a command named after the file
 // (without extension). The file may carry an optional YAML frontmatter block

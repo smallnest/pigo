@@ -31,6 +31,9 @@ type fileConfig struct {
 	NoSkills      bool   `toml:"no_skills"`
 	Approve       bool   `toml:"approve"`
 	SystemPrompt  string `toml:"system_prompt"`
+	// Prompts is the config.toml `prompts` array: paths (files or dirs) to load
+	// prompt templates from at the settings tier (对标 pi's settings prompts).
+	Prompts []string `toml:"prompts"`
 }
 
 // fileConfigPath returns the path to the user config file:
@@ -105,5 +108,10 @@ func applyFileConfig(opts *cliOptions, cfg fileConfig, changed func(string) bool
 	}
 	if cfg.SystemPrompt != "" && !changed("system-prompt") {
 		opts.systemPrompt = cfg.SystemPrompt
+	}
+	// prompts (settings tier) are additive with --prompt-template (CLI tier,
+	// wired in #339), so they are always passed through when present.
+	if len(cfg.Prompts) > 0 {
+		opts.configPrompts = cfg.Prompts
 	}
 }
