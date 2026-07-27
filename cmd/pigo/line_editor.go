@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -75,6 +76,20 @@ func (b *mlBuffer) backspace() {
 	end := runeOffset(line, b.col)
 	b.lines[b.row] = line[:start] + line[end:]
 	b.col--
+}
+
+// newline splits the current line at the cursor, moving the text right of the
+// cursor onto a fresh line below and placing the cursor at its start. It is how
+// Shift+Enter (and, later, backslash continuation) turn one line into two.
+func (b *mlBuffer) newline() {
+	line := b.lines[b.row]
+	off := runeOffset(line, b.col)
+	head, tail := line[:off], line[off:]
+	rest := append([]string{}, b.lines[b.row+1:]...)
+	b.lines = append(b.lines[:b.row], head, tail)
+	b.lines = append(b.lines, rest...)
+	b.row++
+	b.col = 0
 }
 
 // runeOffset converts a rune column into a byte offset within s.
@@ -209,6 +224,25 @@ func modelMatches(id, query string) bool {
 	return false
 }
 
+// parseCSIParams splits a CSI-u parameter list ("<code>[;<mod>]") into the key
+// code and modifier. A missing modifier defaults to 1 (no modifier).
+func parseCSIParams(params []byte) (code, mod int) {
+	parts := strings.Split(string(params), ";")
+	code = atoiDefault(parts[0], 0)
+	mod = 1
+	if len(parts) > 1 {
+		mod = atoiDefault(parts[1], 1)
+	}
+	return code, mod
+}
+
+func atoiDefault(s string, def int) int {
+	if n, err := strconv.Atoi(s); err == nil {
+		return n
+	}
+	return def
+}
+
 func (e *replLineEditor) readLine(prompt string) (string, error) {
 	if e.terminal == nil {
 		fmt.Fprint(e.out, prompt)
@@ -227,12 +261,30 @@ func (e *replLineEditor) readLine(prompt string) (string, error) {
 		fmt.Fprint(e.out, prompt)
 		return e.in.ReadString('\n')
 	}
+	// Ask the terminal to report modified keys so Shift+Enter is distinguishable
+	// from a bare Enter: enable xterm modifyOtherKeys level 1 and push a CSI-u
+	// (fixterms/kitty) keyboard mode. Level 1 (not 2) reports only keys without
+	// a standard encoding — so Shift+Enter is escaped while ordinary Tab/Enter
+	// stay untouched. Terminals that ignore these simply never send the reports,
+	// and the user falls back to backslash continuation.
+	fmt.Fprint(e.out, "\x1b[>4;1m\x1b[>1u")
 	defer func() {
+		// Restore the terminal's key reporting before the stty state, so we
+		// never leave it stuck in CSI-u/modifyOtherKeys mode on any exit path.
+		fmt.Fprint(e.out, "\x1b[<u\x1b[>4;0m")
 		restore := exec.Command("stty", strings.TrimSpace(string(state)))
 		restore.Stdin = e.terminal
 		_ = restore.Run()
 	}()
 
+	return e.editLoop(prompt)
+}
+
+// editLoop runs the raw-mode key-processing loop over e.in, kept separate from
+// readLine's terminal setup so it can be driven by a programmable io.Reader in
+// tests (no real TTY required). It returns the submitted text (lines joined by
+// "\n") or an error.
+func (e *replLineEditor) editLoop(prompt string) (string, error) {
 	// buf models the input as a multi-line buffer with a cursor. For this
 	// single-line editing layer the cursor stays at the end of the sole line,
 	// so buf behaves exactly like the former input string; the buffer model is
@@ -305,49 +357,100 @@ func (e *replLineEditor) readLine(prompt string) (string, error) {
 			selected = 0
 			histNav = -1
 		case 27:
-			// Arrow keys drive suggestion selection: → accepts the visible
-			// suggestion, ↑/↓ cycle to the previous/next candidate. On a blank
-			// line ↑/↓ instead browse prior inputs (most recent first). Any
-			// other escape sequence is consumed and ignored so it never leaks
-			// into the submitted text.
-			b2, _ := e.in.ReadByte()
-			b3, _ := e.in.ReadByte()
+			// Parse a full CSI sequence so multi-parameter reports (CSI-u key
+			// events like Shift+Enter's \x1b[13;2u) are handled, not just the
+			// bare arrow sequences. → accepts the visible suggestion, ↑/↓ cycle
+			// candidates or browse history on a blank line, and Enter reports
+			// (code 13) either submit or insert a newline depending on the
+			// modifier. Any other sequence is consumed and ignored so it never
+			// leaks into the submitted text.
+			b2, escErr := e.in.ReadByte()
+			if escErr != nil {
+				return buf.String(), escErr
+			}
 			if b2 == '[' {
-				switch b3 {
+				var params []byte
+				var final byte
+				for {
+					c, cErr := e.in.ReadByte()
+					if cErr != nil {
+						return buf.String(), cErr
+					}
+					if c >= 0x40 && c <= 0x7e {
+						final = c
+						break
+					}
+					params = append(params, c)
+				}
+				switch final {
+				case 'u': // CSI-u key report: "<code>[;<mod>]u".
+					code, mod := parseCSIParams(params)
+					if code == 13 {
+						if mod >= 2 {
+							buf.newline()
+							selected = 0
+							histNav = -1
+						} else {
+							fmt.Fprint(e.out, "\r\n")
+							return buf.String(), nil
+						}
+					}
+				case '~': // modifyOtherKeys form: "27;<mod>;<code>~".
+					parts := strings.Split(string(params), ";")
+					if len(parts) == 3 && atoiDefault(parts[0], -1) == 27 {
+						mod := atoiDefault(parts[1], 1)
+						code := atoiDefault(parts[2], 0)
+						if code == 13 {
+							if mod >= 2 {
+								buf.newline()
+								selected = 0
+								histNav = -1
+							} else {
+								fmt.Fprint(e.out, "\r\n")
+								return buf.String(), nil
+							}
+						}
+					}
 				case 'C': // right arrow accepts
-					if s := visible(); s != "" {
-						buf.setString(s)
-						selected = 0
-						histNav = -1
+					if len(params) == 0 {
+						if s := visible(); s != "" {
+							buf.setString(s)
+							selected = 0
+							histNav = -1
+						}
 					}
 				case 'A': // up arrow
-					if buf.isEmpty() || histNav >= 0 {
-						// Browse history: step toward older entries.
-						if histNav < 0 {
-							histNav = len(e.history)
+					if len(params) == 0 {
+						if buf.isEmpty() || histNav >= 0 {
+							// Browse history: step toward older entries.
+							if histNav < 0 {
+								histNav = len(e.history)
+							}
+							if histNav > 0 {
+								histNav--
+								buf.setString(e.history[histNav])
+								selected = 0
+							}
+						} else if n := len(e.suggestions(buf.String())); n > 0 {
+							selected = (selected - 1 + n) % n
 						}
-						if histNav > 0 {
-							histNav--
-							buf.setString(e.history[histNav])
-							selected = 0
-						}
-					} else if n := len(e.suggestions(buf.String())); n > 0 {
-						selected = (selected - 1 + n) % n
 					}
 				case 'B': // down arrow
-					if histNav >= 0 {
-						// Browse history: step toward newer entries; past the
-						// newest, return to a blank line.
-						if histNav < len(e.history)-1 {
-							histNav++
-							buf.setString(e.history[histNav])
-						} else {
-							histNav = -1
-							buf.setString("")
+					if len(params) == 0 {
+						if histNav >= 0 {
+							// Browse history: step toward newer entries; past the
+							// newest, return to a blank line.
+							if histNav < len(e.history)-1 {
+								histNav++
+								buf.setString(e.history[histNav])
+							} else {
+								histNav = -1
+								buf.setString("")
+							}
+							selected = 0
+						} else if n := len(e.suggestions(buf.String())); n > 0 {
+							selected = (selected + 1) % n
 						}
-						selected = 0
-					} else if n := len(e.suggestions(buf.String())); n > 0 {
-						selected = (selected + 1) % n
 					}
 				}
 			}

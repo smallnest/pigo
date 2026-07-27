@@ -143,3 +143,73 @@ func TestMLBufferSetStringJoinsWithNewline(t *testing.T) {
 		t.Fatalf("String() has trailing newline: %q", b.String())
 	}
 }
+
+// editorWithInput builds an editor whose editLoop reads the given byte stream,
+// so raw-mode key handling can be exercised without a real terminal.
+func editorWithInput(input string, history ...string) *replLineEditor {
+	reg := runtime.NewSlashRegistry()
+	reg.AddBuiltin(runtime.SlashCommand{Name: "model", Action: func(string) string { return "" }})
+	reg.AddBuiltin(runtime.SlashCommand{Name: "models", Action: func(string) string { return "" }})
+	r := strings.NewReader(input)
+	return newREPLLineEditor(r, bufio.NewReader(r), io.Discard, reg, history)
+}
+
+func TestMLBufferNewlineSplitsAtCursor(t *testing.T) {
+	b := newMLBuffer()
+	b.insert("abcdef")
+	b.col = 3 // cursor between "abc" and "def"
+	b.newline()
+	if got := b.String(); got != "abc\ndef" {
+		t.Fatalf("newline split = %q, want %q", got, "abc\ndef")
+	}
+	if b.row != 1 || b.col != 0 {
+		t.Fatalf("cursor after newline = (%d,%d), want (1,0)", b.row, b.col)
+	}
+}
+
+func TestEditLoopPlainEnterSubmits(t *testing.T) {
+	e := editorWithInput("abc\r")
+	got, err := e.editLoop("")
+	if err != nil {
+		t.Fatalf("editLoop error: %v", err)
+	}
+	if got != "abc" {
+		t.Fatalf("submitted %q, want %q", got, "abc")
+	}
+}
+
+func TestEditLoopShiftEnterInsertsNewline(t *testing.T) {
+	// CSI-u Shift+Enter is \x1b[13;2u; a bare \r then submits.
+	e := editorWithInput("abc\x1b[13;2udef\r")
+	got, err := e.editLoop("")
+	if err != nil {
+		t.Fatalf("editLoop error: %v", err)
+	}
+	if got != "abc\ndef" {
+		t.Fatalf("submitted %q, want %q", got, "abc\ndef")
+	}
+}
+
+func TestEditLoopModifyOtherKeysEnterInsertsNewline(t *testing.T) {
+	// modifyOtherKeys Shift+Enter is \x1b[27;2;13~.
+	e := editorWithInput("x\x1b[27;2;13~y\r")
+	got, err := e.editLoop("")
+	if err != nil {
+		t.Fatalf("editLoop error: %v", err)
+	}
+	if got != "x\ny" {
+		t.Fatalf("submitted %q, want %q", got, "x\ny")
+	}
+}
+
+func TestEditLoopCSIuPlainEnterSubmits(t *testing.T) {
+	// Unmodified Enter reported as CSI-u \x1b[13u must submit, not newline.
+	e := editorWithInput("hi\x1b[13u")
+	got, err := e.editLoop("")
+	if err != nil {
+		t.Fatalf("editLoop error: %v", err)
+	}
+	if got != "hi" {
+		t.Fatalf("submitted %q, want %q", got, "hi")
+	}
+}
