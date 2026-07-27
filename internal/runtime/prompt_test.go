@@ -247,3 +247,44 @@ func TestBuildSystemPromptNoSkillsWithoutReadTool(t *testing.T) {
 		t.Errorf("empty skill list must not alter the prompt even with read tool:\n%q\nvs\n%q", bare, withReadNoSkills)
 	}
 }
+
+// TestDisableModelInvocationCoexistence verifies the #305 coexistence contract:
+// a skill with disable-model-invocation:true is STILL exposed as a /skill-name
+// slash command (body expansion + $ARGUMENTS), while being EXCLUDED from the
+// <available_skills> prompt injection. The two invocation paths are independent.
+func TestDisableModelInvocationCoexistence(t *testing.T) {
+	disabled := &Skill{
+		Frontmatter: SkillFrontmatter{Name: "secret", Description: "hidden", DisableModelInvocation: true},
+		Path:        "/skills/secret.md",
+		Body:        "Do the secret thing with $ARGUMENTS.",
+	}
+	enabled := &Skill{
+		Frontmatter: SkillFrontmatter{Name: "weather", Description: "get weather"},
+		Path:        "/skills/weather.md",
+		Body:        "Report the weather.",
+	}
+	skills := []*Skill{disabled, enabled}
+
+	// 1. The disabled skill must be excluded from the model-facing prompt block,
+	//    while the enabled one appears.
+	block := FormatSkillsForPrompt(skills)
+	if strings.Contains(block, "secret") {
+		t.Errorf("disable-model-invocation skill must not appear in <available_skills>, got:\n%s", block)
+	}
+	if !strings.Contains(block, "<name>weather</name>") {
+		t.Errorf("model-invocable skill must appear in <available_skills>, got:\n%s", block)
+	}
+
+	// 2. The disabled skill must still be invocable via its /skill-name command,
+	//    with $ARGUMENTS substitution intact (behavior identical to an enabled one).
+	cmd := disabled.SlashCommand()
+	if cmd.Name != "secret" {
+		t.Errorf("disabled skill slash name = %q, want secret", cmd.Name)
+	}
+	if cmd.Expand == nil {
+		t.Fatal("disabled skill must expose a prompt command (Expand != nil)")
+	}
+	if got := cmd.Expand("now"); got != "Do the secret thing with now." {
+		t.Errorf("Expand(now) = %q, want $ARGUMENTS substituted", got)
+	}
+}

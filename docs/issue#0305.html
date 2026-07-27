@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0305</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EDE8; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/305">#305</a> &mdash; /skill-name 显式调用与 disable-model-invocation 并存 &mdash; 2026-07-27</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Ship #305 as a single combined coexistence test, not new production code</h3>
+      <p><strong>Ambiguity:</strong> The issue's ACs read like feature work, but by #305 the behavior was already implemented across #301 (<code>DisableModelInvocation</code> frontmatter), #302 (<code>FormatSkillsForPrompt</code> filtering) and #304 (unfiltered slash registration). The spec didn't say whether #305 needed new code or just proof.</p>
+      <p><strong>Choice:</strong> Treated #305 as the verification milestone — added one focused test, <code>TestDisableModelInvocationCoexistence</code>, that asserts both halves of the contract in one place.</p>
+      <p><strong>Rationale:</strong> The two invocation paths (prompt injection vs <code>/skill-name</code>) were previously tested in separate functions. AC #3 specifically asks for a test proving a disabled skill is <em>both</em> slash-registered <em>and</em> prompt-excluded. A single combined test is the exact artifact the AC calls for and documents the coexistence invariant for future readers.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Place the test in <code>internal/runtime/prompt_test.go</code></h3>
+      <p><strong>Ambiguity:</strong> The coexistence check spans <code>Skill.SlashCommand()</code> (skills.go) and <code>FormatSkillsForPrompt</code> (skills.go), consumed alongside prompt assembly — it could live in either package's tests.</p>
+      <p><strong>Choice:</strong> Co-located it with the existing <code>TestBuildSystemPromptInjectsSkills</code> in the runtime package, which already exercises the exclusion path.</p>
+      <p><strong>Rationale:</strong> Both APIs are in <code>internal/runtime</code>; the test needs no <code>cmd/pigo</code> wiring (no registry, no disk). Keeping it beside the sibling skill-prompt test makes the pair easy to find and reason about together.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None — the existing code from #301/#302/#304 already satisfied every acceptance criterion; #305 added only the verifying test.</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> One combined test vs two narrow tests</h3>
+      <p><strong>Alternatives:</strong> (a) add two separate tests — one for slash registration of a disabled skill, one for its prompt exclusion; (b) one test asserting both facts about the same disabled skill.</p>
+      <p><strong>Chosen:</strong> (b) — a single test using one <code>disable-model-invocation</code> skill, checking it is absent from <code>&lt;available_skills&gt;</code> yet still yields a working <code>/secret</code> command with <code>$ARGUMENTS</code> substitution.</p>
+      <p><strong>Why it wins:</strong> The AC is about <em>coexistence</em> — that the same skill behaves differently on the two paths. Splitting it into two tests would lose the "same skill, both properties" assertion that is the whole point. The combined test is the tightest expression of the invariant.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <p class="none">None — build, vet, and <code>go test ./cmd/pigo/ ./internal/runtime/</code> all pass; all four ACs are covered (unfiltered slash registration, prompt exclusion of disabled skills, the new combined test, clean build/vet).</p>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
