@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -36,6 +37,54 @@ type SkillFrontmatter struct {
 	AllowedTools stringList `yaml:"allowed-tools"`
 	// Model optionally pins the skill to a specific model; empty inherits.
 	Model string `yaml:"model"`
+	// DisableModelInvocation, when true, keeps the skill out of the system
+	// prompt's <available_skills> list so the model cannot auto-invoke it; it
+	// remains reachable only via its explicit "/name" slash command (对标 pi 的
+	// disable-model-invocation frontmatter key). Defaults to false.
+	DisableModelInvocation bool `yaml:"disable-model-invocation"`
+}
+
+// Agent Skills spec limits (对标 pi/agentskills.io): a skill name is a short
+// slug and a description is a single sentence, both bounded so they stay cheap
+// to inject into the system prompt.
+const (
+	maxSkillNameLength        = 64
+	maxSkillDescriptionLength = 1024
+)
+
+// skillNamePattern matches a valid skill name per the Agent Skills spec:
+// lowercase ASCII letters, digits, and hyphens only.
+var skillNamePattern = regexp.MustCompile(`^[a-z0-9-]+$`)
+
+// validateSkillName reports why name violates the Agent Skills spec, or nil
+// when it is valid: lowercase a-z/0-9/hyphen only, at most maxSkillNameLength
+// characters, and no leading, trailing, or consecutive hyphens.
+func validateSkillName(name string) error {
+	if len(name) > maxSkillNameLength {
+		return fmt.Errorf("name exceeds %d characters (%d)", maxSkillNameLength, len(name))
+	}
+	if !skillNamePattern.MatchString(name) {
+		return fmt.Errorf("name %q contains invalid characters (allowed: lowercase a-z, 0-9, hyphen)", name)
+	}
+	if strings.HasPrefix(name, "-") || strings.HasSuffix(name, "-") {
+		return fmt.Errorf("name %q must not start or end with a hyphen", name)
+	}
+	if strings.Contains(name, "--") {
+		return fmt.Errorf("name %q must not contain consecutive hyphens", name)
+	}
+	return nil
+}
+
+// validateSkillDescription reports why description violates the spec, or nil
+// when it is valid: non-empty and at most maxSkillDescriptionLength characters.
+func validateSkillDescription(description string) error {
+	if strings.TrimSpace(description) == "" {
+		return errors.New("frontmatter missing required 'description'")
+	}
+	if len(description) > maxSkillDescriptionLength {
+		return fmt.Errorf("description exceeds %d characters (%d)", maxSkillDescriptionLength, len(description))
+	}
+	return nil
 }
 
 // stringList is a []string that unmarshals from either a YAML sequence
@@ -104,8 +153,11 @@ func ParseSkill(path string, content []byte) (*Skill, error) {
 		base := filepath.Base(path)
 		meta.Name = strings.TrimSuffix(base, filepath.Ext(base))
 	}
-	if meta.Description == "" {
-		return nil, fmt.Errorf("skill %s: frontmatter missing required 'description'", path)
+	if err := validateSkillName(meta.Name); err != nil {
+		return nil, fmt.Errorf("skill %s: %w", path, err)
+	}
+	if err := validateSkillDescription(meta.Description); err != nil {
+		return nil, fmt.Errorf("skill %s: %w", path, err)
 	}
 	return &Skill{Frontmatter: meta, Body: strings.TrimSpace(string(body)), Path: path}, nil
 }

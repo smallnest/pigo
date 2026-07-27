@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0301</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EDE8; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/301">#301</a> &mdash; skill frontmatter 支持 disable-model-invocation 与 name/description 校验 &mdash; 2026-07-27</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Split validation into two standalone helpers</h3>
+      <p><strong>Ambiguity:</strong> The PRD required name and description validation but did not prescribe where the logic should live.</p>
+      <p><strong>Choice:</strong> Added <code>validateSkillName</code> and <code>validateSkillDescription</code> as package-level functions rather than inlining the checks in <code>ParseSkill</code>.</p>
+      <p><strong>Rationale:</strong> Standalone functions are directly unit-testable (see <code>TestValidateSkillName</code>/<code>TestValidateSkillDescription</code>) without constructing full skill files, and keep <code>ParseSkill</code> readable.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Compile the name regexp once at package scope</h3>
+      <p><strong>Ambiguity:</strong> Where to build the <code>^[a-z0-9-]+$</code> matcher.</p>
+      <p><strong>Choice:</strong> A package-level <code>skillNamePattern = regexp.MustCompile(...)</code>.</p>
+      <p><strong>Rationale:</strong> Avoids recompiling on every skill parsed; <code>LoadSkillsDir</code> can process 100+ skills.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Validate <em>after</em> name defaulting, not before</h3>
+      <p><strong>Ambiguity:</strong> The order of file-base-name fallback vs validation.</p>
+      <p><strong>Choice:</strong> Keep the existing fallback (name defaults to the file base name when frontmatter omits it), then validate. So a file <code>My_Skill.md</code> with no explicit name is validated as <code>My_Skill</code> and rejected.</p>
+      <p><strong>Rationale:</strong> Matches PRD AC ("name 缺省时回退为父目录名或文件基名") while still guaranteeing every skill that reaches the prompt has a spec-compliant name.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Skip-on-invalid-name vs pi's warn-but-keep</h3>
+      <p><strong>Spec said:</strong> pi's reference implementation (<code>loadSkillFromFile</code> in skills.ts) only <em>drops</em> a skill on a missing description; on a name-rule violation it emits a warning but <em>keeps</em> the skill.</p>
+      <p><strong>Implemented instead:</strong> An invalid name makes <code>ParseSkill</code> return an error, so <code>LoadSkillsDir</code> skips that skill and accumulates the reason (non-fatal, other skills still load).</p>
+      <p><strong>Why:</strong> The pigo PRD (US-002 AC) explicitly states validation failure follows pigo's existing "部分解析失败不致命" policy — skip and accumulate. A malformed name that reaches the <code>&lt;available_skills&gt;</code> block or the slash-command table could produce an unusable command name, so failing closed is safer for pigo. This is a conscious divergence from pi.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Byte-length vs rune-length for the 64-char limit</h3>
+      <p><strong>Alternatives:</strong> <code>len(name)</code> (bytes) vs <code>utf8.RuneCountInString</code> (runes).</p>
+      <p><strong>Chosen:</strong> Byte length.</p>
+      <p><strong>Why it wins:</strong> The name pattern already restricts input to ASCII <code>[a-z0-9-]</code>, so bytes and runes are identical for any name that passes the pattern. The length check runs first, but a &gt;64 multibyte string would still be rejected — either by length or by the ASCII-only pattern — so no valid skill is wrongly dropped and no invalid one slips through.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Reusing the existing "missing description" error string</h3>
+      <p><strong>Alternatives:</strong> Introduce a new sentinel error vs preserve the current message.</p>
+      <p><strong>Chosen:</strong> <code>validateSkillDescription</code> returns the same "frontmatter missing required 'description'" text the old inline check used.</p>
+      <p><strong>Why it wins:</strong> Keeps <code>TestParseSkillRequiresDescription</code> passing unchanged and avoids churning any caller that matches on the message.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should existing user skill dirs be audited for now-rejected names?</h3>
+      <p><strong>Assumption:</strong> Real <code>~/.agents/skills</code> content uses spec-compliant kebab-case names.</p>
+      <p><strong>Verify:</strong> If any installed skill file has an uppercase/underscore name and no explicit <code>name:</code> frontmatter, it will now be silently skipped (reason accumulated in the load error). Confirm this is acceptable, or reconsider the pi warn-but-keep behavior for names specifically.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

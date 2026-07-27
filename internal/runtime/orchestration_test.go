@@ -253,6 +253,86 @@ func TestParseSkillRequiresDescription(t *testing.T) {
 	}
 }
 
+// TestParseSkillDisableModelInvocation verifies the disable-model-invocation
+// frontmatter key parses into the three expected states.
+func TestParseSkillDisableModelInvocation(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+		want bool
+	}{
+		{"absent defaults false", "---\nname: a\ndescription: d\n---\nbody", false},
+		{"explicit true", "---\nname: a\ndescription: d\ndisable-model-invocation: true\n---\nbody", true},
+		{"explicit false", "---\nname: a\ndescription: d\ndisable-model-invocation: false\n---\nbody", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sk, err := ParseSkill("a.md", []byte(tc.yaml))
+			if err != nil {
+				t.Fatalf("ParseSkill: %v", err)
+			}
+			if sk.Frontmatter.DisableModelInvocation != tc.want {
+				t.Errorf("DisableModelInvocation = %v, want %v", sk.Frontmatter.DisableModelInvocation, tc.want)
+			}
+		})
+	}
+}
+
+// TestValidateSkillName verifies the Agent Skills name rules: lowercase
+// a-z/0-9/hyphen only, at most 64 chars, no leading/trailing/consecutive
+// hyphens.
+func TestValidateSkillName(t *testing.T) {
+	valid := []string{"weather", "chao-go-sync", "a", "a1-b2"}
+	for _, n := range valid {
+		if err := validateSkillName(n); err != nil {
+			t.Errorf("validateSkillName(%q) = %v, want nil", n, err)
+		}
+	}
+	invalid := []string{
+		"Weather",               // uppercase
+		"my_skill",              // underscore
+		"has space",             // space
+		"plugin:skill",          // colon
+		"-lead",                 // leading hyphen
+		"trail-",                // trailing hyphen
+		"double--hyphen",        // consecutive hyphens
+		strings.Repeat("a", 65), // too long
+	}
+	for _, n := range invalid {
+		if err := validateSkillName(n); err == nil {
+			t.Errorf("validateSkillName(%q) = nil, want error", n)
+		}
+	}
+}
+
+// TestValidateSkillDescription verifies description is required and bounded.
+func TestValidateSkillDescription(t *testing.T) {
+	if err := validateSkillDescription("does a thing"); err != nil {
+		t.Errorf("valid description rejected: %v", err)
+	}
+	if err := validateSkillDescription("   "); err == nil {
+		t.Error("blank description must error")
+	}
+	if err := validateSkillDescription(strings.Repeat("x", 1025)); err == nil {
+		t.Error("over-long description must error")
+	}
+	if err := validateSkillDescription(strings.Repeat("x", 1024)); err != nil {
+		t.Errorf("1024-char description rejected: %v", err)
+	}
+}
+
+// TestParseSkillRejectsInvalidName verifies an invalid name (including one
+// derived from the file base name) makes ParseSkill fail, so LoadSkillsDir
+// skips it and accumulates the reason rather than surfacing a bad skill.
+func TestParseSkillRejectsInvalidName(t *testing.T) {
+	if _, err := ParseSkill("x.md", []byte("---\nname: Bad_Name\ndescription: d\n---\nbody")); err == nil {
+		t.Error("invalid explicit name must error")
+	}
+	if _, err := ParseSkill("/skills/My_Skill.md", []byte("---\ndescription: d\n---\nbody")); err == nil {
+		t.Error("invalid file-derived name must error")
+	}
+}
+
 // TestLoadSkillsDir verifies loading flat *.md skills and nested <name>/SKILL.md,
 // sorted by name; a missing dir is not an error.
 func TestLoadSkillsDir(t *testing.T) {
