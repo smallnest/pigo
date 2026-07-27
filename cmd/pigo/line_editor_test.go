@@ -480,3 +480,43 @@ func TestMLBufferEnterContinuesTrailingRuns(t *testing.T) {
 		t.Fatalf("line after triple continue = %q, want %q", got, "z\\")
 	}
 }
+
+func TestRememberPreservesInternalNewlines(t *testing.T) {
+	// A submitted multi-line block is stored as ONE history record; remember
+	// trims only the outer whitespace, never the internal newlines.
+	e := testLineEditor()
+	e.remember("  foo\nbar  ")
+	if len(e.history) != 1 {
+		t.Fatalf("history = %v, want a single record", e.history)
+	}
+	if e.history[0] != "foo\nbar" {
+		t.Fatalf("remembered %q, want %q (internal newline kept)", e.history[0], "foo\nbar")
+	}
+}
+
+func TestEditLoopHistoryRestoresMultiLineAndSubmits(t *testing.T) {
+	// Up-arrow on a blank line restores the newest history entry; a multi-line
+	// record comes back as a multi-line buffer that submits intact with its
+	// internal newline (i.e. the block is one message, not two).
+	e := editorWithInput("\x1b[A\r", "foo\nbar")
+	got, err := e.editLoop("")
+	if err != nil {
+		t.Fatalf("editLoop error: %v", err)
+	}
+	if got != "foo\nbar" {
+		t.Fatalf("restored+submitted %q, want %q", got, "foo\nbar")
+	}
+}
+
+func TestEditLoopMultiLineSubmitJoinsWithNewline(t *testing.T) {
+	// Three Shift+Enter lines submit as one \n-joined message, so the full
+	// multi-line string reaches the agent in a single turn.
+	e := editorWithInput("a\x1b[13;2ub\x1b[13;2uc\r")
+	got, err := e.editLoop("")
+	if err != nil {
+		t.Fatalf("editLoop error: %v", err)
+	}
+	if got != "a\nb\nc" {
+		t.Fatalf("submitted %q, want %q", got, "a\nb\nc")
+	}
+}

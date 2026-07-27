@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0319</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EDE8; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/319">#319</a> &mdash; 多行提交、历史记录与恢复 &mdash; 2026-07-27</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 复用既有 <code>String()</code>/<code>setString()</code>/<code>TrimSpace</code> 路径，本 issue 以单测锁定行为</h3>
+      <p><strong>Ambiguity:</strong> AC 要求「多行作为一条历史、可复原为多行、完整传给 agent」，但这些能力大多已由前序 issue（#313 的 <code>String()</code> 以 <code>\n</code> 连接、<code>setString()</code> 按 <code>\n</code> 拆分）与 <code>repl.go</code> 现有提交路径铺就。</p>
+      <p><strong>Choice:</strong> 审阅 <code>repl.go</code> 提交路径确认无需改生产代码：<code>line := strings.TrimSpace(raw)</code> 只去整体首尾空白、保留内部 <code>\n</code>；<code>editor.remember(line)</code> 把整块作为一条记录；<code>prompt := line</code> 把完整多行串传给 agent 一轮。补充 3 条单测把这条链路钉死。</p>
+      <p><strong>Rationale:</strong> 行为已正确，加代码只会引入冗余；用测试锁定「多行进历史 / 历史复原为多行 / 提交串含 <code>\n</code>」防止后续回归，符合 issue 的 backend/验证性质。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 历史复原后 ↑/↓ 优先做块内光标移动，而非继续翻历史</h3>
+      <p><strong>Ambiguity:</strong> AC 说复原多行后「可继续编辑」，但没说此时 ↑ 该翻更旧的历史还是移动光标。</p>
+      <p><strong>Choice:</strong> 沿用 #315 的箭头分发：<code>!buf.single()</code> 时 ↑/↓ 走 <code>buf.up()/down()</code>（块内移动光标），仅单行/空行时才翻历史。</p>
+      <p><strong>Rationale:</strong> AC 明确要「继续编辑」而非「继续浏览」；复原多行后光标移动是编辑的前提，优先编辑语义正确且与既有跨行移动一致。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None — 按 AC 实现：多行块作为一条记录存入 <code>e.history</code>（保留内部换行）、空行 ↑ 复原为多行缓冲可继续编辑、<code>remember</code> 仅去整体首尾空白、提交串经 <code>prompt := line</code> 完整（含 <code>\n</code>）传给 agent。<code>go build/vet</code> 全包与 <code>go test ./cmd/pigo/</code> 全绿。</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 保留 <code>TrimSpace</code> vs 改为不 trim / 仅 trim 空白行</h3>
+      <p><strong>Alternatives:</strong> (a) 维持 <code>strings.TrimSpace(raw)</code>；(b) 完全不 trim，原样入历史与提交；(c) 逐行 trim。</p>
+      <p><strong>Chosen:</strong> (a)。</p>
+      <p><strong>Why it wins:</strong> TrimSpace 只削整体首尾空白、保留内部 <code>\n</code>，既满足 AC「不破坏内部换行」，又保留单行时误敲首尾空格自动清理的既有体验；(b) 会让误触的首尾空白进入 agent，(c) 会篡改用户有意的行内缩进。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 多行历史记录在建议补全（dim 提示）里的呈现</h3>
+      <p><strong>Assumption:</strong> <code>suggestions()</code> 以整串前缀匹配历史，一条多行记录可能被作为补全候选；接受后经 <code>setString</code> 复原为多行——功能上正确。</p>
+      <p><strong>Verify:</strong> 单行 dim 提示已限制为「单行且光标在行尾」时显示（#318），故多行候选不会以残缺 dim 形式渲染；但候选列表中多行记录的单行摘要展示（是否截断到首行）属体验细节，PRD 未覆盖，可按真实终端观感后续微调。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
