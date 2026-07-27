@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes - Issue #0331</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/331">#331</a> &mdash; shell 风格参数分词器 &mdash; 2026-07-27</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Reused <code>github.com/kballard/go-shellquote</code> rather than hand-rolling a tokenizer</h3>
+      <p><strong>Ambiguity:</strong> The spec named the library as an example ("如 <code>github.com/kballard/go-shellquote</code>"), not a mandate; other shell-quoting libs exist.</p>
+      <p><strong>Choice:</strong> Added <code>go-shellquote</code> as a direct dependency and wrapped <code>shellquote.Split</code> in <code>runtime.SplitArgs</code>.</p>
+      <p><strong>Rationale:</strong> The project's global rule is "复用而非自实现". <code>go-shellquote</code> is mature, single-purpose, has no transitive deps, and is pure parsing (no shell execution &mdash; no injection surface). Hand-rolling a quote tracker would be more code to test and maintain for no gain.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Normalize <code>nil</code> to a non-nil empty slice</h3>
+      <p><strong>Ambiguity:</strong> The spec says empty input returns <code>[]</code>. <code>shellquote.Split("")</code> returns a <code>nil</code> slice, which in Go is distinct from <code>[]string{}</code> though both have <code>len == 0</code>.</p>
+      <p><strong>Choice:</strong> <code>SplitArgs</code> converts a <code>nil</code> result into <code>[]string{}</code>.</p>
+      <p><strong>Rationale:</strong> Callers (the template expander in #332/#333) can rely on <code>len(args) == 0</code> and range over the slice without a nil guard, and the acceptance criterion "空字符串输入 -&gt; <code>[]</code>" reads as a literal empty slice.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None &mdash; implementation followed US-001 as written. The function signature <code>SplitArgs(s string) ([]string, error)</code>, the quoting/stripping behavior, the empty/unclosed-quote handling, and the test matrix all match the acceptance criteria verbatim.</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> <code>go-shellquote</code> vs <code>go-shellwords</code> vs <code>mvdan.cc/sh</code></h3>
+      <p><strong>Alternatives:</strong> <code>github.com/mattn/go-shellwords</code> (similar API, also popular, adds POSIX-escape helpers); <code>mvdan.cc/sh/v3/shell.Fields</code> (full shell parser, heaviest).</p>
+      <p><strong>Pros/cons:</strong> <code>shellquote</code> is the most minimal (one file, zero transitive deps) and does exactly field-splitting with quote handling. <code>shellwords</code> brings options we don't need. <code>mvdan/sh</code> is overkill for splitting a single line.</p>
+      <p><strong>Why it won:</strong> Minimal footprint, no transitive deps to audit, and the spec already pointed at it.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Wrapped <code>SplitArgs</code> instead of calling <code>shellquote.Split</code> directly from the expander</h3>
+      <p><strong>Alternatives:</strong> Have the template expander (#332) import <code>shellquote</code> directly and call <code>Split</code>.</p>
+      <p><strong>Pros/cons:</strong> A direct call is one less function. A wrapper gives a stable pigo-internal API, centralizes the <code>nil</code>-&gt;empty normalization, and isolates the third-party dep to one file so the expander depends on <code>runtime.SplitArgs</code>, not <code>shellquote</code>.</p>
+      <p><strong>Why it won:</strong> If we ever swap the quoting lib (or adjust edge-case behavior), only <code>args.go</code> changes. Worth the trivial indirection.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Backslash-escape semantics inside double quotes</h3>
+      <p><strong>Assumption:</strong> <code>shellquote.Split</code> interprets backslash escapes inside double quotes (e.g. <code>"a\"b"</code> -&gt; <code>a"b</code>). The spec didn't mention escapes; I assumed shell-style escapes are desired since the feature is "shell 风格分词".</p>
+      <p><strong>Verify:</strong> If a user wants a literal backslash inside a double-quoted prompt argument, they'd use single quotes. Confirm this matches pi's actual behavior in a parity pass; if pi treats backslashes literally, we may need a different splitter or pre-processing.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Empty-quoted-argument semantics (<code>""</code> -&gt; one empty arg)</h3>
+      <p><strong>Assumption:</strong> <code>SplitArgs("")</code> yields <code>[]</code> (no args), but <code>SplitArgs(<code>""</code>)</code> (a literal empty double-quoted token) yields <code>[""]</code> (one empty arg), so <code>$1</code> would be <code>""</code>. This is standard shell behavior.</p>
+      <p><strong>Verify:</strong> The spec didn't specify this case. Confirm pi treats an explicitly-empty quoted arg as a present-but-empty positional (affecting <code>${1:-default}</code>, which should NOT use the default since arg1 is present).</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
