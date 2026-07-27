@@ -84,6 +84,50 @@ func TestWriteToolPathTraversal(t *testing.T) {
 	}
 }
 
+func TestWriteToolExtraRootsAllowsSkillAuthoring(t *testing.T) {
+	work := t.TempDir()
+	skills := t.TempDir()
+
+	// Without ExtraRoots, authoring a skill outside the workspace is rejected.
+	target := filepath.Join(skills, "newskill", "SKILL.md")
+	bounded := &WriteTool{Root: work}
+	res := runWrite(t, bounded, map[string]any{"path": target, "content": "x"})
+	if !strings.Contains(resultText(res), "outside the workspace root") {
+		t.Fatalf("expected boundary rejection without ExtraRoots, got %q", resultText(res))
+	}
+	if _, err := os.Stat(target); err == nil {
+		t.Fatal("write escaped the workspace without ExtraRoots!")
+	}
+
+	// With the skills dir as an extra root, the new skill file (and its parent
+	// dirs) is created.
+	tool := &WriteTool{Root: work, ExtraRoots: []string{skills}}
+	res = runWrite(t, tool, map[string]any{"path": target, "content": "skill body"})
+	if strings.Contains(resultText(res), "error") {
+		t.Fatalf("unexpected error authoring skill: %q", resultText(res))
+	}
+	got, err := os.ReadFile(target)
+	if err != nil || string(got) != "skill body" {
+		t.Fatalf("skill file content = %q, err = %v", got, err)
+	}
+}
+
+func TestWriteToolExtraRootsStillBlocksUntrustedPath(t *testing.T) {
+	work := t.TempDir()
+	skills := t.TempDir()
+	other := t.TempDir()
+	target := filepath.Join(other, "escape.txt")
+
+	tool := &WriteTool{Root: work, ExtraRoots: []string{skills}}
+	res := runWrite(t, tool, map[string]any{"path": target, "content": "x"})
+	if !strings.Contains(resultText(res), "outside the workspace root") {
+		t.Errorf("expected boundary error for untrusted path, got %q", resultText(res))
+	}
+	if _, err := os.Stat(target); err == nil {
+		t.Fatal("write escaped both roots!")
+	}
+}
+
 func TestWriteToolDirectoryTarget(t *testing.T) {
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "adir")

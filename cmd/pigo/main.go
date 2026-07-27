@@ -263,15 +263,28 @@ func builtinTools(cwd string, disabled bool) []agentcore.AgentTool {
 		return nil
 	}
 	return []agentcore.AgentTool{
-		&agenttool.ReadTool{Root: cwd},
-		&agenttool.WriteTool{Root: cwd},
-		&agenttool.EditTool{Root: cwd},
+		&agenttool.ReadTool{Root: cwd, ExtraRoots: readableExtraRoots()},
+		&agenttool.WriteTool{Root: cwd, ExtraRoots: readableExtraRoots()},
+		&agenttool.EditTool{Root: cwd, ExtraRoots: readableExtraRoots()},
 		&agenttool.GrepTool{Root: cwd},
 		&agenttool.FindTool{Root: cwd},
 		&agenttool.BashTool{Dir: cwd},
 		&agenttool.TodoTool{Store: agenttool.NewTodoStore()},
 		&agenttool.WebFetchTool{},
 	}
+}
+
+// readableExtraRoots returns trusted directories the file tools may reach beyond
+// the workspace root. The skills directory is included so the model can load the
+// absolute SKILL.md paths pigo advertises in the system prompt, and author or
+// update skills there (they otherwise resolve outside the workspace and are
+// rejected). An empty skills dir is dropped, so this stays a no-op when the home
+// directory cannot be resolved.
+func readableExtraRoots() []string {
+	if dir := skillsDir(); dir != "" {
+		return []string{dir}
+	}
+	return nil
 }
 
 // toolRegistry builds a registry from the given tools (skipping any that fail

@@ -118,6 +118,36 @@ func TestEditToolPathTraversal(t *testing.T) {
 	}
 }
 
+func TestEditToolExtraRootsAllowsSkillModification(t *testing.T) {
+	work := t.TempDir()
+	skills := t.TempDir()
+	skillFile := filepath.Join(skills, "weather", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skillFile), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(skillFile, []byte("old body\n"), 0o644); err != nil {
+		t.Fatalf("seed skill: %v", err)
+	}
+
+	// Without ExtraRoots the out-of-workspace skill edit is rejected.
+	bounded := &EditTool{Root: work}
+	res := runEdit(t, bounded, map[string]any{"path": skillFile, "old_string": "old body", "new_string": "new body"})
+	if !strings.Contains(resultText(res), "outside the workspace root") {
+		t.Fatalf("expected boundary rejection without ExtraRoots, got %q", resultText(res))
+	}
+
+	// With the skills dir as an extra root the edit applies.
+	tool := &EditTool{Root: work, ExtraRoots: []string{skills}}
+	res = runEdit(t, tool, map[string]any{"path": skillFile, "old_string": "old body", "new_string": "new body"})
+	if strings.Contains(resultText(res), "outside the workspace root") {
+		t.Fatalf("edit still blocked with ExtraRoots: %q", resultText(res))
+	}
+	got, _ := os.ReadFile(skillFile)
+	if !strings.Contains(string(got), "new body") {
+		t.Fatalf("skill not modified, content = %q", got)
+	}
+}
+
 func TestEditToolMode(t *testing.T) {
 	tool := &EditTool{}
 	if tool.Name() != "edit" {

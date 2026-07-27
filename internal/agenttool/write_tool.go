@@ -19,6 +19,11 @@ type WriteTool struct {
 	// Root bounds all writes; a path resolving outside Root is rejected. Empty
 	// Root defaults to the current working directory.
 	Root string
+	// ExtraRoots are additional trusted directories a write may target even though
+	// they lie outside Root. It exists for the skills directory so the model can
+	// author or update skills (create a new SKILL.md, edit an existing one) that
+	// live outside the workspace.
+	ExtraRoots []string
 }
 
 // writeToolArgs is the decoded argument shape for WriteTool.
@@ -57,10 +62,14 @@ func (t *WriteTool) ExecutionMode() agentcore.ToolExecutionMode {
 	return agentcore.ToolExecutionSequential
 }
 
-// resolvePath resolves p against Root via the shared resolveWithin boundary
-// policy, so every file tool enforces the same workspace-escape guard.
+// resolvePath resolves p against Root (or any ExtraRoots) via the shared
+// resolveWithin boundary policy, so every file tool enforces the same
+// workspace-escape guard while writes can also reach trusted extra roots.
 func (t *WriteTool) resolvePath(p string) (string, error) {
-	return resolveWithin(t.Root, p)
+	if len(t.ExtraRoots) == 0 {
+		return resolveWithin(t.Root, p)
+	}
+	return resolveWithinAny(append([]string{t.Root}, t.ExtraRoots...), p)
 }
 
 // Execute implements AgentTool. Write failures are encoded as error results;

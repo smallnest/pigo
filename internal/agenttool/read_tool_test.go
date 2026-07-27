@@ -141,6 +141,54 @@ func TestReadToolMissingPathArg(t *testing.T) {
 	}
 }
 
+func TestReadToolExtraRootsAllowsTrustedOutsidePath(t *testing.T) {
+	work := t.TempDir()
+	// A skill file lives OUTSIDE the workspace root (mirrors ~/.agents/skills).
+	skills := t.TempDir()
+	skillFile := filepath.Join(skills, "weather", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skillFile), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(skillFile, []byte("skill body"), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+
+	// Without ExtraRoots the absolute skill path is rejected as out-of-workspace.
+	bounded := &ReadTool{Root: work}
+	res, _ := runRead(t, bounded, map[string]any{"path": skillFile})
+	if !strings.Contains(resultText(res), "outside the workspace root") {
+		t.Fatalf("expected boundary rejection without ExtraRoots, got %q", resultText(res))
+	}
+
+	// With the skills dir as an extra root the same read succeeds.
+	tool := &ReadTool{Root: work, ExtraRoots: []string{skills}}
+	res, _ = runRead(t, tool, map[string]any{"path": skillFile})
+	if !strings.Contains(resultText(res), "skill body") {
+		t.Fatalf("expected skill contents with ExtraRoots, got %q", resultText(res))
+	}
+}
+
+func TestReadToolExtraRootsStillBlocksUntrustedPath(t *testing.T) {
+	work := t.TempDir()
+	skills := t.TempDir()
+	// A secret sits outside BOTH the workspace root and the extra root.
+	other := t.TempDir()
+	secret := filepath.Join(other, "secret.txt")
+	if err := os.WriteFile(secret, []byte("top secret"), 0o644); err != nil {
+		t.Fatalf("write secret: %v", err)
+	}
+
+	tool := &ReadTool{Root: work, ExtraRoots: []string{skills}}
+	res, _ := runRead(t, tool, map[string]any{"path": secret})
+	text := resultText(res)
+	if strings.Contains(text, "top secret") {
+		t.Fatal("read escaped both roots!")
+	}
+	if !strings.Contains(text, "outside the workspace root") {
+		t.Errorf("expected boundary error for untrusted path, got %q", text)
+	}
+}
+
 func TestReadToolSchemaAndMode(t *testing.T) {
 	tool := &ReadTool{}
 	if tool.Name() != "read" {

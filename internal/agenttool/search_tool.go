@@ -52,6 +52,32 @@ func resolveWithin(root, p string) (string, error) {
 	return full, nil
 }
 
+// resolveWithinAny resolves p against the first root that contains it, trying
+// roots in order. It exists so the file tools can additionally permit trusted
+// out-of-workspace roots (the skills directory) whose absolute SKILL.md paths
+// pigo itself advertises in the system prompt: without this, the workspace guard
+// would reject the very paths the model is instructed to read or author. Empty
+// roots are skipped; if none contain p, the standard workspace-escape error is
+// returned.
+func resolveWithinAny(roots []string, p string) (string, error) {
+	var lastErr error
+	for _, root := range roots {
+		if root == "" {
+			continue
+		}
+		full, err := resolveWithin(root, p)
+		if err == nil {
+			return full, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return "", lastErr
+	}
+	// No usable roots supplied: fall back to the default (cwd) policy.
+	return resolveWithin("", p)
+}
+
 // gitignore is a minimal .gitignore matcher. It supports the common subset:
 // blank lines and #-comments are skipped; a leading "/" anchors to the root;
 // a trailing "/" matches directories only; "!" negation re-includes; and plain
