@@ -290,6 +290,70 @@ func (s *Skill) SlashCommand() SlashCommand {
 	}
 }
 
+// FormatSkillsForPrompt renders the visible skills as an <available_skills>
+// XML block for injection into the system prompt (对标 pi 的
+// formatSkillsForPrompt). It implements progressive disclosure: only each
+// skill's name, description, and location (the absolute SKILL.md path) are
+// listed, so the model can read the file on demand rather than carrying every
+// skill body in context.
+//
+// Skills with DisableModelInvocation == true are excluded (they remain
+// reachable only via their explicit "/name" slash command). When no visible
+// skill remains, it returns the empty string so callers can append
+// unconditionally without altering a skill-free prompt.
+func FormatSkillsForPrompt(skills []*Skill) string {
+	visible := make([]*Skill, 0, len(skills))
+	for _, s := range skills {
+		if s != nil && !s.Frontmatter.DisableModelInvocation {
+			visible = append(visible, s)
+		}
+	}
+	if len(visible) == 0 {
+		return ""
+	}
+	lines := []string{
+		"\n\nThe following skills provide specialized instructions for specific tasks.",
+		"Use the read tool to load a skill's file when the task matches its description.",
+		"When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.",
+		"",
+		"<available_skills>",
+	}
+	for _, s := range visible {
+		lines = append(lines,
+			"  <skill>",
+			"    <name>"+escapeXML(s.Frontmatter.Name)+"</name>",
+			"    <description>"+escapeXML(s.Frontmatter.Description)+"</description>",
+			"    <location>"+escapeXML(skillLocation(s.Path))+"</location>",
+			"  </skill>",
+		)
+	}
+	lines = append(lines, "</available_skills>")
+	return strings.Join(lines, "\n")
+}
+
+// skillLocation returns the absolute path to a skill file so the model can load
+// it with the read tool regardless of the working directory. It falls back to
+// the original path if resolution fails.
+func skillLocation(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return path
+}
+
+// escapeXML escapes the five XML special characters so a skill's name or
+// description cannot break the surrounding markup.
+func escapeXML(s string) string {
+	r := strings.NewReplacer(
+		"&", "&amp;",
+		"<", "&lt;",
+		">", "&gt;",
+		`"`, "&quot;",
+		"'", "&apos;",
+	)
+	return r.Replace(s)
+}
+
 // filterToolsByName keeps only tools whose Name is in allow. An empty allow
 // list means "no restriction" and returns the input unchanged.
 func filterToolsByName(tools []agentcore.AgentTool, allow []string) []agentcore.AgentTool {

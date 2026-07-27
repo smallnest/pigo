@@ -333,6 +333,73 @@ func TestParseSkillRejectsInvalidName(t *testing.T) {
 	}
 }
 
+// TestFormatSkillsForPrompt verifies the <available_skills> block lists visible
+// skills with name/description/location and excludes disabled ones.
+func TestFormatSkillsForPrompt(t *testing.T) {
+	skills := []*Skill{
+		{Frontmatter: SkillFrontmatter{Name: "weather", Description: "get weather"}, Path: "/skills/weather.md"},
+		{Frontmatter: SkillFrontmatter{Name: "secret", Description: "hidden", DisableModelInvocation: true}, Path: "/skills/secret.md"},
+	}
+	out := FormatSkillsForPrompt(skills)
+	if !strings.Contains(out, "<available_skills>") || !strings.Contains(out, "</available_skills>") {
+		t.Fatalf("missing block wrapper:\n%s", out)
+	}
+	if !strings.Contains(out, "<name>weather</name>") {
+		t.Errorf("visible skill name missing:\n%s", out)
+	}
+	if !strings.Contains(out, "<description>get weather</description>") {
+		t.Errorf("visible skill description missing:\n%s", out)
+	}
+	if !strings.Contains(out, "<location>/skills/weather.md</location>") {
+		t.Errorf("visible skill location missing:\n%s", out)
+	}
+	if strings.Contains(out, "secret") {
+		t.Errorf("disabled skill must be excluded:\n%s", out)
+	}
+	if !strings.Contains(out, "Use the read tool to load a skill's file") {
+		t.Errorf("guidance preamble missing:\n%s", out)
+	}
+}
+
+// TestFormatSkillsForPromptEmpty verifies an empty or all-disabled list yields
+// the empty string so callers can append unconditionally.
+func TestFormatSkillsForPromptEmpty(t *testing.T) {
+	if got := FormatSkillsForPrompt(nil); got != "" {
+		t.Errorf("nil skills = %q, want empty", got)
+	}
+	disabled := []*Skill{{Frontmatter: SkillFrontmatter{Name: "x", Description: "d", DisableModelInvocation: true}, Path: "x.md"}}
+	if got := FormatSkillsForPrompt(disabled); got != "" {
+		t.Errorf("all-disabled skills = %q, want empty", got)
+	}
+}
+
+// TestFormatSkillsForPromptEscapesXML verifies XML special characters in name
+// and description are escaped.
+func TestFormatSkillsForPromptEscapesXML(t *testing.T) {
+	skills := []*Skill{
+		{Frontmatter: SkillFrontmatter{Name: "a", Description: `x & y < z > "q" 'r'`}, Path: "/s/a.md"},
+	}
+	out := FormatSkillsForPrompt(skills)
+	if !strings.Contains(out, "x &amp; y &lt; z &gt; &quot;q&quot; &apos;r&apos;") {
+		t.Errorf("XML not escaped:\n%s", out)
+	}
+	if strings.Contains(out, "& y") || strings.Contains(out, "< z") {
+		t.Errorf("raw XML chars leaked:\n%s", out)
+	}
+}
+
+// TestFormatSkillsForPromptAbsoluteLocation verifies a relative skill path is
+// rendered as an absolute location so the model can read it from any cwd.
+func TestFormatSkillsForPromptAbsoluteLocation(t *testing.T) {
+	skills := []*Skill{
+		{Frontmatter: SkillFrontmatter{Name: "rel", Description: "d"}, Path: "sub/rel.md"},
+	}
+	out := FormatSkillsForPrompt(skills)
+	if !strings.Contains(out, "<location>"+string(filepath.Separator)) && !strings.Contains(out, "<location>/") {
+		t.Errorf("location should be absolute:\n%s", out)
+	}
+}
+
 // TestLoadSkillsDir verifies loading flat *.md skills and nested <name>/SKILL.md,
 // sorted by name; a missing dir is not an error.
 func TestLoadSkillsDir(t *testing.T) {
