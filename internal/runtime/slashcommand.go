@@ -8,10 +8,10 @@
 //     (对标 the .../commands/*.md convention): the file name is the command
 //     name and the body is a prompt template that may reference $ARGUMENTS.
 //
-// Conflict rule: a built-in command wins over a user command of the same name
-// (built-ins are load-bearing and must not be silently shadowed). Loading a
-// user command whose name collides with a built-in is reported so the user can
-// rename it, but the built-in stays in effect.
+// Conflict rule: same-name commands resolve by priority tier (built-in >
+// project > global > package > settings > CLI); the higher tier wins and the
+// loser is reported via Shadowed. Built-ins are load-bearing and always win.
+// Within a tier, the last-added command overrides earlier ones (a re-load).
 //
 // There is deliberately no standalone plugin mechanism: a fork adds built-ins
 // via init() registration, and external extensions go through MCP (deferred).
@@ -60,6 +60,64 @@ func (s SlashCommandSource) String() string {
 	}
 }
 
+// Tier is the priority tier of a command, used to resolve same-name conflicts
+// across sources (对标 pi prompt-templates discovery priority). Higher tiers
+// win; the loser is recorded in Shadowed. Within the same tier the last-added
+// command wins (a re-load overrides). Skills and plugins are treated as
+// Global-tier for priority - their finer Source label is for display only.
+type Tier int
+
+const (
+	// Tier values are ordered lowest-to-highest priority: in a same-name
+	// conflict the higher Tier value wins, so TierBuiltin always wins and
+	// TierCLI always loses. Declared ascending so the natural > comparison
+	// matches "higher priority wins".
+	TierCLI Tier = iota
+	// TierSettings is a prompt template referenced by the config.toml prompts array.
+	TierSettings
+	// TierPackage is a prompt template discovered from an installed package
+	// source (distinct from one copied into the global dir).
+	TierPackage
+	// TierGlobal is a global user prompt template (e.g. ~/.pigo/prompts or the
+	// legacy ~/.pigo/commands); also the tier used for skills and plugins.
+	TierGlobal
+	// TierProject is a project-local prompt template (e.g. .pigo/prompts).
+	TierProject
+	// TierBuiltin is a compile-time or instance built-in command (highest).
+	TierBuiltin
+)
+
+func (t Tier) String() string {
+	switch t {
+	case TierBuiltin:
+		return "builtin"
+	case TierProject:
+		return "project"
+	case TierGlobal:
+		return "global"
+	case TierPackage:
+		return "package"
+	case TierSettings:
+		return "settings"
+	case TierCLI:
+		return "cli"
+	default:
+		return "unknown"
+	}
+}
+
+// ShadowedEntry records a command that lost a same-name conflict to a higher-
+// tier command, for diagnostics. It carries the loser's name, tier, and source
+// label so /help and the startup warning can say which source was shadowed.
+type ShadowedEntry struct {
+	Name   string
+	Tier   Tier
+	Source SlashCommandSource
+}
+
+// String renders a shadowed entry as "name (tier)" for log lines.
+func (e ShadowedEntry) String() string { return fmt.Sprintf("%s (%s)", e.Name, e.Tier) }
+
 // SlashCommand is a resolved command: its name (without the leading "/"), a
 // short description for the command palette, and its source. A command is one
 // of three kinds, distinguished by which callback is set:
@@ -81,6 +139,11 @@ type SlashCommand struct {
 	Name        string
 	Description string
 	Source      SlashCommandSource
+	// Tier is the priority tier used to resolve same-name conflicts across
+	// sources (built-in > project > global > package > settings > CLI). It is
+	// set by the AddX method matching the command's source; callers should not
+	// set it directly.
+	Tier Tier
 	// Expand maps the argument string (everything after "/name ") to the prompt
 	// text the command produces. For a built-in it may be arbitrary Go; for a
 	// user template it substitutes $ARGUMENTS into the markdown body. Nil for an
@@ -155,6 +218,7 @@ func RegisterBuiltin(cmd SlashCommand) {
 		panic(fmt.Sprintf("agent: duplicate built-in slash command %q", cmd.Name))
 	}
 	cmd.Source = SourceBuiltin
+	cmd.Tier = TierBuiltin
 	builtinCommands[cmd.Name] = cmd
 }
 
@@ -162,9 +226,10 @@ func RegisterBuiltin(cmd SlashCommand) {
 // commands, applying the built-in-wins priority rule.
 type SlashRegistry struct {
 	commands map[string]SlashCommand
-	// shadowed records user command names that collided with a built-in (and so
-	// were not installed), for diagnostics.
-	shadowed []string
+	// shadowed records commands that lost a same-name conflict to a higher-tier
+	// command, with their tier and source for diagnostics. Same-tier overrides
+	// (last-write-wins) are not recorded.
+	shadowed []ShadowedEntry
 }
 
 // NewSlashRegistry builds a registry seeded with all registered built-ins.
@@ -191,49 +256,95 @@ func (r *SlashRegistry) AddBuiltin(cmd SlashCommand) {
 		panic(fmt.Sprintf("agent: duplicate built-in slash command %q", cmd.Name))
 	}
 	cmd.Source = SourceBuiltin
-	r.commands[cmd.Name] = cmd
+	cmd.Tier = TierBuiltin
+	r.add(cmd)
 }
 
-// AddUser installs a user command unless a built-in already owns the name, in
-// which case the command is recorded as shadowed and the built-in is kept
-// (built-in-wins). A user command may override another user command of the same
-// name (last write wins), matching a re-load.
+// AddUser installs a user command (TierGlobal), e.g. a prompt template from
+// ~/.pigo/prompts or the legacy ~/.pigo/commands. A same-named built-in or
+// project-tier command wins; same-tier (global) adds override silently.
 func (r *SlashRegistry) AddUser(cmd SlashCommand) {
-	if existing, ok := r.commands[cmd.Name]; ok && existing.Source == SourceBuiltin {
-		r.shadowed = append(r.shadowed, cmd.Name)
-		return
-	}
 	cmd.Source = SourceUser
-	r.commands[cmd.Name] = cmd
+	cmd.Tier = TierGlobal
+	r.add(cmd)
 }
 
-// AddSkill installs a skill command (loaded from ~/.agents/skills). It follows
-// the same built-in-wins rule as AddUser - a built-in owning the name shadows
-// the skill - only the source tag differs, so /status can report skills
-// separately from user templates and plugins.
+// AddSkill installs a skill command (loaded from ~/.agents/skills) at TierGlobal.
+// It follows the same tier rule as AddUser - a built-in or project-tier command
+// wins - only the source tag differs, so /status can report skills separately.
 func (r *SlashRegistry) AddSkill(cmd SlashCommand) {
-	if existing, ok := r.commands[cmd.Name]; ok && existing.Source == SourceBuiltin {
-		r.shadowed = append(r.shadowed, cmd.Name)
-		return
-	}
 	cmd.Source = SourceSkill
-	r.commands[cmd.Name] = cmd
+	cmd.Tier = TierGlobal
+	r.add(cmd)
 }
 
-// AddPlugin installs a plugin-declared command, mirroring AddUser with a
-// SourcePlugin tag for display.
+// AddPlugin installs a plugin-declared command at TierGlobal, mirroring AddUser
+// with a SourcePlugin tag for display.
 func (r *SlashRegistry) AddPlugin(cmd SlashCommand) {
-	if existing, ok := r.commands[cmd.Name]; ok && existing.Source == SourceBuiltin {
-		r.shadowed = append(r.shadowed, cmd.Name)
+	cmd.Source = SourcePlugin
+	cmd.Tier = TierGlobal
+	r.add(cmd)
+}
+
+// Shadowed returns the commands that lost a same-name conflict to a higher-tier
+// command, with their tier and source for diagnostics. Same-tier overrides
+// (last-write-wins) are not recorded here.
+func (r *SlashRegistry) Shadowed() []ShadowedEntry { return r.shadowed }
+
+// AddProject installs a project-local prompt template (TierProject), which
+// overrides a same-named global/package/settings/CLI template but loses to a
+// built-in.
+func (r *SlashRegistry) AddProject(cmd SlashCommand) {
+	cmd.Source = SourceUser
+	cmd.Tier = TierProject
+	r.add(cmd)
+}
+
+// AddPackage installs a package-discovered prompt template (TierPackage).
+func (r *SlashRegistry) AddPackage(cmd SlashCommand) {
+	cmd.Source = SourceUser
+	cmd.Tier = TierPackage
+	r.add(cmd)
+}
+
+// AddSettings installs a prompt template referenced by config.toml (TierSettings).
+func (r *SlashRegistry) AddSettings(cmd SlashCommand) {
+	cmd.Source = SourceUser
+	cmd.Tier = TierSettings
+	r.add(cmd)
+}
+
+// AddCLI installs a prompt template referenced by --prompt-template (TierCLI,
+// the lowest priority).
+func (r *SlashRegistry) AddCLI(cmd SlashCommand) {
+	cmd.Source = SourceUser
+	cmd.Tier = TierCLI
+	r.add(cmd)
+}
+
+// add installs cmd with tier-based conflict resolution. If a same-named command
+// already exists, the higher tier wins and the loser is appended to shadowed;
+// within the same tier the new command replaces the old (last-write-wins, no
+// shadow entry). A built-in always wins because TierBuiltin is highest.
+func (r *SlashRegistry) add(cmd SlashCommand) {
+	existing, ok := r.commands[cmd.Name]
+	if !ok {
+		r.commands[cmd.Name] = cmd
 		return
 	}
-	cmd.Source = SourcePlugin
-	r.commands[cmd.Name] = cmd
+	switch {
+	case existing.Tier > cmd.Tier:
+		// New command is lower tier: it loses and is shadowed.
+		r.shadowed = append(r.shadowed, ShadowedEntry{Name: cmd.Name, Tier: cmd.Tier, Source: cmd.Source})
+	case existing.Tier < cmd.Tier:
+		// New command is higher tier: it wins; the old one is shadowed.
+		r.shadowed = append(r.shadowed, ShadowedEntry{Name: existing.Name, Tier: existing.Tier, Source: existing.Source})
+		r.commands[cmd.Name] = cmd
+	default:
+		// Same tier: last-write-wins (a re-load), no shadow entry.
+		r.commands[cmd.Name] = cmd
+	}
 }
-
-// Shadowed returns the names of user commands that were dropped because a
-// built-in owns the name.
-func (r *SlashRegistry) Shadowed() []string { return r.shadowed }
 
 // Lookup returns the command bound to name (without the leading "/").
 func (r *SlashRegistry) Lookup(name string) (SlashCommand, bool) {

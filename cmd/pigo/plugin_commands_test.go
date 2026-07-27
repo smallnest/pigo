@@ -186,7 +186,7 @@ func TestBuiltinWinsOverPluginCommand(t *testing.T) {
 	})
 	registerPluginCommands(reg, mgr)
 
-	if names := reg.Shadowed(); len(names) != 1 || names[0] != "hello" {
+	if names := reg.Shadowed(); len(names) != 1 || names[0].Name != "hello" {
 		t.Fatalf("plugin command should be shadowed by built-in, shadowed=%v", names)
 	}
 	out, err := reg.ResolveOutcome("/hello there")

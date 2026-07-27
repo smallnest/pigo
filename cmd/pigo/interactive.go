@@ -294,8 +294,12 @@ func buildSlashRegistry(live *liveRunConfig, skills []*runtime.Skill, mgr *plugi
 	for _, s := range skills {
 		reg.AddSkill(s.SlashCommand())
 	}
-	if shadowed := reg.Shadowed(); len(shadowed) > 0 {
-		fmt.Fprintf(os.Stderr, "pigo: user commands shadowed by built-ins (rename to use): %v\n", shadowed)
+	if sh := reg.Shadowed(); len(sh) > 0 {
+		parts := make([]string, len(sh))
+		for i, e := range sh {
+			parts[i] = e.String()
+		}
+		fmt.Fprintf(os.Stderr, "pigo: commands shadowed by higher-priority source (rename to use): %v\n", parts)
 	}
 	return reg, nil
 }

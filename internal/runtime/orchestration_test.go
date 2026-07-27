@@ -487,7 +487,7 @@ func TestSlashBuiltinWinsOverUser(t *testing.T) {
 		t.Errorf("expanded %q, want BUILTIN (built-in wins)", got)
 	}
 	shadowed := r.Shadowed()
-	if len(shadowed) != 1 || shadowed[0] != name {
+	if len(shadowed) != 1 || shadowed[0].Name != name {
 		t.Errorf("shadowed = %v, want [%s]", shadowed, name)
 	}
 }
@@ -581,7 +581,7 @@ func TestAddBuiltinWinsOverUser(t *testing.T) {
 	if !ok || cmd.Source != SourceBuiltin {
 		t.Errorf("instance built-in must win, got ok=%v source=%v", ok, cmd.Source)
 	}
-	if len(r.Shadowed()) != 1 || r.Shadowed()[0] != "x" {
+	if len(r.Shadowed()) != 1 || r.Shadowed()[0].Name != "x" {
 		t.Errorf("shadowed = %v, want [x]", r.Shadowed())
 	}
 }
