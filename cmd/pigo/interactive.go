@@ -181,9 +181,11 @@ func runInteractive(opts interactiveOptions) error {
 	// built-ins. Instance built-ins that need live state (/model, /help) are
 	// registered against `live`.
 	slash, err := buildSlashRegistry(live, opts.skills, opts.plugins, promptTemplateSources{
-		settings: opts.configPrompts,
-		cli:      opts.cliPrompts,
-		disable:  opts.noPromptTemplates,
+		settings:       opts.configPrompts,
+		cli:            opts.cliPrompts,
+		disable:        opts.noPromptTemplates,
+		projectDir:     filepath.Join(cwd, ".pigo", "prompts"),
+		projectTrusted: mgr != nil && mgr.IsTrusted(cwd),
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pigo: slash-commands: %v\n", err)
@@ -280,8 +282,15 @@ type promptTemplateSources struct {
 	settings []string
 	cli      []string
 	// disable (--no-prompt-templates) turns off all prompt-template discovery
-	// (global, settings, CLI); built-ins and skills are unaffected.
+	// (global, project, settings, CLI); built-ins and skills are unaffected.
 	disable bool
+	// projectDir is the project-local prompts dir (.pigo/prompts in the working
+	// dir), loaded at the project tier only when projectTrusted is true.
+	projectDir string
+	// projectTrusted reports whether the working directory is trusted; project
+	// templates load only then (对标 pi: project prompts after the project is
+	// trusted).
+	projectTrusted bool
 }
 
 // loadPromptPaths loads prompt templates from each path (file or dir), skipping
@@ -363,6 +372,18 @@ func buildSlashRegistry(live *liveRunConfig, skills []*runtime.Skill, mgr *plugi
 		}
 		for _, c := range loadPromptPaths(srcs.cli) {
 			reg.AddCLI(c)
+		}
+		// Project-tier templates from .pigo/prompts in the working directory,
+		// loaded only when the project is trusted (对标 pi). A missing dir is
+		// not an error. Overrides global/settings/CLI (project tier is higher).
+		if srcs.projectTrusted && srcs.projectDir != "" {
+			cmds, err := runtime.LoadUserCommandsDir(srcs.projectDir)
+			if err != nil {
+				return reg, err
+			}
+			for _, c := range cmds {
+				reg.AddProject(c)
+			}
 		}
 	}
 	// Register skills as /skill-name commands from the pre-loaded set (shared with
