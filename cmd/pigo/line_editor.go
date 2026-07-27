@@ -65,10 +65,19 @@ func (b *mlBuffer) insert(s string) {
 }
 
 // backspace deletes the rune immediately left of the cursor on the current
-// line. It is a no-op at column 0 (line-merge across rows is handled by the
-// cross-line editing story). Multi-byte runes are removed whole.
+// line. At column 0 it merges the current line into the previous one (the
+// cursor landing at the merge point), unless already on the first line, where
+// it is a no-op. Multi-byte runes are removed whole.
 func (b *mlBuffer) backspace() {
 	if b.col == 0 {
+		if b.row == 0 {
+			return
+		}
+		prev := b.lines[b.row-1]
+		b.col = utf8.RuneCountInString(prev)
+		b.lines[b.row-1] = prev + b.lines[b.row]
+		b.lines = append(b.lines[:b.row], b.lines[b.row+1:]...)
+		b.row--
 		return
 	}
 	line := b.lines[b.row]

@@ -309,3 +309,66 @@ func TestEditLoopUpArrowEditsPreviousLine(t *testing.T) {
 		t.Fatalf("submitted %q, want %q", got, "aZ\nb")
 	}
 }
+
+func TestMLBufferInsertMidLine(t *testing.T) {
+	b := newMLBuffer()
+	b.setString("abc")
+	b.home()
+	b.right() // cursor between "a" and "bc"
+	b.insert("X")
+	if got := b.String(); got != "aXbc" {
+		t.Fatalf("mid-line insert = %q, want %q", got, "aXbc")
+	}
+	if b.col != 2 {
+		t.Fatalf("col after insert = %d, want 2", b.col)
+	}
+}
+
+func TestMLBufferBackspaceMergesLines(t *testing.T) {
+	b := newMLBuffer()
+	b.setString("ab\ncd") // cursor at (1,2)
+	b.home()              // cursor at (1,0)
+	b.backspace()         // merge line 1 into line 0
+	if got := b.String(); got != "abcd" {
+		t.Fatalf("merge = %q, want %q", got, "abcd")
+	}
+	if b.row != 0 || b.col != 2 {
+		t.Fatalf("cursor after merge = (%d,%d), want (0,2)", b.row, b.col)
+	}
+	// Merge with a multi-byte previous line lands the cursor by rune count.
+	b.setString("café\nx")
+	b.home()
+	b.backspace()
+	if got := b.String(); got != "caféx" {
+		t.Fatalf("multi-byte merge = %q, want %q", got, "caféx")
+	}
+	if b.col != 4 {
+		t.Fatalf("cursor col after multi-byte merge = %d, want 4", b.col)
+	}
+}
+
+func TestMLBufferBackspaceFirstLineCol0IsNoop(t *testing.T) {
+	b := newMLBuffer()
+	b.setString("abc")
+	b.home()
+	b.backspace()
+	if got := b.String(); got != "abc" {
+		t.Fatalf("col-0 backspace on first line = %q, want unchanged", got)
+	}
+	if b.row != 0 || b.col != 0 {
+		t.Fatalf("cursor moved: (%d,%d)", b.row, b.col)
+	}
+}
+
+func TestEditLoopCrossLineBackspaceMerges(t *testing.T) {
+	// "ab" + Shift+Enter + "cd" → two lines; Home to line-1 start, backspace
+	// merges into "abcd", submit.
+	e := editorWithInput("ab\x1b[13;2ucd\x1b[H\x7f\r")
+	got, err := e.editLoop("")
+	if err != nil {
+		t.Fatalf("editLoop error: %v", err)
+	}
+	if got != "abcd" {
+		t.Fatalf("submitted %q, want %q", got, "abcd")
+	}
+}
