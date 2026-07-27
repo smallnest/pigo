@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes - Issue #0341</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/341">#341</a> &mdash; /help 列表展示模板信息（含来源 tier）&mdash; 2026-07-27</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>formatHelpLine</code> (plain, testable) is the format source of truth; the Action colorizes the same structure</h3>
+      <p><strong>Ambiguity:</strong> How to keep the /help line format testable when the Action applies ANSI color per segment?</p>
+      <p><strong>Choice:</strong> A plain <code>formatHelpLine(cmd)</code> returns <code>/name &lt;hint&gt; - description (source: &lt;tier&gt;)</code>; the Action builds the same structure inline with color. The plain function is the unit-test target.</p>
+      <p><strong>Rationale:</strong> Separates the format (tested) from the colorization (manual/visual). Minor duplication is worth the testability.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Source shown as the tier (per AC &ldquo;(source: &lt;tier&gt;)&rdquo;)</h3>
+      <p><strong>Ambiguity:</strong> Should &ldquo;source&rdquo; show the <code>Source</code> label (builtin/user/skill/plugin) or the <code>Tier</code> (builtin/project/global/&hellip;)?</p>
+      <p><strong>Choice:</strong> Show the tier string, per the AC. Prompt templates (project/settings/cli/package) are distinguished by tier; built-ins show <code>builtin</code>.</p>
+      <p><strong>Rationale:</strong> The AC explicitly says &ldquo;(source: &lt;tier&gt;)&rdquo; and &ldquo;各来源 tier 标注&rdquo;. Tier is the discriminator for prompt-template sources.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> /help lists all commands sorted by name (built-ins + templates + skills + plugins)</h3>
+      <p><strong>Ambiguity:</strong> Separate templates from built-ins, or one unified list?</p>
+      <p><strong>Choice:</strong> One unified list via <code>reg.List()</code> (already sorted by name), each line annotated with hint/description/tier.</p>
+      <p><strong>Rationale:</strong> The AC says &ldquo;与 built-in/skill/plugin 命令统一排序展示&rdquo;. <code>reg.List()</code> already does this.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Replaced the /help Action body via Python (index-based), not Edit</h3>
+      <p><strong>Spec said:</strong> (n/a &mdash; tooling note) Edit the Action body.</p>
+      <p><strong>Implemented instead:</strong> The original /help block contained a non-ASCII byte in the <code>"- "</code> separator that defeated exact-string matching (Edit and a first Python attempt both failed to match). Used a Python index-based replacement between two ASCII anchors.</p>
+      <p><strong>Why:</strong> The non-ASCII byte made the block unmatchable by literal string; index slicing between anchors reliably replaced it. The new block uses regular ASCII. Functionally equivalent + adds hint/tier.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> <code>formatHelpLine</code> (plain) duplicated by the Action (colored)</h3>
+      <p><strong>Alternatives:</strong> Have the Action call <code>formatHelpLine</code> and colorize the whole line (loses the cyan <code>/name</code>).</p>
+      <p><strong>Pros/cons:</strong> Duplication risks drift; a single colored call loses per-segment color. The format is simple (5 lines) and kept in sync.</p>
+      <p><strong>Why it won:</strong> Preserve the existing cyan <code>/name</code> + dim rest styling; the plain function is the tested contract.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Source = tier; skills/plugins show &ldquo;global&rdquo;</h3>
+      <p><strong>Alternatives:</strong> Show the <code>Source</code> label (skill/plugin) instead of, or alongside, the tier.</p>
+      <p><strong>Pros/cons:</strong> Tier matches the AC but a skill showing &ldquo;(source: global)&rdquo; loses the &ldquo;skill&rdquo; distinction. Source label would distinguish skill/plugin but not project/settings/cli (all &ldquo;user&rdquo;).</p>
+      <p><strong>Why it won:</strong> The AC specifies tier. A combined &ldquo;source: skill (global)&rdquo; could be a follow-up if the skill/plugin distinction matters in /help.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Skills/plugins show &ldquo;(source: global)&rdquo; in /help</h3>
+      <p><strong>Assumption:</strong> Since skills/plugins are <code>TierGlobal</code> (per #335), /help shows &ldquo;global&rdquo; for them, not &ldquo;skill&rdquo;/&ldquo;plugin&rdquo;.</p>
+      <p><strong>Verify:</strong> If distinguishing skills/plugins in /help matters, show the <code>Source</code> label too (e.g. &ldquo;(source: skill)&rdquo;). Deferred; the AC specifies tier.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Origin of the non-ASCII byte in the old /help block</h3>
+      <p><strong>Assumption:</strong> The pre-existing <code>"- "</code> separator in the /help Action contained a non-ASCII space-like byte (now replaced with ASCII).</p>
+      <p><strong>Verify:</strong> Not investigated via git blame; it was likely a copy-paste artifact. The new block is clean ASCII.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

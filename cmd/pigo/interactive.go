@@ -530,6 +530,22 @@ func formatNotifications(notes []plugin.CommandNotification) string {
 	return b.String()
 }
 
+// formatHelpLine renders one slash-command line for /help as
+// "/name <argument-hint> - description (source: <tier>)", omitting the hint
+// segment when absent. It is the plain, testable form of the /help line; the
+// /help Action applies color on top of the same structure.
+func formatHelpLine(c runtime.SlashCommand) string {
+	s := "/" + c.Name
+	if c.ArgumentHint != "" {
+		s += " " + c.ArgumentHint
+	}
+	if c.Description != "" {
+		s += " - " + c.Description
+	}
+	s += " (source: " + c.Tier.String() + ")"
+	return s
+}
+
 // registerLiveCommands installs the built-in action commands that need live
 // runtime state. /model views or switches the active model; /help lists the
 // available commands. These are instance built-ins (AddBuiltin) because their
@@ -569,10 +585,15 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
 			for _, c := range reg.List() {
 				b.WriteString("\n  ")
 				b.WriteString(colorize(color, ansiCyan, "/"+c.Name))
-				if c.Description != "" {
-					b.WriteString(" ")
-					b.WriteString(colorize(color, ansiDim, "— "+c.Description))
+				rest := ""
+				if c.ArgumentHint != "" {
+					rest += " " + c.ArgumentHint
 				}
+				if c.Description != "" {
+					rest += " - " + c.Description
+				}
+				rest += " (source: " + c.Tier.String() + ")"
+				b.WriteString(colorize(color, ansiDim, rest))
 			}
 			return b.String()
 		},
