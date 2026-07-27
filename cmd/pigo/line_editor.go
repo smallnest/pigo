@@ -605,7 +605,9 @@ func (e *replLineEditor) editLoop(prompt string) (string, error) {
 				switch final {
 				case 'u': // CSI-u key report: "<code>[;<mod>]u".
 					code, mod := parseCSIParams(params)
-					if code == 13 {
+					ctrl := (mod-1)&4 != 0
+					switch {
+					case code == 13:
 						if mod >= 2 {
 							buf.newline()
 							selected = 0
@@ -613,6 +615,19 @@ func (e *replLineEditor) editLoop(prompt string) (string, error) {
 						} else if res, done := tryEnter(); done {
 							return res, nil
 						}
+					case ctrl && code == 'd':
+						// Ctrl+D: EOF on an empty line. Under the kitty keyboard
+						// protocol (enabled via \x1b[>1u) the terminal reports it here
+						// as a CSI-u event, not the raw 0x04 byte the case-4 arm handles.
+						if buf.isEmpty() {
+							fmt.Fprint(e.out, "\r\n")
+							return "", io.EOF
+						}
+					case ctrl && code == 'c':
+						// Ctrl+C: same story — delivered as a CSI-u report rather than
+						// the raw 0x03 byte once the kitty keyboard mode is active.
+						fmt.Fprint(e.out, "^C\r\n")
+						return "", errLineInterrupted
 					}
 				case '~': // modifyOtherKeys ("27;<mod>;<code>~") or Home/End ("1~"/"4~").
 					parts := strings.Split(string(params), ";")

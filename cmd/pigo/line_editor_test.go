@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -297,6 +298,39 @@ func TestEditLoopCSIuPlainEnterSubmits(t *testing.T) {
 	}
 	if got != "hi" {
 		t.Fatalf("submitted %q, want %q", got, "hi")
+	}
+}
+
+func TestEditLoopCSIuCtrlDEmptyReturnsEOF(t *testing.T) {
+	// Under the kitty keyboard protocol Ctrl+D on an empty line arrives as the
+	// CSI-u report \x1b[100;5u (code 'd', ctrl modifier) rather than raw 0x04,
+	// and must still exit with io.EOF.
+	e := editorWithInput("\x1b[100;5u")
+	got, err := e.editLoop("")
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("want io.EOF, got err=%v got=%q", err, got)
+	}
+}
+
+func TestEditLoopCSIuCtrlDNonEmptyIgnored(t *testing.T) {
+	// Ctrl+D on a non-empty line is a no-op (matches the raw-byte behavior); the
+	// following Enter submits the typed text.
+	e := editorWithInput("ab\x1b[100;5u\r")
+	got, err := e.editLoop("")
+	if err != nil {
+		t.Fatalf("editLoop error: %v", err)
+	}
+	if got != "ab" {
+		t.Fatalf("submitted %q, want %q", got, "ab")
+	}
+}
+
+func TestEditLoopCSIuCtrlCInterrupts(t *testing.T) {
+	// Ctrl+C reported as CSI-u \x1b[99;5u must interrupt the line.
+	e := editorWithInput("\x1b[99;5u")
+	_, err := e.editLoop("")
+	if !errors.Is(err, errLineInterrupted) {
+		t.Fatalf("want errLineInterrupted, got %v", err)
 	}
 }
 
