@@ -43,15 +43,28 @@ func PluginsDir() string {
 	return filepath.Join(h, "plugins")
 }
 
-// CommandsDir returns $PIGO_HOME/commands, where installed prompt/command
-// templates are laid down for runtime.LoadUserCommandsDir. It returns "" when
-// Home is unavailable.
+// CommandsDir returns $PIGO_HOME/commands, the legacy location for installed
+// prompt/command templates (still loaded by runtime.LoadUserCommandsDir for
+// back-compat). New installs go to PromptsDir. It returns "" when Home is
+// unavailable.
 func CommandsDir() string {
 	h := Home()
 	if h == "" {
 		return ""
 	}
 	return filepath.Join(h, "commands")
+}
+
+// PromptsDir returns $PIGO_HOME/prompts, the pi-aligned location where installed
+// prompt templates are laid down for runtime.LoadUserCommandsDir (which loads
+// both prompts/ and the legacy commands/). It returns "" when Home is
+// unavailable.
+func PromptsDir() string {
+	h := Home()
+	if h == "" {
+		return ""
+	}
+	return filepath.Join(h, "prompts")
 }
 
 // ThemesDir returns $PIGO_HOME/themes, where installed themes are stored. pigo

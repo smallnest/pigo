@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes - Issue #0342</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/342">#342</a> &mdash; 包管理器识别 prompts/ 约定并安装到 ~/.pigo/prompts &mdash; 2026-07-27</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Source-dir lookup order: prompts/ &gt; commands/ &gt; root</h3>
+      <p><strong>Ambiguity:</strong> Which subdir does a prompt package ship its templates in?</p>
+      <p><strong>Choice:</strong> Try <code>prompts/</code> first (the pi convention), then the legacy <code>commands/</code>, then root-level <code>*.md</code>.</p>
+      <p><strong>Rationale:</strong> pi packages use <code>prompts/</code>; pigo&rsquo;s legacy convention was <code>commands/</code>. Supporting both (with prompts preferred) maximizes compatibility while aligning with pi.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Install target is <code>PromptsDir()</code> (~/.pigo/prompts); <code>CommandsDir()</code> retained for back-compat</h3>
+      <p><strong>Ambiguity:</strong> Where do newly installed prompt templates land?</p>
+      <p><strong>Choice:</strong> New installs go to <code>$PIGO_HOME/prompts</code> (new <code>PromptsDir()</code> in layout.go). <code>CommandsDir()</code> is kept because pre-#342 installs live in <code>commands/</code> and their lockfile entries point there (uninstall must still find them).</p>
+      <p><strong>Rationale:</strong> runtime.LoadUserCommandsDir loads both <code>prompts/</code> and <code>commands/</code> (per #336), so old installs keep working and new installs use the pi-aligned location.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> No migration of existing commands/ installs</h3>
+      <p><strong>Ambiguity:</strong> Should existing <code>~/.pigo/commands/*.md</code> be moved to <code>prompts/</code>?</p>
+      <p><strong>Choice:</strong> Leave them in place; they still load (back-compat) and their lockfile entries still point to <code>commands/</code> for clean uninstall.</p>
+      <p><strong>Rationale:</strong> Moving user files on upgrade is risky and unnecessary since both dirs are loaded. New installs use <code>prompts/</code>; old ones age out naturally.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None &mdash; implementation follows US-012 as written. The prompts/ &gt; commands/ &gt; root lookup, install to PromptsDir, README.md skip at root, and the lockfile-path/uninstall tests match the acceptance criteria.</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> prompts/ wins outright when both prompts/ and commands/ exist</h3>
+      <p><strong>Alternatives:</strong> Merge templates from both subdirs.</p>
+      <p><strong>Pros/cons:</strong> Picking prompts/ only is simpler and matches pi (one canonical subdir). Merging would install duplicate/legacy templates the package author likely didn&rsquo;t intend.</p>
+      <p><strong>Why it won:</strong> A package shipping both is rare; prompts/ is the canonical source. commands/ is a fallback for packages that haven&rsquo;t migrated.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Keep CommandsDir() vs remove it</h3>
+      <p><strong>Alternatives:</strong> Remove CommandsDir() now that installs go to PromptsDir().</p>
+      <p><strong>Pros/cons:</strong> Removing would orphan pre-#342 lockfile entries (uninstall couldn&rsquo;t resolve <code>commands/</code> paths). Keeping it costs one small function.</p>
+      <p><strong>Why it won:</strong> Back-compat for existing installs and their lockfile entries; CommandsDir() is still referenced by the loader and uninstall paths.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> <code>pigo update</code> on a pre-#342 package</h3>
+      <p><strong>Assumption:</strong> An existing package installed to <code>commands/</code> has lockfile entries pointing there. A <code>pigo update</code> would re-install to <code>prompts/</code> (new target), but the old <code>commands/</code> copies are removed by uninstall (which uses the old lockfile entries) before re-install.</p>
+      <p><strong>Verify:</strong> Confirm the update flow uninstalls the old entries (removing <code>commands/</code> copies) before distributing to <code>prompts/</code>, so no orphaned <code>commands/</code> files remain. Not tested here; the lockfile-path test only checks new installs land under <code>prompts/</code>.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Uninstall of a package with prompts/ + commands/ both</h3>
+      <p><strong>Assumption:</strong> Only the prompts/ templates were installed (commands/ ignored), so the lockfile records only prompts/ paths; uninstall removes exactly those.</p>
+      <p><strong>Verify:</strong> Confirmed by <code>TestDistributePromptPromptsDirPreferred</code> (1 file installed) + <code>TestDistributePromptReturnsPromptsPaths</code> (paths under prompts/). Uninstall uses these paths.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
