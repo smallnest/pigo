@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"io"
 	"strings"
 	"testing"
@@ -141,6 +142,48 @@ func TestMLBufferSetStringJoinsWithNewline(t *testing.T) {
 	// No trailing newline is introduced.
 	if strings.HasSuffix(b.String(), "\n") {
 		t.Fatalf("String() has trailing newline: %q", b.String())
+	}
+}
+
+// editorWithOutput is editorWithInput but captures the editor's terminal
+// output so raw-mode rendering (escape sequences) can be asserted.
+func editorWithOutput(input string, out io.Writer, history ...string) *replLineEditor {
+	reg := runtime.NewSlashRegistry()
+	reg.AddBuiltin(runtime.SlashCommand{Name: "model", Action: func(string) string { return "" }})
+	r := strings.NewReader(input)
+	return newREPLLineEditor(r, bufio.NewReader(r), out, reg, history)
+}
+
+func TestVisibleWidthSkipsANSI(t *testing.T) {
+	if w := visibleWidth("pigo> "); w != 6 {
+		t.Fatalf("plain width = %d, want 6", w)
+	}
+	if w := visibleWidth("\033[2m·\033[0m "); w != 2 {
+		t.Fatalf("dim marker width = %d, want 2 (marker + space)", w)
+	}
+	if w := visibleWidth("café> "); w != 6 {
+		t.Fatalf("multi-byte width = %d, want 6 runes", w)
+	}
+}
+
+func TestEditLoopRendersContinuationAndClears(t *testing.T) {
+	// "foo" + Shift+Enter + "bar" builds a two-line buffer; the continuation
+	// line is indented with the dim marker and each redraw clears the block.
+	var out bytes.Buffer
+	e := editorWithOutput("foo\x1b[13;2ubar\r", &out)
+	got, err := e.editLoop("> ")
+	if err != nil {
+		t.Fatalf("editLoop error: %v", err)
+	}
+	if got != "foo\nbar" {
+		t.Fatalf("submitted %q, want %q", got, "foo\nbar")
+	}
+	s := out.String()
+	if !strings.Contains(s, "\033[2m·\033[0m bar") {
+		t.Fatalf("output missing dim continuation prefix before %q:\n%q", "bar", s)
+	}
+	if !strings.Contains(s, "\033[J") {
+		t.Fatalf("output never clears the block with \\033[J:\n%q", s)
 	}
 }
 

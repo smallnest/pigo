@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0318</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EDE8; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/318">#318</a> &mdash; 多行渲染与光标重定位 &mdash; 2026-07-27</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 每次重绘先「回到块顶 + <code>\033[J</code> 清屏到底」再整体重画</h3>
+      <p><strong>Ambiguity:</strong> AC 要求「重绘后不残留旧字符（清除到行尾/清除多余行）」，但未规定按行清除还是整块清除。</p>
+      <p><strong>Choice:</strong> 用闭包变量 <code>prevCursorRow</code> 记住上次光标所在的块内屏幕行，重绘时先 <code>\033[{n}A</code> 上移回块首行、<code>\r</code> 回列 0，再 <code>\033[J</code> 一次性清除光标以下所有内容，然后从头逐行重画。</p>
+      <p><strong>Rationale:</strong> 缓冲区行数缩减（如跨行退格合并）时，整块清屏天然清掉多余的旧行，无需逐行 <code>\033[2K</code> 且不会漏清，一条路径覆盖增行/减行/改中间行。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 续行前缀对齐到 prompt 可见宽度，用 dim 标识 <code>·</code> 占位</h3>
+      <p><strong>Ambiguity:</strong> AC 只说「续行有一致的对齐/续行标识」，未给具体字符或对齐基准；且 prompt 宽度是动态的（<code>pigo(model)&gt; </code> vs <code>btw&gt; </code>）。</p>
+      <p><strong>Choice:</strong> 新增 <code>visibleWidth()</code> 跳过 ANSI CSI 转义计算 prompt 列宽 <code>promptW</code>；续行前缀 = <code>promptW-2</code> 个空格 + dim <code>·</code> + 空格，可见宽度恰为 <code>promptW</code>，使每行正文都从同一列起始。</p>
+      <p><strong>Rationale:</strong> 正文列对齐比标识字符本身更重要；对齐到 prompt 宽度让多行块视觉成一整体，dim 标识与首行 prompt 区分开。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> dim 补全提示仅在「单行且光标在行尾」时渲染</h3>
+      <p><strong>Choice:</strong> 渲染补全后不再用相对 <code>\033[{n}D</code> 回退，而是画完整块后统一 <code>\r</code> + <code>\033[{promptW+col}C</code> 绝对定位到逻辑光标，因此提示长度不影响光标落点。</p>
+      <p><strong>Rationale:</strong> 直接满足 AC「补全建议仅在单行、光标位于末尾时显示」，避免与续行渲染冲突；绝对列定位也比相对回退更稳健。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None — 按 AC 实现：全部输入行渲染、首行带 prompt、续行统一对齐/标识；光标绝对重定位到逻辑 (row,col)；<code>\033[J</code> 清除残留；补全提示仅单行行尾显示；提交时先下移到块底再换行使块留存。<code>go build/vet</code> 与 <code>go test ./cmd/pigo/</code> 全绿。</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 相对光标移动（<code>\033[A/B/C</code> + prevCursorRow）vs 绝对定位（DECSLRM/CUP）</h3>
+      <p><strong>Alternatives:</strong> (a) 记录上次光标行、用相对上/下/右移回到块顶再重定位；(b) 用绝对行列 <code>\033[{r};{c}H</code> 光标定位。</p>
+      <p><strong>Chosen:</strong> (a)。</p>
+      <p><strong>Why it wins:</strong> 绝对 CUP 需要知道 prompt 在屏幕上的绝对起始行，而 REPL 输出是流式滚动的、起始行未知；相对移动只依赖块内行数与逻辑 (row,col)，无需查询终端光标位置，实现简单且可单测（捕获输出断言转义序列）。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 超长行自动折行 / 块高度超过终端高度时的行数错算</h3>
+      <p><strong>Assumption:</strong> 假设每个逻辑行占一屏幕行、块不触发终端滚动。<code>visibleWidth</code> 也把每个 rune 记为 1 列（不处理 CJK 全角/组合字符宽度）。</p>
+      <p><strong>Verify:</strong> 当某行长度超过终端列宽自动折行，或多行块高度超过终端可视高度导致滚动时，<code>\033[{n}A/B</code> 的行数计算会偏移。原单行实现同样未处理折行，本 issue 未扩大范围；需在真实终端手测窄窗口/长行场景，必要时后续 issue 引入基于终端宽度的换行感知。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

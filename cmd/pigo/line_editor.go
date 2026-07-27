@@ -175,6 +175,32 @@ func (b *mlBuffer) enterContinues() bool {
 	return k%2 == 1
 }
 
+// visibleWidth returns the number of columns s occupies, skipping ANSI CSI
+// escape sequences so a colored prompt still aligns its continuation lines.
+// Runes count as one column each (no wide-character handling).
+func visibleWidth(s string) int {
+	w := 0
+	for i := 0; i < len(s); {
+		if s[i] == 0x1b {
+			i++
+			if i < len(s) && s[i] == '[' {
+				i++
+				for i < len(s) && !(s[i] >= 0x40 && s[i] <= 0x7e) {
+					i++
+				}
+			}
+			if i < len(s) {
+				i++
+			}
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+		w++
+	}
+	return w
+}
+
 // runeOffset converts a rune column into a byte offset within s.
 func runeOffset(s string, col int) int {
 	off := 0
@@ -398,18 +424,55 @@ func (e *replLineEditor) editLoop(prompt string) (string, error) {
 		}
 		return cands[selected]
 	}
+	// promptW is the prompt's visible width; continuation lines are indented to
+	// that column so every line's text starts at the same place, with a dim
+	// marker standing in for the prompt.
+	promptW := visibleWidth(prompt)
+	contPrefix := strings.Repeat(" ", promptW)
+	if promptW >= 2 {
+		contPrefix = strings.Repeat(" ", promptW-2) + "\033[2m·\033[0m "
+	}
+	// prevCursorRow is the screen row (relative to the block's first line) the
+	// cursor was left on by the previous render, so the next render can climb
+	// back to the top of the block before clearing and redrawing it.
+	prevCursorRow := 0
 	render := func() {
-		input := buf.String()
-		s := visible()
-		fmt.Fprintf(e.out, "\r\033[2K%s%s", prompt, input)
-		if s != "" {
-			if strings.HasPrefix(s, input) {
-				suffix := s[len(input):]
-				fmt.Fprintf(e.out, "\033[2m%s\033[0m\033[%dD", suffix, utf8.RuneCountInString(suffix))
+		// Return to the top-left of the block drawn last time and clear it plus
+		// anything below, so shrinking the buffer leaves no stale rows/chars.
+		if prevCursorRow > 0 {
+			fmt.Fprintf(e.out, "\033[%dA", prevCursorRow)
+		}
+		fmt.Fprint(e.out, "\r\033[J")
+		for i, line := range buf.lines {
+			if i == 0 {
+				fmt.Fprintf(e.out, "%s%s", prompt, line)
 			} else {
-				fmt.Fprintf(e.out, "\033[2m → %s\033[0m\033[%dD", s, utf8.RuneCountInString(s)+3)
+				fmt.Fprintf(e.out, "\r\n%s%s", contPrefix, line)
 			}
 		}
+		// The dim completion hint only fits on a single line with the cursor at
+		// its end, where it can't collide with continuation rows.
+		if buf.single() && buf.col == utf8.RuneCountInString(buf.lines[0]) {
+			if s := visible(); s != "" {
+				input := buf.lines[0]
+				if strings.HasPrefix(s, input) {
+					fmt.Fprintf(e.out, "\033[2m%s\033[0m", s[len(input):])
+				} else {
+					fmt.Fprintf(e.out, "\033[2m → %s\033[0m", s)
+				}
+			}
+		}
+		// Reposition to the logical (row, col): after the draw the cursor sits
+		// at the end of the last line, so climb to the target row, then step
+		// right past the prefix and the column's runes.
+		if up := len(buf.lines) - 1 - buf.row; up > 0 {
+			fmt.Fprintf(e.out, "\033[%dA", up)
+		}
+		fmt.Fprint(e.out, "\r")
+		if col := promptW + buf.col; col > 0 {
+			fmt.Fprintf(e.out, "\033[%dC", col)
+		}
+		prevCursorRow = buf.row
 	}
 	// tryEnter handles a pressed Enter shared by the raw, CSI-u, and
 	// modifyOtherKeys report paths: if the current line ends with an unescaped
@@ -422,6 +485,11 @@ func (e *replLineEditor) editLoop(prompt string) (string, error) {
 			selected = 0
 			histNav = -1
 			return "", false
+		}
+		// Move below the whole rendered block before the newline so the
+		// submitted lines stay on screen and the next prompt starts clean.
+		if down := len(buf.lines) - 1 - buf.row; down > 0 {
+			fmt.Fprintf(e.out, "\033[%dB", down)
 		}
 		fmt.Fprint(e.out, "\r\n")
 		return buf.String(), true
