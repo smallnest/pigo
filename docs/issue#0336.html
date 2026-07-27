@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes - Issue #0336</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/336">#336</a> &mdash; 全局 ~/.pigo/prompts + 旧 ~/.pigo/commands 向后兼容 &mdash; 2026-07-27</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Load <code>commands/</code> first, then <code>prompts/</code> (prompts overrides on same name)</h3>
+      <p><strong>Ambiguity:</strong> When the same template name exists in both <code>~/.pigo/commands</code> (legacy) and <code>~/.pigo/prompts</code> (new, pi-aligned), which wins?</p>
+      <p><strong>Choice:</strong> Load <code>commands</code> then <code>prompts</code>; both are global tier, so last-write-wins means <code>prompts/</code> overrides <code>commands/</code>.</p>
+      <p><strong>Rationale:</strong> <code>prompts/</code> is the new canonical location; a user migrating from the legacy <code>commands/</code> dir to <code>prompts/</code> expects the new one to take precedence. No shadow entry (same-tier override is silent, per #335).</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Both directories load at TierGlobal via <code>AddUser</code></h3>
+      <p><strong>Ambiguity:</strong> Should legacy <code>commands/</code> and new <code>prompts/</code> be distinct priority tiers?</p>
+      <p><strong>Choice:</strong> Both are global tier (the PRD&rsquo;s Q1A decision: coexist with back-compat, no separate tier).</p>
+      <p><strong>Rationale:</strong> Both are user-global prompt-template stores; distinguishing them by tier would complicate the model for no user-visible benefit. <code>AddUser</code> already sets <code>TierGlobal</code>.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None &mdash; implementation follows US-005 as written. Both directories are loaded non-recursively, missing dirs are silently skipped (via <code>LoadUserCommandsDir</code>&rsquo;s existing <code>IsNotExist</code> handling), both are global tier, and the regression + new-dir tests match the acceptance criteria.</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Loop over <code>[]string{"commands","prompts"}</code> vs two explicit load blocks</h3>
+      <p><strong>Alternatives:</strong> Two separate <code>LoadUserCommandsDir</code> + <code>AddUser</code> blocks, one per dir.</p>
+      <p><strong>Pros/cons:</strong> A loop is DRY and makes the load order explicit in one place; two blocks are more verbose but each is independently readable.</p>
+      <p><strong>Why it won:</strong> Two entries with identical handling is exactly the case a loop clarifies; the order is documented in the comment.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> <code>prompts/</code> wins by load order vs an explicit precedence flag</h3>
+      <p><strong>Alternatives:</strong> A separate tier or an explicit &ldquo;prompts beats commands&rdquo; rule outside the tier system.</p>
+      <p><strong>Pros/cons:</strong> Load-order precedence reuses the existing same-tier last-write-wins rule (no new mechanism). A dedicated rule would be more explicit but adds code for one edge case.</p>
+      <p><strong>Why it won:</strong> The same-name collision across the two global dirs is rare; reusing the tier rule keeps the system simple.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> <code>prompts/</code> overrides <code>commands/</code> on same name &mdash; confirm intent</h3>
+      <p><strong>Assumption:</strong> A user migrating from <code>commands/</code> to <code>prompts/</code> wants <code>prompts/</code> to win, so load order puts <code>prompts/</code> second.</p>
+      <p><strong>Verify:</strong> If a user instead expects the legacy <code>commands/</code> to keep winning until they delete it, this would surprise them. The current behavior is documented in the code comment; revisit if reported.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> No automatic migration of <code>commands/</code> -&gt; <code>prompts/</code></h3>
+      <p><strong>Assumption:</strong> Per the PRD&rsquo;s Q1A decision, legacy <code>~/.pigo/commands/*.md</code> stays in place and keeps loading; there is no rename/migration step.</p>
+      <p><strong>Verify:</strong> Documentation (#343) should tell users <code>prompts/</code> is preferred for new templates and <code>commands/</code> is loaded only for back-compat.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

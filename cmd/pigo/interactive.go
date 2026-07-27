@@ -279,12 +279,19 @@ func buildSlashRegistry(live *liveRunConfig, skills []*runtime.Skill, mgr *plugi
 		}
 		dir = filepath.Join(home, ".pigo")
 	}
-	cmds, err := runtime.LoadUserCommandsDir(filepath.Join(dir, "commands"))
-	if err != nil {
-		return reg, err
-	}
-	for _, c := range cmds {
-		reg.AddUser(c)
+	// Load user prompt templates from both the legacy ~/.pigo/commands and the
+	// pi-aligned ~/.pigo/prompts (both non-recursive, global tier). Loading
+	// commands first means a same-named template in prompts/ overrides the
+	// legacy one (last-write-wins within the global tier). A missing directory
+	// is not an error (LoadUserCommandsDir returns nil, nil for IsNotExist).
+	for _, sub := range []string{"commands", "prompts"} {
+		cmds, err := runtime.LoadUserCommandsDir(filepath.Join(dir, sub))
+		if err != nil {
+			return reg, err
+		}
+		for _, c := range cmds {
+			reg.AddUser(c)
+		}
 	}
 	// Register skills as /skill-name commands from the pre-loaded set (shared with
 	// prompt injection in setupAgentEnv, so the directory is read once). All
