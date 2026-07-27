@@ -201,3 +201,49 @@ func TestBuildSystemPromptAppendInstructions(t *testing.T) {
 		t.Errorf("appends must follow the env block and keep order (env<first<second), got env=%d first=%d second=%d", iEnv, iFirst, iSecond)
 	}
 }
+
+// TestBuildSystemPromptInjectsSkills verifies the <available_skills> block is
+// appended after the base/env/append layers when the read tool is available.
+func TestBuildSystemPromptInjectsSkills(t *testing.T) {
+	skills := []*Skill{
+		{Frontmatter: SkillFrontmatter{Name: "weather", Description: "get weather"}, Path: "/skills/weather.md"},
+		{Frontmatter: SkillFrontmatter{Name: "secret", Description: "hidden", DisableModelInvocation: true}, Path: "/skills/secret.md"},
+	}
+	got, err := BuildSystemPrompt(PromptConfig{
+		WorkingDir:        "/work/proj",
+		Now:               fixedTime,
+		ReadFile:          func(string) ([]byte, error) { return nil, os.ErrNotExist },
+		Skills:            skills,
+		ReadToolAvailable: true,
+	})
+	if err != nil {
+		t.Fatalf("BuildSystemPrompt: %v", err)
+	}
+	if !strings.Contains(got, "<available_skills>") || !strings.Contains(got, "<name>weather</name>") {
+		t.Errorf("skills block must be injected, got:\n%s", got)
+	}
+	if strings.Contains(got, "secret") {
+		t.Errorf("disable-model-invocation skill must not appear, got:\n%s", got)
+	}
+	iEnv := strings.Index(got, "Working directory")
+	iSkills := strings.Index(got, "<available_skills>")
+	if !(iEnv < iSkills) {
+		t.Errorf("skills block must come after env block, env=%d skills=%d", iEnv, iSkills)
+	}
+}
+
+// TestBuildSystemPromptNoSkillsWithoutReadTool verifies skills are NOT injected
+// when the read tool is unavailable, and that a skill-free prompt is unchanged.
+func TestBuildSystemPromptNoSkillsWithoutReadTool(t *testing.T) {
+	skills := []*Skill{{Frontmatter: SkillFrontmatter{Name: "weather", Description: "d"}, Path: "/s/weather.md"}}
+	withTool, _ := BuildSystemPrompt(PromptConfig{WorkingDir: "/w", Now: fixedTime, ReadFile: func(string) ([]byte, error) { return nil, os.ErrNotExist }, Skills: skills, ReadToolAvailable: false})
+	if strings.Contains(withTool, "available_skills") {
+		t.Errorf("no read tool → no skills block, got:\n%s", withTool)
+	}
+	// A prompt with no skills at all must equal one with read tool but empty list.
+	bare, _ := BuildSystemPrompt(PromptConfig{WorkingDir: "/w", Now: fixedTime, ReadFile: func(string) ([]byte, error) { return nil, os.ErrNotExist }})
+	withReadNoSkills, _ := BuildSystemPrompt(PromptConfig{WorkingDir: "/w", Now: fixedTime, ReadFile: func(string) ([]byte, error) { return nil, os.ErrNotExist }, ReadToolAvailable: true})
+	if bare != withReadNoSkills {
+		t.Errorf("empty skill list must not alter the prompt even with read tool:\n%q\nvs\n%q", bare, withReadNoSkills)
+	}
+}

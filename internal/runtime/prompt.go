@@ -52,6 +52,16 @@ type PromptConfig struct {
 	// ReadFile reads a file's contents. When nil, os.ReadFile is used. Injected
 	// for tests so AGENTS.md layout can be faked without touching disk.
 	ReadFile func(path string) ([]byte, error)
+	// Skills are the model-invocable skills to advertise in an <available_skills>
+	// block at the end of the prompt (对标 pi 的渐进式披露). Only their
+	// name/description/location are injected; the model loads a skill's body with
+	// the read tool on demand. Skills flagged disable-model-invocation are
+	// filtered out by FormatSkillsForPrompt. Empty means no skills block.
+	Skills []*Skill
+	// ReadToolAvailable signals whether the read tool is in the current tool set.
+	// Skills are advertised only when it is true, since the model needs the read
+	// tool to load a skill's body; otherwise the block is omitted entirely.
+	ReadToolAvailable bool
 }
 
 // DefaultBaseInstruction is the leading system-prompt text used when
@@ -129,6 +139,14 @@ func BuildSystemPrompt(cfg PromptConfig) (string, error) {
 		}
 		b.WriteString("\n\n")
 		b.WriteString(extra)
+	}
+
+	// Advertise model-invocable skills last (progressive disclosure), but only
+	// when the read tool is available — the model needs it to load a skill's
+	// body. FormatSkillsForPrompt returns "" when no visible skill remains, so
+	// this leaves a skill-free prompt byte-for-byte unchanged.
+	if cfg.ReadToolAvailable {
+		b.WriteString(FormatSkillsForPrompt(cfg.Skills))
 	}
 
 	return b.String(), nil
