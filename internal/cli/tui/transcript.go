@@ -218,6 +218,11 @@ func (t *transcript) reflow() {
 	for i, blk := range t.blocks {
 		if i > 0 {
 			b.WriteByte('\n')
+			// Separate a new user turn from the previous turn with a blank line so
+			// consecutive requests are visually distinct.
+			if blk.role == roleUser {
+				b.WriteByte('\n')
+			}
 		}
 		b.WriteString(t.renderBlock(blk, i == t.activeAssistant))
 	}
