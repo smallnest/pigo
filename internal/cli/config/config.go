@@ -84,9 +84,9 @@ func LoadFileConfig(path string) (FileConfig, error) {
 // suffixed with _BASE_URL. For example "zai-coding-cn" → "ZAI_CODING_CN_BASE_URL"
 // and "deepseek" → "DEEPSEEK_BASE_URL". An empty provider name yields "".
 //
-// It lives here (not with resolveBaseURL) because it is a pure name derivation
+// It lives here (not with ResolveBaseURL) because it is a pure name derivation
 // with no dependency on the provider registry — the provider-agnostic part of
-// base-url resolution. resolveBaseURL itself stays in cmd/pigo pending #361.
+// base-url resolution. ResolveBaseURL itself lives in internal/provider.
 func GenericBaseURLEnvVar(providerName string) string {
 	n := strings.TrimSpace(providerName)
 	if n == "" {

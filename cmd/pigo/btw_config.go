@@ -109,7 +109,7 @@ func resolveBtwSettings(out io.Writer, deps *replDeps) btwRunSettings {
 	}
 
 	if model := strings.TrimSpace(cfg.Model); model != "" && model != s.model {
-		prov, providerName, perr := resolveProvider(model, deps.live.BaseURL, deps.live.Protocol, "")
+		prov, providerName, perr := provider.ResolveProvider(model, deps.live.BaseURL, deps.live.Protocol, "", os.Getenv)
 		if perr != nil {
 			fmt.Fprintf(out, "%s\n", ui.Colorize(ui.Enabled(), ui.Dim, fmt.Sprintf("btw: cannot use model %q (%v), falling back to %q", model, perr, s.model)))
 		} else {

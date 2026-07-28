@@ -525,7 +525,7 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *cli.LiveConfig) {
 			if id == "" {
 				return fmt.Sprintf("model: %s (provider: %s)\nrun /models to see presets, or /model <id> to switch", live.Model, live.ProviderName)
 			}
-			prov, providerName, err := resolveProvider(id, live.BaseURL, live.Protocol, "")
+			prov, providerName, err := provider.ResolveProvider(id, live.BaseURL, live.Protocol, "", os.Getenv)
 			if err != nil {
 				return fmt.Sprintf("model: cannot switch to %q: %v", id, err)
 			}

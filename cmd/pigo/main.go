@@ -13,7 +13,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -21,8 +20,8 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/cli/config"
-	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
 )
 
@@ -72,7 +71,7 @@ func main() {
 		out := flag.CommandLine.Output()
 		fmt.Fprintf(out, "Usage of %s:\n", os.Args[0])
 		flag.PrintDefaults()
-		printProviderHelp(out)
+		cli.PrintProviderHelp(out)
 	}
 	flag.Parse()
 
@@ -97,173 +96,6 @@ func main() {
 	}
 
 	os.Exit(dispatch(context.Background(), opts, os.Stdout, os.Stderr))
-}
-
-// printProviderHelp writes the "Supported providers" block appended to
-// `--help` output. It enumerates the built-in provider registry so the list of
-// values accepted by --provider (and their env vars / default base URLs /
-// protocols) stays in sync with the code rather than being hand-maintained.
-func printProviderHelp(w io.Writer) {
-	fmt.Fprintf(w, "\nSupported --provider names (name: ENV_VARS -> default base URL [protocol]):\n")
-	for _, spec := range provider.ProviderSpecs() {
-		base := spec.DefaultBaseURL
-		if strings.TrimSpace(base) == "" {
-			base = "(composed from env)"
-		}
-		fmt.Fprintf(w, "  %s: %s -> %s [%s]\n",
-			spec.Name, strings.Join(spec.EnvVars, ", "), base, spec.Protocol)
-	}
-	fmt.Fprintf(w, "\nBase URL override precedence: --base-url > <provider>-specific *_BASE_URL env > generic <PROVIDER>_BASE_URL env > registry default.\n")
-	fmt.Fprintf(w, "API key env fallback: any provider also accepts the generic <PROVIDER>_API_KEY convention.\n")
-}
-
-// resolveProvider maps a model id to a built-in provider. An explicit
-// --provider name wins over every other rule: it selects a built-in provider
-// from the registry and constructs the matching wire driver (see
-// resolveNamedProvider). When provider is empty, protocol and model-id
-// heuristics apply as before.
-//
-// When protocol is a non-empty explicit selection ("openai" or "anthropic") it
-// wins over the model-id heuristics: the provider is built directly for that
-// wire format against baseURL, which is how a user points pigo at a self-hosted
-// or third-party endpoint and says which protocol it speaks. An "anthropic"
-// selection with no baseURL targets the public Anthropic API.
-//
-// When protocol is empty, resolution falls back to model-id heuristics:
-//
-//  1. If the id is in the preset catalog, use its declared provider (this is how
-//     OpenRouter/NVIDIA/Ollama presets pick the right gateway).
-//  2. An "ollama/" prefix (or a base URL on the Ollama port) → local Ollama.
-//  3. An "nvidia/" prefix → NVIDIA NIM (strips the prefix for the wire id).
-//  4. Model-name inference: with no --base-url, a well-known model-name prefix
-//     (e.g. "claude-*", "deepseek-*") selects its first-party built-in provider
-//     via resolveNamedProvider (see provider.InferProviderFromModel).
-//  5. Everything else → OpenRouter, the reference OpenAI-compatible gateway.
-//
-// An unknown protocol value is an error, surfaced to the caller for exit-code
-// mapping rather than silently falling back.
-func resolveProvider(model, baseURL, protocol, providerName string) (provider.Provider, string, error) {
-	// Explicit --provider selects a built-in provider from the registry and
-	// wins over both --protocol inference and model-id heuristics.
-	if strings.TrimSpace(providerName) != "" {
-		return resolveNamedProvider(providerName, model, baseURL, protocol)
-	}
-
-	// 0. Explicit protocol selection wins over every heuristic.
-	switch protocol {
-	case "openai":
-		if strings.TrimSpace(baseURL) == "" {
-			return nil, "", fmt.Errorf("--protocol openai requires --base-url")
-		}
-		return provider.NewOpenAICompatibleProvider(baseURL, []provider.Model{{Provider: "openai", ID: model, SupportsImages: true}}), "openai", nil
-	case "anthropic":
-		return provider.NewAnthropicProvider(baseURL, []provider.Model{{Provider: "anthropic", ID: model, SupportsImages: true}}), "anthropic", nil
-	case "":
-		// fall through to heuristic resolution
-	default:
-		return nil, "", fmt.Errorf("unknown --protocol %q (want openai|anthropic)", protocol)
-	}
-
-	// 1. Preset catalog wins: a curated id knows its own provider.
-	if p, ok := provider.LookupPreset(model); ok {
-		switch p.Provider {
-		case "nvidia":
-			return provider.NewNvidiaProvider(baseURL, []provider.Model{{Provider: "nvidia", ID: model, SupportsImages: true}}), "nvidia", nil
-		case "ollama":
-			id := strings.TrimPrefix(model, "ollama/")
-			return provider.NewOllamaProvider(baseURL, []provider.Model{{Provider: "ollama", ID: id, SupportsImages: true}}), "ollama", nil
-		case "", "openrouter":
-			return provider.NewOpenRouterProvider(baseURL, []provider.Model{{Provider: "openrouter", ID: model, SupportsImages: true}}), "openrouter", nil
-		default:
-			// Any other preset provider is a named built-in (e.g. deepseek,
-			// qianfan, dashscope): build it from the registry so the correct
-			// base URL, protocol, and API-key env var are used — not OpenRouter's.
-			return resolveNamedProvider(p.Provider, model, baseURL, protocol)
-		}
-	}
-
-	// 2. Local Ollama by prefix or port.
-	if strings.HasPrefix(model, "ollama/") || strings.Contains(baseURL, "11434") {
-		id := strings.TrimPrefix(model, "ollama/")
-		return provider.NewOllamaProvider(baseURL, []provider.Model{{Provider: "ollama", ID: id, SupportsImages: true}}), "ollama", nil
-	}
-	// 3. NVIDIA NIM by prefix.
-	if strings.HasPrefix(model, "nvidia/") {
-		id := strings.TrimPrefix(model, "nvidia/")
-		return provider.NewNvidiaProvider(baseURL, []provider.Model{{Provider: "nvidia", ID: id, SupportsImages: true}}), "nvidia", nil
-	}
-	// 4. Model-name inference: with no --provider/--protocol (both empty here) and
-	//    no --base-url, guess the provider from the model name's well-known prefix
-	//    (e.g. "claude-*" → anthropic, "deepseek-*" → deepseek). A confident hit is
-	//    routed through resolveNamedProvider so the provider's registry protocol,
-	//    default base URL, and API-key env var are used. A --base-url is treated as
-	//    a custom-endpoint signal that should not be second-guessed, so inference is
-	//    skipped when one is given. Ambiguous/unknown names fall through to (5).
-	if strings.TrimSpace(baseURL) == "" {
-		if name, ok := provider.InferProviderFromModel(model); ok {
-			return resolveNamedProvider(name, model, baseURL, protocol)
-		}
-	}
-	// 5. Default: OpenRouter.
-	return provider.NewOpenRouterProvider(baseURL, []provider.Model{{Provider: "openrouter", ID: model, SupportsImages: true}}), "openrouter", nil
-}
-
-// resolveNamedProvider builds the driver for an explicit --provider selection.
-// It looks the name up in the built-in registry and constructs the wire driver
-// matching the spec's Protocol: "openai" → an OpenAI-compatible (Bearer) driver,
-// "anthropic" → an Anthropic-Messages driver. The base URL follows the override
-// precedence in resolveBaseURL (--base-url > provider-specific env > generic
-// <PROVIDER>_BASE_URL > spec default). The returned provider-name string is the
-// spec name, so downstream API-key resolution reads the provider's own env var
-// (spec.EnvVars).
-//
-// Special providers with bespoke auth (azure/bedrock/vertex/cloudflare —
-// AuthScheme aws/azure/special, or the cloudflare-* names) are routed to
-// provider.ResolveSpecialProvider, which validates their required env vars and
-// composes the concrete endpoint (node #188).
-func resolveNamedProvider(name, model, baseURL, protocol string) (provider.Provider, string, error) {
-	spec, ok := provider.LookupProviderSpec(name)
-	if !ok {
-		return nil, "", fmt.Errorf("unknown --provider %q (available: %s)", name, strings.Join(provider.ProviderNames(), ", "))
-	}
-	// A concurrently-set --protocol must agree with the provider's own protocol;
-	// an incompatible pair is a user error naming both flags.
-	if p := strings.TrimSpace(protocol); p != "" && p != spec.Protocol {
-		return nil, "", fmt.Errorf("--provider %q speaks the %q protocol, which conflicts with --protocol %q; drop --protocol or set it to %q", name, spec.Protocol, p, spec.Protocol)
-	}
-	// Special-auth providers (Azure / Bedrock / Vertex / Cloudflare) compose
-	// their endpoint from several env vars and/or need non-standard credential
-	// validation, so route them to the dedicated resolver (US-007 / node #188).
-	// It performs its own base-URL composition (honoring the --base-url override)
-	// and returns a clear error naming any absent required env var.
-	if provider.IsSpecialAuthProvider(spec) {
-		p, err := provider.ResolveSpecialProvider(spec, model, baseURL, os.Getenv)
-		if err != nil {
-			return nil, "", err
-		}
-		return p, spec.Name, nil
-	}
-	// Base-URL precedence (US-004 / FR-8, FR-9): --base-url flag > provider-
-	// specific base-url env var(s) > generic <PROVIDER>_BASE_URL > spec default.
-	url := resolveBaseURL(spec, baseURL)
-	models := []provider.Model{{Provider: spec.Name, ID: model, SupportsImages: true}}
-	// Note: spec.ExtraHeaders would be attached here, but the exported generic
-	// constructors do not yet accept custom headers; all built-in specs currently
-	// carry no ExtraHeaders, so this is a no-op today (refined alongside #188).
-	switch spec.Protocol {
-	case provider.ProtocolAnthropic:
-		// Auth header follows the spec's AuthScheme (x-api-key + anthropic-version
-		// for anthropic/minimax/minimax-cn; Bearer for any anthropic-protocol
-		// gateway that authenticates with a plain bearer token). The driver name is
-		// the spec name so errors reference the selected provider.
-		return provider.NewAnthropicProtocolProvider(spec.Name, url, spec.AuthScheme, models), spec.Name, nil
-	case provider.ProtocolOpenAI:
-		return provider.NewOpenAICompatibleProvider(url, models), spec.Name, nil
-	default:
-		// The registry only ever stores openai/anthropic; guard anyway so an
-		// unexpected value is a clear error rather than a nil provider.
-		return nil, "", fmt.Errorf("--provider %q has unsupported protocol %q", name, spec.Protocol)
-	}
 }
 
 // builtinTools returns the default file/shell tool set rooted at cwd, or nil

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0361</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/361">#361</a> &mdash; 迁移 provider 解析到 internal/provider &mdash; 2026-07-28</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> env 注入参数放在签名末位</h3>
+      <p><strong>Ambiguity:</strong> SPEC 只要求把 <code>os.Getenv</code> 注入为 <code>env func(string) string</code>，未规定参数位置。</p>
+      <p><strong>Choice:</strong> <code>ResolveProvider(model, baseURL, protocol, providerName string, env func(string) string)</code>、<code>ResolveBaseURL(spec, flag, env)</code> 均把 env 放在最后一个参数。</p>
+      <p><strong>Rationale:</strong> 与包内既有的 <code>ResolveSpecialProvider(spec, model, baseURL, env)</code> 约定一致，读者对同一包的注入风格有统一预期。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> PrintProviderHelp 放 internal/cli 而非 internal/provider</h3>
+      <p><strong>Ambiguity:</strong> Issue 要求 <code>printProviderHelp</code> 迁入 <code>internal/cli</code>，但它只消费 <code>provider.ProviderSpecs()</code>，理论上也可留在 provider 包。</p>
+      <p><strong>Choice:</strong> 严格按 Issue 放入 <code>internal/cli/providerhelp.go</code>（package cli），依赖方向 cli → provider。</p>
+      <p><strong>Rationale:</strong> help 文本是 CLI 表现层关注点；provider 包应只负责解析与驱动构造，不承担面向用户的 usage 渲染。方向 cli→provider 无环。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 调用方仍传 os.Getenv 而非线程注入配置</h3>
+      <p><strong>Spec:</strong> "os.Getenv 注入为 env func(string) string"。</p>
+      <p><strong>Implemented:</strong> 函数签名接受 env 注入，但 4 处生产调用点（run.go、btw_config.go、subagent_rpc.go、interactive.go）仍显式传 <code>os.Getenv</code>。</p>
+      <p><strong>Why:</strong> 注入的目的是让测试控制环境；生产环境读真实进程 env 是正确行为。全链路传递一个 env 抽象超出本 Issue 范围，会污染多个调用签名。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> --help 字节级一致的验证方式</h3>
+      <p><strong>Alternatives:</strong> (a) 保存迁移前二进制的 golden 输出做 diff；(b) 用注册表派生断言（TestPrintProviderHelp 校验每个 provider 名/env/protocol 都出现）。</p>
+      <p><strong>Chosen:</strong> (b)，并人工核对 <code>go run ./cmd/pigo --help</code> 的 provider 块渲染不变。</p>
+      <p><strong>Why:</strong> printProviderHelp 是逐字节整体搬移、逻辑零改动，golden 二进制在纯迁移下无额外价值；注册表派生断言能持续防止未来漂移，维护成本更低。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 测试随源码迁移到 internal/provider</h3>
+      <p><strong>Alternatives:</strong> (a) 测试留在 cmd/pigo 通过导出函数间接测；(b) 测试跟随源码迁入 provider 包同包直测。</p>
+      <p><strong>Chosen:</strong> (b)——resolve_test.go 移入 internal/provider（8 个解析用例 + 2 个 base-url 用例），cmd/pigo 只保留 presetListing 的测试。</p>
+      <p><strong>Why:</strong> 测试与被测代码同包，覆盖归属清晰，符合 Issue "相关测试随源码迁移"。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 历史文档注释中残留的旧函数名</h3>
+      <p><strong>Assumption:</strong> btw_config.go、repl_test.go、providers_*_test.go 中仍有 "resolveProvider / resolveNamedProvider" 的散文式引用（非代码调用）。</p>
+      <p><strong>Verify:</strong> 已修正 config.go 中一处会误导的事实性注释（"stays in cmd/pigo pending #361"）；其余纯概念性引用保留未改，避免超范围 churn。是否需要统一清理这些历史提法？</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

@@ -55,7 +55,7 @@ type agentEnv struct {
 // exiting so the caller owns exit-code mapping.
 func setupAgentEnv(model, baseURL, protocol, providerName string, noTools, noSkills bool, systemPrompt string, appendSystemPrompt []string) (agentEnv, error) {
 	cwd, _ := os.Getwd()
-	prov, resolvedName, err := resolveProvider(model, baseURL, protocol, providerName)
+	prov, resolvedName, err := provider.ResolveProvider(model, baseURL, protocol, providerName, os.Getenv)
 	if err != nil {
 		return agentEnv{}, err
 	}
@@ -240,17 +240,17 @@ func newRunConfig(model, providerName string, thinking agentcore.ThinkingLevel, 
 // dispatch. Separating parse from dispatch makes the dispatch logic testable
 // without touching the global flag set.
 type cliOptions struct {
-	prompt       string
-	model        string
-	baseURL      string
-	apiKey       string
-	protocol     string
+	prompt   string
+	model    string
+	baseURL  string
+	apiKey   string
+	protocol string
 	// provider, when non-empty, selects a built-in provider by name from the
-	// registry (对标 pi 的 provider selection): resolveProvider then builds the
+	// registry (对标 pi 的 provider selection): provider.ResolveProvider then builds the
 	// matching wire driver using the provider's default base URL, protocol, and
 	// API-key env var, ignoring the model-id heuristics.
-	provider  string
-	outputFmt string
+	provider     string
+	outputFmt    string
 	noTools      bool
 	listSessions bool
 	resumeID     string
@@ -354,18 +354,18 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			return 2
 		}
 		if err := runInteractive(interactiveOptions{
-			model:         opts.model,
-			providerName:  env.providerName,
-			provider:      env.provider,
-			baseURL:       opts.baseURL,
-			apiKey:        opts.apiKey,
-			protocol:      opts.protocol,
-			thinkingLevel: thinking,
-			tools:         env.tools,
-			sysPrompt:     env.sysPrompt,
-			resumeID:      resumeID,
-			approve:       opts.approve,
-			skills:        env.skills,
+			model:             opts.model,
+			providerName:      env.providerName,
+			provider:          env.provider,
+			baseURL:           opts.baseURL,
+			apiKey:            opts.apiKey,
+			protocol:          opts.protocol,
+			thinkingLevel:     thinking,
+			tools:             env.tools,
+			sysPrompt:         env.sysPrompt,
+			resumeID:          resumeID,
+			approve:           opts.approve,
+			skills:            env.skills,
 			plugins:           env.plugins,
 			configPrompts:     opts.configPrompts,
 			cliPrompts:        opts.promptTemplates,

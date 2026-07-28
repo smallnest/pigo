@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 // its protocol must appear, so the docs cannot silently drift from the code.
 func TestPrintProviderHelp(t *testing.T) {
 	var buf bytes.Buffer
-	printProviderHelp(&buf)
+	PrintProviderHelp(&buf)
 	out := buf.String()
 
 	for _, spec := range provider.ProviderSpecs() {
