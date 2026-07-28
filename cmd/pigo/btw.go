@@ -247,10 +247,10 @@ func drainSideStream(ctx context.Context, out io.Writer, deps *replDeps, stream 
 		OnTurnEnd: func(msg agentcore.AssistantMessage, results []agentcore.ToolResultMessage) {
 			flushReply()
 			for _, c := range msg.ToolCalls() {
-				fmt.Fprintf(out, "  %s %s\n", ui.Colorize(ui.Enabled(), ui.Green, "→ tool:"), toolCallLabel(c))
+				fmt.Fprintf(out, "  %s %s\n", ui.Colorize(ui.Enabled(), ui.Green, "→ tool:"), ui.ToolCallLabel(c))
 			}
 			for _, tr := range results {
-				renderToolResult(out, tr)
+				ui.RenderToolResult(out, tr)
 			}
 		},
 	})

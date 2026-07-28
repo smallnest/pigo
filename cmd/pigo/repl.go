@@ -27,6 +27,7 @@ import (
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/goal"
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/clipboard"
 	"github.com/smallnest/pigo/internal/compaction"
@@ -294,7 +295,7 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 			// which a slash Action closure (string→string) can do. It drives the
 			// autonomous goal loop, reusing the same SIGINT cancel plumbing as a
 			// normal turn via setCancel.
-			runGoal(setCancel, out, &deps, line)
+			goal.RunGoal(setCancel, out, &deps, line)
 			continue
 		}
 		if line == "/btw" || strings.HasPrefix(line, "/btw ") {
@@ -352,34 +353,8 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 		// than a truncated linear rewrite.
 		deps.header.Model = deps.live.Model
 		deps.header.Provider = deps.live.ProviderName
-		persistTurn(out, &deps)
+		cli.PersistTurn(out, &deps)
 	}
-}
-
-// persistTurn writes the messages produced since the last persist as a new
-// branch descending from deps.curLeaf, advancing curLeaf to the new leaf and
-// persisted to the current message count (US-007, #123). Growing the tree with
-// AppendBranch (rather than rewriting the whole file linearly with Save) is what
-// lets a /tree leaf-switch fork the on-disk history instead of clobbering it. If
-// nothing new was produced it is a no-op: the on-disk tree is already current, so
-// the file is left untouched (rewriting it would regenerate ids and flatten the
-// tree).
-func persistTurn(out io.Writer, deps *replDeps) {
-	tail := deps.agentCtx.Messages[deps.persisted:]
-	if len(tail) == 0 {
-		// Nothing new to persist. Do NOT rewrite the file: Save regenerates entry
-		// ids and flattens the tree, which would invalidate curLeaf and drop any
-		// sibling branches. The on-disk tree is already current.
-		return
-	}
-	deps.header.UpdatedAt = time.Now().UTC()
-	leaf, err := deps.store.AppendBranch(deps.header, deps.curLeaf, tail)
-	if err != nil {
-		fmt.Fprintf(out, "pigo: session save failed: %v\n", err)
-		return
-	}
-	deps.curLeaf = leaf
-	deps.persisted = len(deps.agentCtx.Messages)
 }
 
 // streamRun appends the prompt to the shared context, starts an agent run, and
@@ -450,10 +425,10 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 		OnTurnEnd: func(msg agentcore.AssistantMessage, results []agentcore.ToolResultMessage) {
 			flushReply()
 			for _, c := range msg.ToolCalls() {
-				fmt.Fprintf(out, "  %s %s\n", ui.Colorize(ui.Enabled(), ui.Green, "→ tool:"), toolCallLabel(c))
+				fmt.Fprintf(out, "  %s %s\n", ui.Colorize(ui.Enabled(), ui.Green, "→ tool:"), ui.ToolCallLabel(c))
 			}
 			for _, tr := range results {
-				renderToolResult(out, tr)
+				ui.RenderToolResult(out, tr)
 			}
 		},
 	})
@@ -489,7 +464,7 @@ func runForkClone(out io.Writer, deps *replDeps, line string) {
 	// Persist the current turn as a branch so Fork copies an up-to-date tree
 	// without flattening any existing branches (a plain Save would rewrite the
 	// file linearly and drop siblings).
-	persistTurn(out, deps)
+	cli.PersistTurn(out, deps)
 	_, entries, err := deps.store.LoadEntries(deps.header.ID)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		fmt.Fprintf(out, "pigo: cannot read session tree: %v\n", err)
@@ -530,7 +505,7 @@ func runForkClone(out io.Writer, deps *replDeps, line string) {
 			// List the user messages for selection.
 			fmt.Fprintln(out, "fork from which message? run /fork <n>:")
 			for n, u := range users {
-				fmt.Fprintf(out, "  %d. %s\n", n+1, oneLine(u.text))
+				fmt.Fprintf(out, "  %d. %s\n", n+1, ui.OneLine(u.text))
 			}
 			return
 		}
@@ -596,7 +571,7 @@ func runForkClone(out io.Writer, deps *replDeps, line string) {
 //     real sibling branch on disk rather than truncating history.
 func runTree(out io.Writer, deps *replDeps, line string) {
 	// Persist any un-saved turn first so the tree reflects the live conversation.
-	persistTurn(out, deps)
+	cli.PersistTurn(out, deps)
 	_, entries, err := deps.store.LoadEntries(deps.header.ID)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		fmt.Fprintf(out, "pigo: cannot read session tree: %v\n", err)
@@ -661,7 +636,7 @@ func pathCommandArg(line, cmd string) string {
 // (or .htm) writes a self-contained HTML transcript; any other extension writes
 // JSONL. The JSONL form round-trips losslessly through /import.
 func runExport(out io.Writer, deps *replDeps, line string) {
-	persistTurn(out, deps)
+	cli.PersistTurn(out, deps)
 	path := pathCommandArg(line, "/export")
 	if path == "" {
 		path = deps.header.ID + ".jsonl"
@@ -833,63 +808,17 @@ func replayTranscript(out io.Writer, messages []agentcore.AgentMessage) {
 				fmt.Fprintln(out, t)
 			}
 			for _, c := range msg.ToolCalls() {
-				fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Green, "→ tool:"), toolCallLabel(c))
+				fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Green, "→ tool:"), ui.ToolCallLabel(c))
 			}
 		case agentcore.ToolResultMessage:
 			if msg.IsError {
-				fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Red, "← error:"), oneLine(agentcore.ContentToText(msg.Content)))
+				fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Red, "← error:"), ui.OneLine(agentcore.ContentToText(msg.Content)))
 			} else {
-				fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Green, "← result:"), oneLine(agentcore.ContentToText(msg.Content)))
+				fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Green, "← result:"), ui.OneLine(agentcore.ContentToText(msg.Content)))
 			}
 		}
 	}
 }
 
-// renderToolResult prints a single tool result under the compact status. Most
-// results collapse to a one-line "← result:" summary, but the todo tool's
-// progress block is rendered in full (indented, multi-line) so the user sees the
-// live task checklist after each update — that visible progress is the point of
-// the tool (US-011).
-func renderToolResult(out io.Writer, tr agentcore.ToolResultMessage) {
-	text := agentcore.ContentToText(tr.Content)
-	color := ui.Enabled()
-	if tr.ToolName == "todo" && !tr.IsError {
-		fmt.Fprintln(out, "  "+ui.Colorize(color, ui.Green, "← todo:"))
-		for _, line := range strings.Split(text, "\n") {
-			fmt.Fprintf(out, "    %s\n", line)
-		}
-		return
-	}
-	// Success results show a green "← result:" label; failures show a red
-	// "← error:" label so the outcome is scannable at a glance.
-	if tr.IsError {
-		fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Red, "← error:"), oneLine(text))
-		return
-	}
-	fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Green, "← result:"), oneLine(text))
-}
-
-// toolCallLabel renders a tool call as "name args" for the compact "→ tool:"
-// status, so the user can see what a tool was actually invoked with (e.g. the
-// shell command bash ran). Empty or "{}" arguments collapse to just the name.
-func toolCallLabel(c agentcore.ToolCallContent) string {
-	args := strings.TrimSpace(string(c.Arguments))
-	if args == "" || args == "{}" {
-		return c.Name
-	}
-	return c.Name + " " + oneLine(args)
-}
-
-// oneLine collapses a possibly multi-line tool result into a single trimmed
-// line for the compact "← result:" status, truncating very long results.
-func oneLine(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i] + " …"
-	}
-	const max = 120
-	if len(s) > max {
-		s = s[:max] + " …"
-	}
-	return s
-}
+// (Compact tool-activity renderers moved to internal/cli/ui: ui.RenderToolResult,
+// ui.ToolCallLabel, ui.OneLine — shared by the REPL, /btw and /goal.)

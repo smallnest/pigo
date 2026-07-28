@@ -2,7 +2,7 @@
 // logic (terminal states, token budget, turn cap, no-progress guard),
 // parseGoalObjective / parseTokenBudget flag parsing, and goalTurnActivity's
 // token/tool accounting.
-package main
+package goal
 
 import (
 	"testing"

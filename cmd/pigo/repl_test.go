@@ -19,6 +19,7 @@ import (
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
 	"github.com/smallnest/pigo/internal/session"
@@ -271,7 +272,7 @@ func TestREPLPersistsModelIntoHeader(t *testing.T) {
 // progress on update), while a non-todo result stays a one-line summary.
 func TestRenderToolResultTodoFull(t *testing.T) {
 	var out bytes.Buffer
-	renderToolResult(&out, agentcore.ToolResultMessage{
+	ui.RenderToolResult(&out, agentcore.ToolResultMessage{
 		RoleField: agentcore.RoleToolResult, ToolName: "todo",
 		Content: agentcore.ContentList{agentcore.NewTextContent("Todos:\n  [x] a\n  [ ] b\n(1/2 completed)")},
 	})
@@ -283,7 +284,7 @@ func TestRenderToolResultTodoFull(t *testing.T) {
 	}
 
 	out.Reset()
-	renderToolResult(&out, agentcore.ToolResultMessage{
+	ui.RenderToolResult(&out, agentcore.ToolResultMessage{
 		RoleField: agentcore.RoleToolResult, ToolName: "bash",
 		Content: agentcore.ContentList{agentcore.NewTextContent("line1\nline2")},
 	})

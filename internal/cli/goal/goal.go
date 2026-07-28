@@ -5,15 +5,17 @@
 // (goal_blocked), or a safety guard (max turns / no-progress) or the token
 // budget stops it.
 //
-// /goal is intercepted in the REPL loop (see repl.go) rather than routed through
-// a slash Action closure because it must run agent streams and mutate the shared
+// /goal is intercepted in the REPL loop rather than routed through a slash
+// Action closure because it must run agent streams and mutate the shared
 // context and goal state — none of which a pure string→string Action can do,
-// exactly like /compact and /fork.
+// exactly like /compact and /fork. It reaches the session's collaborators and
+// mutable state through the cli.Host contract, so it need not import the
+// concrete replDeps aggregate that assembles them.
 //
 // Scope: core autonomous continuation plus an optional token budget. Goal state
-// lives only in the session's in-memory GoalState (deps.goal); it is not
+// lives only in the session's in-memory GoalState (host.Goal()); it is not
 // persisted across process restarts.
-package main
+package goal
 
 import (
 	"context"
@@ -25,6 +27,7 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/compaction"
 	"github.com/smallnest/pigo/internal/provider"
@@ -44,35 +47,35 @@ const goalMaxNoProgress = 3
 // runGoal parses and dispatches a /goal invocation. setCancel publishes the
 // active run's cancel func so the REPL's SIGINT handler can interrupt an
 // autonomous run (same plumbing as a normal turn).
-func runGoal(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, line string) {
+func RunGoal(setCancel func(context.CancelFunc), out io.Writer, host cli.Host, line string) {
 	args := strings.TrimSpace(strings.TrimPrefix(line, "/goal"))
 
 	switch {
 	case args == "":
-		printGoalStatus(out, deps.goal)
+		printGoalStatus(out, host.Goal())
 		return
 	case args == "clear":
-		deps.goal.Clear()
+		host.Goal().Clear()
 		fmt.Fprintln(out, "goal cleared")
 		return
 	case args == "pause":
-		snap := deps.goal.Snapshot()
+		snap := host.Goal().Snapshot()
 		if snap.Status != agenttool.GoalActive && snap.Status != agenttool.GoalPaused {
 			fmt.Fprintln(out, "no active goal to pause")
 			return
 		}
-		deps.goal.SetStatus(agenttool.GoalPaused)
+		host.Goal().SetStatus(agenttool.GoalPaused)
 		fmt.Fprintln(out, "goal paused — run /goal resume to continue")
 		return
 	case args == "resume":
-		snap := deps.goal.Snapshot()
+		snap := host.Goal().Snapshot()
 		if snap.Status != agenttool.GoalPaused && snap.Status != agenttool.GoalBudgetLimited {
 			fmt.Fprintln(out, "no paused goal to resume")
 			return
 		}
-		deps.goal.Resume()
-		fmt.Fprintf(out, "resuming goal: %s\n", oneLine(snap.Objective))
-		runGoalLoop(setCancel, out, deps)
+		host.Goal().Resume()
+		fmt.Fprintf(out, "resuming goal: %s\n", ui.OneLine(snap.Objective))
+		runGoalLoop(setCancel, out, host)
 		return
 	}
 
@@ -86,13 +89,13 @@ func runGoal(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, 
 		fmt.Fprintln(out, "usage: /goal [--tokens N] <objective>")
 		return
 	}
-	deps.goal.Start(newGoalID(), objective, budget)
+	host.Goal().Start(newGoalID(), objective, budget)
 	if budget > 0 {
-		fmt.Fprintf(out, "goal set (token budget %d): %s\n", budget, oneLine(objective))
+		fmt.Fprintf(out, "goal set (token budget %d): %s\n", budget, ui.OneLine(objective))
 	} else {
-		fmt.Fprintf(out, "goal set: %s\n", oneLine(objective))
+		fmt.Fprintf(out, "goal set: %s\n", ui.OneLine(objective))
 	}
-	runGoalLoop(setCancel, out, deps)
+	runGoalLoop(setCancel, out, host)
 }
 
 // newGoalID returns a short unique id for a goal (used to key goal_complete's
@@ -186,9 +189,9 @@ func goalFollowUpDecision(snap agenttool.GoalSnapshot) (cont bool, terminal agen
 // the run or goalFollowUpDecision trips a guard. On return it prints the outcome
 // and persists the turn. The run reuses the REPL's SIGINT cancel plumbing via
 // setCancel.
-func runGoalLoop(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps) {
-	goalReg := goalToolRegistry(deps.reg, deps.goal)
-	reminders := goalReminders(deps.reg, deps.goal)
+func runGoalLoop(setCancel func(context.CancelFunc), out io.Writer, host cli.Host) {
+	goalReg := goalToolRegistry(host.Registry(), host.Goal())
+	reminders := goalReminders(host.Registry(), host.Goal())
 
 	runCtx, cancel := context.WithCancel(context.Background())
 	setCancel(cancel)
@@ -200,22 +203,22 @@ func runGoalLoop(setCancel func(context.CancelFunc), out io.Writer, deps *replDe
 	// lastSeen tracks how many messages we have already accounted for, so each
 	// settle folds in only the assistant turns produced since the previous one:
 	// their output tokens (budget) and whether any tool ran (no-progress guard).
-	lastSeen := len(deps.agentCtx.Messages)
+	lastSeen := len(host.AgentCtx().Messages)
 
 	cfg := runtime.RunConfig{
 		LoopConfig: runtime.LoopConfig{
-			Model:         deps.live.Model,
-			Provider:      deps.live.ProviderName,
-			ThinkingLevel: deps.live.ThinkingLevel,
-			Stream:        provider.StreamFnFromProvider(deps.live.Provider),
-			GetAPIKey:     deps.creds.GetAPIKey,
-			ContextWindow: deps.live.ContextWindow,
+			Model:         host.Live().Model,
+			Provider:      host.Live().ProviderName,
+			ThinkingLevel: host.Live().ThinkingLevel,
+			Stream:        provider.StreamFnFromProvider(host.Live().Provider),
+			GetAPIKey:     host.Creds().GetAPIKey,
+			ContextWindow: host.Live().ContextWindow,
 			Compaction:    compaction.DefaultCompactionSettings,
 		},
 		Batch: agenttool.BatchConfig{
 			ToolExecutorConfig: agenttool.ToolExecutorConfig{
 				Registry:       goalReg,
-				BeforeToolCall: trust.BeforeToolCall(deps.trust, deps.cwd, deps.in, out, deps.confirmMu),
+				BeforeToolCall: trust.BeforeToolCall(host.Trust(), host.Cwd(), host.Input(), out, host.ConfirmMu()),
 			},
 		},
 		Reminders: reminders,
@@ -230,12 +233,12 @@ func runGoalLoop(setCancel func(context.CancelFunc), out io.Writer, deps *replDe
 			}
 			outputTokens, hadTool := goalTurnActivity(agentCtx.Messages[lastSeen:])
 			lastSeen = len(agentCtx.Messages)
-			deps.goal.RecordIteration(outputTokens, hadTool)
+			host.Goal().RecordIteration(outputTokens, hadTool)
 
-			cont, terminal := goalFollowUpDecision(deps.goal.Snapshot())
+			cont, terminal := goalFollowUpDecision(host.Goal().Snapshot())
 			if !cont {
 				if terminal != agenttool.GoalIdle {
-					deps.goal.SetStatus(terminal)
+					host.Goal().SetStatus(terminal)
 				}
 				return nil
 			}
@@ -249,11 +252,11 @@ func runGoalLoop(setCancel func(context.CancelFunc), out io.Writer, deps *replDe
 	// The first turn is driven by the goal reminder alone (the objective is
 	// injected as background context); no explicit user prompt is appended so the
 	// objective is not duplicated in the durable history.
-	stream := runtime.StartRun(runCtx, deps.agentCtx, cfg)
-	drainGoalStream(runCtx, out, deps, stream)
+	stream := runtime.StartRun(runCtx, host.AgentCtx(), cfg)
+	drainGoalStream(runCtx, out, host, stream)
 
-	printGoalOutcome(out, deps.goal.Snapshot())
-	persistTurn(out, deps)
+	printGoalOutcome(out, host.Goal().Snapshot())
+	cli.PersistTurn(out, host)
 }
 
 // goalToolRegistry returns a registry holding every tool from base plus the two
@@ -310,7 +313,7 @@ func goalTurnActivity(tail []agentcore.AgentMessage) (outputTokens int, hadTool 
 
 // drainGoalStream prints the streamed assistant text and tool activity of a goal
 // run to out, mirroring streamRun's rendering. It blocks until the run ends.
-func drainGoalStream(ctx context.Context, out io.Writer, deps *replDeps, stream *runtime.LoopEventStream) {
+func drainGoalStream(ctx context.Context, out io.Writer, host cli.Host, stream *runtime.LoopEventStream) {
 	var reply strings.Builder
 	flushReply := func() {
 		if reply.Len() == 0 {
@@ -324,17 +327,17 @@ func drainGoalStream(ctx context.Context, out io.Writer, deps *replDeps, stream 
 		reply.Reset()
 	}
 	_, err := runtime.DrainStream(ctx, stream, runtime.StreamHandler{
-		OnEvent: deps.notifierHandle(),
+		OnEvent: host.NotifierHandle(),
 		OnText: func(delta string) {
 			reply.WriteString(delta)
 		},
 		OnTurnEnd: func(msg agentcore.AssistantMessage, results []agentcore.ToolResultMessage) {
 			flushReply()
 			for _, c := range msg.ToolCalls() {
-				fmt.Fprintf(out, "  %s %s\n", ui.Colorize(ui.Enabled(), ui.Green, "→ tool:"), toolCallLabel(c))
+				fmt.Fprintf(out, "  %s %s\n", ui.Colorize(ui.Enabled(), ui.Green, "→ tool:"), ui.ToolCallLabel(c))
 			}
 			for _, tr := range results {
-				renderToolResult(out, tr)
+				ui.RenderToolResult(out, tr)
 			}
 		},
 	})
@@ -342,7 +345,7 @@ func drainGoalStream(ctx context.Context, out io.Writer, deps *replDeps, stream 
 	if err != nil {
 		if ctx.Err() != nil {
 			fmt.Fprintln(out, "^C interrupted — goal paused (run /goal resume to continue)")
-			deps.goal.SetStatus(agenttool.GoalPaused)
+			host.Goal().SetStatus(agenttool.GoalPaused)
 		} else {
 			fmt.Fprintf(out, "error: %v\n", err)
 		}
