@@ -1,15 +1,15 @@
 // This file renders assistant replies as Markdown for interactive terminals.
 // The line-oriented REPL streams model text token-by-token, but Markdown can
 // only be laid out once the whole block is known (a table or fenced code span
-// needs its full extent). So rendering is a turn-end concern: streamRun buffers
-// the streamed text and calls renderMarkdown once the assistant turn closes.
+// needs its full extent). So rendering is a turn-end concern: the caller buffers
+// the streamed text and calls RenderMarkdown once the assistant turn closes.
 //
-// Rendering is gated exactly like color (colorEnabled): only an interactive,
+// Rendering is gated exactly like color (Enabled): only an interactive,
 // NO_COLOR-unset stdout gets styled output. Pipes, files, CI, and tests receive
 // the raw Markdown source unchanged, so machine consumers and golden tests are
 // unaffected. Any renderer failure also falls back to the raw source — pretty
 // output is never allowed to lose content.
-package main
+package ui
 
 import (
 	"strings"
@@ -20,8 +20,7 @@ import (
 
 // mdRenderer is the lazily-built glamour renderer. Building it parses a style
 // and compiles a chroma lexer set, so it is created once and reused across
-// turns. A build failure leaves it nil and markdownEnabled false, degrading to
-// raw output.
+// turns. A build failure leaves it nil, degrading to raw output.
 var (
 	mdOnce     sync.Once
 	mdRenderer *glamour.TermRenderer
@@ -49,13 +48,13 @@ func initMarkdown() {
 	})
 }
 
-// renderMarkdown returns src rendered as styled terminal Markdown when output
+// RenderMarkdown returns src rendered as styled terminal Markdown when output
 // is an interactive terminal, and src unchanged otherwise. A nil/broken
 // renderer or a render error also returns src, so content is never dropped in
 // favor of styling. The returned string carries its own trailing newline from
 // glamour; callers should not add another.
-func renderMarkdown(src string) string {
-	if !colorEnabled() {
+func RenderMarkdown(src string) string {
+	if !Enabled() {
 		return src
 	}
 	if strings.TrimSpace(src) == "" {

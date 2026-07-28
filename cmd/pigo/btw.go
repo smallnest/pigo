@@ -30,6 +30,7 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/compaction"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
@@ -107,10 +108,10 @@ func replaySideHistory(out io.Writer, side *agentcore.AgentContext, base int) {
 	for _, msg := range side.Messages[base:] {
 		switch m := msg.(type) {
 		case agentcore.UserMessage:
-			fmt.Fprintf(out, "%s %s\n", colorize(colorEnabled(), ansiDim, "you:"), agentcore.ContentToText(m.Content))
+			fmt.Fprintf(out, "%s %s\n", ui.Colorize(ui.Enabled(), ui.Dim, "you:"), agentcore.ContentToText(m.Content))
 		case agentcore.AssistantMessage:
 			if text := agentcore.ContentToText(m.Content); text != "" {
-				rendered := renderMarkdown(text)
+				rendered := ui.RenderMarkdown(text)
 				fmt.Fprint(out, rendered)
 				if !strings.HasSuffix(rendered, "\n") {
 					fmt.Fprintln(out)
@@ -168,7 +169,7 @@ func newSideContext(main *agentcore.AgentContext) *agentcore.AgentContext {
 
 // printBtwHeader prints the side-thread banner.
 func printBtwHeader(out io.Writer) {
-	fmt.Fprintln(out, colorize(colorEnabled(), ansiDim, btwHeader))
+	fmt.Fprintln(out, ui.Colorize(ui.Enabled(), ui.Dim, btwHeader))
 }
 
 // askSide appends the question to the side context and streams one answer,
@@ -178,7 +179,7 @@ func printBtwHeader(out io.Writer) {
 // (session defaults overlaid with btw.json, #282), never from deps.live, so a
 // /btw override cannot leak into the main session.
 func askSide(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, side *agentcore.AgentContext, settings btwRunSettings, question string) {
-	content, err := buildUserContent(question)
+	content, err := ui.BuildUserContent(question)
 	if err != nil {
 		fmt.Fprintf(out, "pigo: %v\n", err)
 		return
@@ -197,7 +198,7 @@ func askSide(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, 
 
 	// Show a transient status while the model works (FR-9). It is printed on its
 	// own line; the streamed answer follows below it.
-	fmt.Fprintln(out, colorize(colorEnabled(), ansiDim, "Answering…"))
+	fmt.Fprintln(out, ui.Colorize(ui.Enabled(), ui.Dim, "Answering…"))
 
 	cfg := runtime.RunConfig{
 		LoopConfig: runtime.LoopConfig{
@@ -230,7 +231,7 @@ func drainSideStream(ctx context.Context, out io.Writer, deps *replDeps, stream 
 		if reply.Len() == 0 {
 			return
 		}
-		rendered := renderMarkdown(reply.String())
+		rendered := ui.RenderMarkdown(reply.String())
 		fmt.Fprint(out, rendered)
 		if !strings.HasSuffix(rendered, "\n") {
 			fmt.Fprintln(out)
@@ -245,7 +246,7 @@ func drainSideStream(ctx context.Context, out io.Writer, deps *replDeps, stream 
 		OnTurnEnd: func(msg agentcore.AssistantMessage, results []agentcore.ToolResultMessage) {
 			flushReply()
 			for _, c := range msg.ToolCalls() {
-				fmt.Fprintf(out, "  %s %s\n", colorize(colorEnabled(), ansiGreen, "→ tool:"), toolCallLabel(c))
+				fmt.Fprintf(out, "  %s %s\n", ui.Colorize(ui.Enabled(), ui.Green, "→ tool:"), toolCallLabel(c))
 			}
 			for _, tr := range results {
 				renderToolResult(out, tr)

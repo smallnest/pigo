@@ -25,6 +25,7 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/compaction"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
@@ -314,7 +315,7 @@ func drainGoalStream(ctx context.Context, out io.Writer, deps *replDeps, stream 
 		if reply.Len() == 0 {
 			return
 		}
-		rendered := renderMarkdown(reply.String())
+		rendered := ui.RenderMarkdown(reply.String())
 		fmt.Fprint(out, rendered)
 		if !strings.HasSuffix(rendered, "\n") {
 			fmt.Fprintln(out)
@@ -329,7 +330,7 @@ func drainGoalStream(ctx context.Context, out io.Writer, deps *replDeps, stream 
 		OnTurnEnd: func(msg agentcore.AssistantMessage, results []agentcore.ToolResultMessage) {
 			flushReply()
 			for _, c := range msg.ToolCalls() {
-				fmt.Fprintf(out, "  %s %s\n", colorize(colorEnabled(), ansiGreen, "→ tool:"), toolCallLabel(c))
+				fmt.Fprintf(out, "  %s %s\n", ui.Colorize(ui.Enabled(), ui.Green, "→ tool:"), toolCallLabel(c))
 			}
 			for _, tr := range results {
 				renderToolResult(out, tr)
@@ -350,18 +351,18 @@ func drainGoalStream(ctx context.Context, out io.Writer, deps *replDeps, stream 
 // printGoalOutcome prints a one-line result banner after a goal run settles,
 // keyed on the terminal status the run reached.
 func printGoalOutcome(out io.Writer, snap agenttool.GoalSnapshot) {
-	color := colorEnabled()
+	color := ui.Enabled()
 	switch snap.Status {
 	case agenttool.GoalComplete:
-		fmt.Fprintf(out, "%s goal complete: %s\n", colorize(color, ansiGreen, "✓"), snap.Summary)
+		fmt.Fprintf(out, "%s goal complete: %s\n", ui.Colorize(color, ui.Green, "✓"), snap.Summary)
 	case agenttool.GoalBlocked:
-		fmt.Fprintf(out, "%s goal blocked: %s\n", colorize(color, ansiRed, "⚠"), snap.BlockReason)
+		fmt.Fprintf(out, "%s goal blocked: %s\n", ui.Colorize(color, ui.Red, "⚠"), snap.BlockReason)
 	case agenttool.GoalBudgetLimited:
 		fmt.Fprintf(out, "%s goal paused — token budget reached (%d / %d). Run /goal resume to continue.\n",
-			colorize(color, ansiYellow, "⏸"), snap.TokensUsed, snap.TokenBudget)
+			ui.Colorize(color, ui.Yellow, "⏸"), snap.TokensUsed, snap.TokenBudget)
 	case agenttool.GoalPaused:
 		fmt.Fprintf(out, "%s goal paused after %d turns. Run /goal resume to continue, or /goal clear to drop it.\n",
-			colorize(color, ansiYellow, "⏸"), snap.Iterations)
+			ui.Colorize(color, ui.Yellow, "⏸"), snap.Iterations)
 	}
 }
 

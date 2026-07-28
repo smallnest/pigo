@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/provider"
 )
 
@@ -95,7 +96,7 @@ func resolveBtwSettings(out io.Writer, deps *replDeps) btwRunSettings {
 
 	cfg, err := loadBtwConfig(btwConfigPath())
 	if err != nil {
-		fmt.Fprintf(out, "%s\n", colorize(colorEnabled(), ansiDim, "btw: ignoring invalid btw.json: "+err.Error()))
+		fmt.Fprintf(out, "%s\n", ui.Colorize(ui.Enabled(), ui.Dim, "btw: ignoring invalid btw.json: "+err.Error()))
 		return s
 	}
 
@@ -103,14 +104,14 @@ func resolveBtwSettings(out io.Writer, deps *replDeps) btwRunSettings {
 		if v, ok := validThinkingLevel(lvl); ok {
 			s.thinkingLevel = v
 		} else {
-			fmt.Fprintf(out, "%s\n", colorize(colorEnabled(), ansiDim, fmt.Sprintf("btw: ignoring invalid thinkingLevel %q, using %q", lvl, s.thinkingLevel)))
+			fmt.Fprintf(out, "%s\n", ui.Colorize(ui.Enabled(), ui.Dim, fmt.Sprintf("btw: ignoring invalid thinkingLevel %q, using %q", lvl, s.thinkingLevel)))
 		}
 	}
 
 	if model := strings.TrimSpace(cfg.Model); model != "" && model != s.model {
 		prov, providerName, perr := resolveProvider(model, deps.live.BaseURL, deps.live.Protocol, "")
 		if perr != nil {
-			fmt.Fprintf(out, "%s\n", colorize(colorEnabled(), ansiDim, fmt.Sprintf("btw: cannot use model %q (%v), falling back to %q", model, perr, s.model)))
+			fmt.Fprintf(out, "%s\n", ui.Colorize(ui.Enabled(), ui.Dim, fmt.Sprintf("btw: cannot use model %q (%v), falling back to %q", model, perr, s.model)))
 		} else {
 			s.model = model
 			s.providerName = providerName

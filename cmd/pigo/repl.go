@@ -27,6 +27,7 @@ import (
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/clipboard"
 	"github.com/smallnest/pigo/internal/compaction"
 	"github.com/smallnest/pigo/internal/plugin"
@@ -386,7 +387,7 @@ func persistTurn(out io.Writer, deps *replDeps) {
 // the run ends. The context grows in place so the next prompt continues the
 // conversation.
 func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string) {
-	content, err := buildUserContent(prompt)
+	content, err := ui.BuildUserContent(prompt)
 	if err != nil {
 		fmt.Fprintf(out, "pigo: %v\n", err)
 		return
@@ -417,7 +418,7 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 
 	// The assistant reply is Markdown, which can only be laid out once the whole
 	// block is known, so streamed text is buffered here and rendered at turn end
-	// (renderMarkdown). On non-terminal output renderMarkdown returns the raw
+	// (ui.RenderMarkdown). On non-terminal output it returns the raw
 	// source, so pipes/tests are unchanged. flushReply guarantees the rendered
 	// block ends on a fresh line so tool activity below it starts cleanly.
 	var reply strings.Builder
@@ -425,7 +426,7 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 		if reply.Len() == 0 {
 			return
 		}
-		rendered := renderMarkdown(reply.String())
+		rendered := ui.RenderMarkdown(reply.String())
 		fmt.Fprint(out, rendered)
 		if !strings.HasSuffix(rendered, "\n") {
 			fmt.Fprintln(out)
@@ -449,7 +450,7 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 		OnTurnEnd: func(msg agentcore.AssistantMessage, results []agentcore.ToolResultMessage) {
 			flushReply()
 			for _, c := range msg.ToolCalls() {
-				fmt.Fprintf(out, "  %s %s\n", colorize(colorEnabled(), ansiGreen, "→ tool:"), toolCallLabel(c))
+				fmt.Fprintf(out, "  %s %s\n", ui.Colorize(ui.Enabled(), ui.Green, "→ tool:"), toolCallLabel(c))
 			}
 			for _, tr := range results {
 				renderToolResult(out, tr)
@@ -820,7 +821,7 @@ func runManualCompact(out io.Writer, deps replDeps) {
 // replayTranscript prints a resumed session's prior messages to out so the user
 // sees the conversation so far before the first new prompt.
 func replayTranscript(out io.Writer, messages []agentcore.AgentMessage) {
-	color := colorEnabled()
+	color := ui.Enabled()
 	for _, m := range messages {
 		switch msg := m.(type) {
 		case agentcore.UserMessage:
@@ -832,13 +833,13 @@ func replayTranscript(out io.Writer, messages []agentcore.AgentMessage) {
 				fmt.Fprintln(out, t)
 			}
 			for _, c := range msg.ToolCalls() {
-				fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiGreen, "→ tool:"), toolCallLabel(c))
+				fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Green, "→ tool:"), toolCallLabel(c))
 			}
 		case agentcore.ToolResultMessage:
 			if msg.IsError {
-				fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiRed, "← error:"), oneLine(agentcore.ContentToText(msg.Content)))
+				fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Red, "← error:"), oneLine(agentcore.ContentToText(msg.Content)))
 			} else {
-				fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiGreen, "← result:"), oneLine(agentcore.ContentToText(msg.Content)))
+				fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Green, "← result:"), oneLine(agentcore.ContentToText(msg.Content)))
 			}
 		}
 	}
@@ -851,9 +852,9 @@ func replayTranscript(out io.Writer, messages []agentcore.AgentMessage) {
 // the tool (US-011).
 func renderToolResult(out io.Writer, tr agentcore.ToolResultMessage) {
 	text := agentcore.ContentToText(tr.Content)
-	color := colorEnabled()
+	color := ui.Enabled()
 	if tr.ToolName == "todo" && !tr.IsError {
-		fmt.Fprintln(out, "  "+colorize(color, ansiGreen, "← todo:"))
+		fmt.Fprintln(out, "  "+ui.Colorize(color, ui.Green, "← todo:"))
 		for _, line := range strings.Split(text, "\n") {
 			fmt.Fprintf(out, "    %s\n", line)
 		}
@@ -862,10 +863,10 @@ func renderToolResult(out io.Writer, tr agentcore.ToolResultMessage) {
 	// Success results show a green "← result:" label; failures show a red
 	// "← error:" label so the outcome is scannable at a glance.
 	if tr.IsError {
-		fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiRed, "← error:"), oneLine(text))
+		fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Red, "← error:"), oneLine(text))
 		return
 	}
-	fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiGreen, "← result:"), oneLine(text))
+	fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Green, "← result:"), oneLine(text))
 }
 
 // toolCallLabel renders a tool call as "name args" for the compact "→ tool:"

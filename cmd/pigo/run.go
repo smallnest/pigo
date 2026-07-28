@@ -18,6 +18,7 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
@@ -335,7 +336,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 	// with a non-terminal stdout (pipe/CI) and no resume is an error, since there
 	// is nothing to run and nothing to interact with.
 	if opts.prompt == "" {
-		if resumeID == "" && !stdoutIsTerminal() {
+		if resumeID == "" && !ui.StdoutIsTerminal() {
 			fmt.Fprintln(errOut, "pigo: no prompt (use -p \"...\" or positional args)")
 			return 2
 		}
@@ -397,7 +398,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 	// appending the returned prompt is the accepted behavior. A non-plugin prompt
 	// or unknown command is left untouched.
 	headlessPrompt := resolveHeadlessPluginCommand(opts.prompt, env.plugins, errOut)
-	promptContent, err := buildUserContent(headlessPrompt)
+	promptContent, err := ui.BuildUserContent(headlessPrompt)
 	if err != nil {
 		fmt.Fprintf(errOut, "pigo: %v\n", err)
 		return 1

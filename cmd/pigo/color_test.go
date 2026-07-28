@@ -18,30 +18,6 @@ func runtimeHelpRegistry(t *testing.T) *runtime.SlashRegistry {
 	return reg
 }
 
-// TestColorizeGating verifies colorize wraps text in SGR codes only when
-// enabled, returns text unchanged when disabled, and treats an empty code as a
-// no-op regardless of the enabled flag.
-func TestColorizeGating(t *testing.T) {
-	if got := colorize(true, ansiCyan, "/help"); got != ansiCyan+"/help"+ansiReset {
-		t.Errorf("enabled: got %q", got)
-	}
-	if got := colorize(false, ansiCyan, "/help"); got != "/help" {
-		t.Errorf("disabled should be plain, got %q", got)
-	}
-	if got := colorize(true, "", "/help"); got != "/help" {
-		t.Errorf("empty code should be plain, got %q", got)
-	}
-}
-
-// TestColorEnabledRespectsNoColor verifies NO_COLOR forces color off even on a
-// terminal (对标 https://no-color.org).
-func TestColorEnabledRespectsNoColor(t *testing.T) {
-	t.Setenv("NO_COLOR", "1")
-	if colorEnabled() {
-		t.Error("NO_COLOR set: colorEnabled must be false")
-	}
-}
-
 // TestHelpListingColorized verifies the /help action emits ANSI codes when
 // color is enabled — the command names are highlighted, not plain.
 func TestHelpListingColorized(t *testing.T) {

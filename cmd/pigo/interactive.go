@@ -21,6 +21,7 @@ import (
 	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/builtinskills"
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
@@ -262,16 +263,6 @@ func mostRecentSessionID() (string, error) {
 		return "", nil
 	}
 	return headers[0].ID, nil
-}
-
-// stdoutIsTerminal reports whether stdout is an interactive terminal (not a
-// pipe/file), used to decide print vs interactive mode.
-func stdoutIsTerminal() bool {
-	fi, err := os.Stdout.Stat()
-	if err != nil {
-		return false
-	}
-	return fi.Mode()&os.ModeCharDevice != 0
 }
 
 // promptTemplateSources carries the prompt-template discovery sources that
@@ -553,12 +544,12 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *cli.LiveConfig) {
 		Name:        "help",
 		Description: "list available slash commands",
 		Action: func(string) string {
-			color := colorEnabled()
+			color := ui.Enabled()
 			var b strings.Builder
-			b.WriteString(colorize(color, ansiBold, "available commands:"))
+			b.WriteString(ui.Colorize(color, ui.Bold, "available commands:"))
 			for _, c := range reg.List() {
 				b.WriteString("\n  ")
-				b.WriteString(colorize(color, ansiCyan, "/"+c.Name))
+				b.WriteString(ui.Colorize(color, ui.Cyan, "/"+c.Name))
 				rest := ""
 				if c.ArgumentHint != "" {
 					rest += " " + c.ArgumentHint
@@ -567,7 +558,7 @@ func registerLiveCommands(reg *runtime.SlashRegistry, live *cli.LiveConfig) {
 					rest += " - " + c.Description
 				}
 				rest += " (source: " + c.Tier.String() + ")"
-				b.WriteString(colorize(color, ansiDim, rest))
+				b.WriteString(ui.Colorize(color, ui.Dim, rest))
 			}
 			return b.String()
 		},

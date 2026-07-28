@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0358</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block; font-size: 0.6875rem; font-weight: 500;
+      padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/358">#358</a> &mdash; 迁移 UI 辅助到 internal/cli/ui &mdash; 2026-07-28</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> ANSI 常量与 helper 全部导出，命名去掉 ansi 前缀</h3>
+      <p><strong>Ambiguity:</strong> spec 未规定导出后的 API 命名。</p>
+      <p><strong>Choice:</strong> <code>ansiReset/Bold/Dim/Cyan/Green/Red/Yellow</code> → <code>ui.Reset/Bold/Dim/Cyan/Green/Red/Yellow</code>；<code>colorEnabled→ui.Enabled</code>、<code>colorize→ui.Colorize</code>、<code>renderMarkdown→ui.RenderMarkdown</code>、<code>buildUserContent→ui.BuildUserContent</code>。</p>
+      <p><strong>Rationale:</strong> 包名 <code>ui</code> 已提供命名空间，<code>ui.Cyan</code> 比 <code>ui.AnsiCyan</code> 更符合 Go 习惯，避免 stutter。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> stdoutIsTerminal 一并迁入 ui 并导出为单一来源</h3>
+      <p><strong>Ambiguity:</strong> 终端检测函数原在 interactive.go，被 colorEnabled 与 run.go 两处使用。</p>
+      <p><strong>Choice:</strong> 迁为 <code>ui.StdoutIsTerminal()</code>，删除 cmd/pigo 中定义，run.go 改用 ui 版本。</p>
+      <p><strong>Rationale:</strong> 终端检测是 UI 层关注点；集中到 ui 避免颜色门控与模式判断各持一份拷贝（消除重复），单一owner。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> color_test.go 未整体迁入 ui</h3>
+      <p><strong>Spec:</strong> "对应 *_test.go 迁入并转为 package ui"。</p>
+      <p><strong>Implemented:</strong> 纯色/渲染/图片测试迁入 <code>internal/cli/ui</code>（package ui）；但 <code>runtimeHelpRegistry</code> + <code>TestHelpListingColorized</code> 保留在 cmd/pigo 的 color_test.go。</p>
+      <p><strong>Why:</strong> 后者依赖 package-main 的 <code>registerLiveCommands</code> 与 slash 注册，属 help 列表测试而非 color 单元测试，无法搬到 ui 包。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> stdoutIsTerminal：复制 vs 单一来源</h3>
+      <p><strong>Alternatives:</strong> (A) ui 包内私有复制一份 6 行终端检测；(B) 迁为导出的单一来源，run.go 改指向。</p>
+      <p><strong>Pros/Cons:</strong> A 改动最小但产生重复（reviewer 会标记 DRY）；B 需改 run.go 一处调用，但消除重复、单一owner。</p>
+      <p><strong>Chosen:</strong> B。重复一个纯函数得不偿失，终端检测本就是 UI 关注点。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> ui 包是否应进一步吸收其它输出 helper</h3>
+      <p><strong>Assumption:</strong> 本 issue 仅迁 color/markdown/imageref（+终端检测）。</p>
+      <p><strong>Verify:</strong> 如 <code>oneLine</code>、<code>toolCallLabel</code> 等输出辅助后续是否也应归入 ui，留待 #366(status) / #367(repl) 迁移时统一判断。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

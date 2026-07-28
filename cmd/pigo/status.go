@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/compaction"
 	"github.com/smallnest/pigo/internal/runtime"
 	"github.com/smallnest/pigo/internal/trust"
@@ -19,7 +20,7 @@ import (
 // from deps. It shows runtime config, context usage, and (later) credentials
 // and telemetry.
 func runStatus(out io.Writer, deps *replDeps) {
-	color := colorEnabled()
+	color := ui.Enabled()
 
 	fmt.Fprintln(out)
 	printRuntimeConfig(out, color, deps)
@@ -58,16 +59,16 @@ func printRuntimeConfig(out io.Writer, color bool, deps *replDeps) {
 		thinkingLevel = "(default)"
 	}
 
-	fmt.Fprintf(out, "%s\n", colorize(color, ansiBold, "runtime config:"))
-	fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiDim, "model:"), model)
-	fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiDim, "provider:"), providerName)
-	fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiDim, "base URL:"), baseURL)
-	fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiDim, "protocol:"), protocol)
-	fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiDim, "thinking:"), thinkingLevel)
+	fmt.Fprintf(out, "%s\n", ui.Colorize(color, ui.Bold, "runtime config:"))
+	fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "model:"), model)
+	fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "provider:"), providerName)
+	fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "base URL:"), baseURL)
+	fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "protocol:"), protocol)
+	fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "thinking:"), thinkingLevel)
 	if contextWindow > 0 {
-		fmt.Fprintf(out, "  %s %d tokens\n", colorize(color, ansiDim, "context window:"), contextWindow)
+		fmt.Fprintf(out, "  %s %d tokens\n", ui.Colorize(color, ui.Dim, "context window:"), contextWindow)
 	} else {
-		fmt.Fprintf(out, "  %s unknown\n", colorize(color, ansiDim, "context window:"))
+		fmt.Fprintf(out, "  %s unknown\n", ui.Colorize(color, ui.Dim, "context window:"))
 	}
 }
 
@@ -84,26 +85,26 @@ func printContextStatus(out io.Writer, color bool, deps *replDeps) {
 		}
 	}
 
-	fmt.Fprintf(out, "%s\n", colorize(color, ansiBold, "context:"))
-	fmt.Fprintf(out, "  %s %d / %d tokens\n", colorize(color, ansiDim, "current:"), tokens, contextWindow)
+	fmt.Fprintf(out, "%s\n", ui.Colorize(color, ui.Bold, "context:"))
+	fmt.Fprintf(out, "  %s %d / %d tokens\n", ui.Colorize(color, ui.Dim, "current:"), tokens, contextWindow)
 
 	// Calculate utilization percentage if possible
 	if contextWindow > 0 {
 		utilization := int(float64(tokens) / float64(contextWindow) * 100)
 		utilColor := ""
 		if utilization >= 90 {
-			utilColor = ansiRed
+			utilColor = ui.Red
 		} else if utilization >= 70 {
-			utilColor = ansiYellow
+			utilColor = ui.Yellow
 		} else {
-			utilColor = ansiGreen
+			utilColor = ui.Green
 		}
-		fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiDim, "utilization:"), colorize(color, utilColor, fmt.Sprintf("%d%%", utilization)))
+		fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "utilization:"), ui.Colorize(color, utilColor, fmt.Sprintf("%d%%", utilization)))
 	} else {
-		fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiDim, "utilization:"), colorize(color, ansiYellow, "unknown"))
+		fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "utilization:"), ui.Colorize(color, ui.Yellow, "unknown"))
 	}
 
-	fmt.Fprintf(out, "  %s %d\n", colorize(color, ansiDim, "compactions:"), compactions)
+	fmt.Fprintf(out, "  %s %d\n", ui.Colorize(color, ui.Dim, "compactions:"), compactions)
 
 	// Calculate remaining tokens before auto-compaction
 	if contextWindow > 0 {
@@ -112,23 +113,23 @@ func printContextStatus(out io.Writer, color bool, deps *replDeps) {
 		remaining := threshold - tokens
 		if remaining < 0 {
 			fmt.Fprintf(out, "  %s %s (threshold: %d, reserve: %d)\n",
-				colorize(color, ansiDim, "before compact:"),
-				colorize(color, ansiRed, fmt.Sprintf("%d over threshold", -remaining)),
+				ui.Colorize(color, ui.Dim, "before compact:"),
+				ui.Colorize(color, ui.Red, fmt.Sprintf("%d over threshold", -remaining)),
 				threshold,
 				reserve,
 			)
 		} else {
 			fmt.Fprintf(out, "  %s %s (threshold: %d, reserve: %d)\n",
-				colorize(color, ansiDim, "before compact:"),
-				colorize(color, ansiGreen, fmt.Sprintf("%d tokens remaining", remaining)),
+				ui.Colorize(color, ui.Dim, "before compact:"),
+				ui.Colorize(color, ui.Green, fmt.Sprintf("%d tokens remaining", remaining)),
 				threshold,
 				reserve,
 			)
 		}
 	} else {
 		fmt.Fprintf(out, "  %s %s\n",
-			colorize(color, ansiDim, "before compact:"),
-			colorize(color, ansiYellow, "auto-compaction disabled (unknown window)"),
+			ui.Colorize(color, ui.Dim, "before compact:"),
+			ui.Colorize(color, ui.Yellow, "auto-compaction disabled (unknown window)"),
 		)
 	}
 }
@@ -137,9 +138,9 @@ func printContextStatus(out io.Writer, color bool, deps *replDeps) {
 // and counts of loaded skills and plugins (with names). User command templates
 // are listed separately when present.
 func printEnvStatus(out io.Writer, color bool, deps *replDeps) {
-	fmt.Fprintf(out, "%s\n", colorize(color, ansiBold, "project & environment:"))
-	fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiDim, "cwd:"), deps.cwd)
-	fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiDim, "trust:"), trustStatus(deps.trust, deps.cwd))
+	fmt.Fprintf(out, "%s\n", ui.Colorize(color, ui.Bold, "project & environment:"))
+	fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "cwd:"), deps.cwd)
+	fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "trust:"), trustStatus(deps.trust, deps.cwd))
 
 	var skills, plugins, userCmds []string
 	if deps.slash != nil {
@@ -154,10 +155,10 @@ func printEnvStatus(out io.Writer, color bool, deps *replDeps) {
 			}
 		}
 	}
-	fmt.Fprintf(out, "  %s %d%s\n", colorize(color, ansiDim, "skills:"), len(skills), namesSuffix(skills))
-	fmt.Fprintf(out, "  %s %d%s\n", colorize(color, ansiDim, "plugins:"), len(plugins), namesSuffix(plugins))
+	fmt.Fprintf(out, "  %s %d%s\n", ui.Colorize(color, ui.Dim, "skills:"), len(skills), namesSuffix(skills))
+	fmt.Fprintf(out, "  %s %d%s\n", ui.Colorize(color, ui.Dim, "plugins:"), len(plugins), namesSuffix(plugins))
 	if len(userCmds) > 0 {
-		fmt.Fprintf(out, "  %s %d%s\n", colorize(color, ansiDim, "user commands:"), len(userCmds), namesSuffix(userCmds))
+		fmt.Fprintf(out, "  %s %d%s\n", ui.Colorize(color, ui.Dim, "user commands:"), len(userCmds), namesSuffix(userCmds))
 	}
 }
 
@@ -194,24 +195,24 @@ func namesSuffix(names []string) string {
 // printCredentialsStatus prints the credentials & connectivity section: API key
 // presence (masked, never plaintext) and the provider endpoint URL.
 func printCredentialsStatus(out io.Writer, color bool, deps *replDeps) {
-	fmt.Fprintf(out, "%s\n", colorize(color, ansiBold, "credentials & connectivity:"))
+	fmt.Fprintf(out, "%s\n", ui.Colorize(color, ui.Bold, "credentials & connectivity:"))
 	provider := deps.live.ProviderName
 	if deps.creds != nil && deps.creds.HasCredential(context.Background(), provider) {
 		key := deps.creds.GetAPIKey(context.Background(), provider)
 		fmt.Fprintf(out, "  %s %s %s\n",
-			colorize(color, ansiDim, "api key:"),
-			colorize(color, ansiGreen, "set"),
-			colorize(color, ansiDim, maskKey(key)))
+			ui.Colorize(color, ui.Dim, "api key:"),
+			ui.Colorize(color, ui.Green, "set"),
+			ui.Colorize(color, ui.Dim, maskKey(key)))
 	} else {
 		fmt.Fprintf(out, "  %s %s\n",
-			colorize(color, ansiDim, "api key:"),
-			colorize(color, ansiYellow, "not set"))
+			ui.Colorize(color, ui.Dim, "api key:"),
+			ui.Colorize(color, ui.Yellow, "not set"))
 	}
 	endpoint := deps.live.BaseURL
 	if endpoint == "" {
 		endpoint = "(default)"
 	}
-	fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiDim, "endpoint:"), endpoint)
+	fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "endpoint:"), endpoint)
 }
 
 // maskKey returns a masked hint of an API key showing only the last 4 chars
@@ -231,11 +232,11 @@ func maskKey(key string) string {
 // truncation/compaction counts, context utilization, and a per-tool table.
 // Both blocks show "no telemetry yet" before any run has completed.
 func printTelemetryStatus(out io.Writer, color bool, deps *replDeps) {
-	fmt.Fprintf(out, "%s\n", colorize(color, ansiBold, "telemetry:"))
+	fmt.Fprintf(out, "%s\n", ui.Colorize(color, ui.Bold, "telemetry:"))
 	holder := deps.telemetry
 	if holder == nil || !holder.HasTelemetry() {
-		fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiDim, "since session start:"), colorize(color, ansiDim, "no telemetry yet"))
-		fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiDim, "last run:"), colorize(color, ansiDim, "no telemetry yet"))
+		fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "since session start:"), ui.Colorize(color, ui.Dim, "no telemetry yet"))
+		fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "last run:"), ui.Colorize(color, ui.Dim, "no telemetry yet"))
 		return
 	}
 	printTelemetryBlock(out, color, "since session start:",
@@ -254,19 +255,19 @@ func printTelemetryStatus(out io.Writer, color bool, deps *replDeps) {
 			last.ToolDurationsMs,
 		)
 	} else {
-		fmt.Fprintf(out, "  %s %s\n", colorize(color, ansiDim, "last run:"), colorize(color, ansiDim, "no telemetry yet"))
+		fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "last run:"), ui.Colorize(color, ui.Dim, "no telemetry yet"))
 	}
 }
 
 // printTelemetryBlock renders one telemetry sub-block (cumulative or last run).
 func printTelemetryBlock(out io.Writer, color bool, label string, turns, trunc, compact int, util float64, tools map[string]agentcore.ToolTiming) {
-	fmt.Fprintf(out, "  %s\n", colorize(color, ansiCyan, label))
-	fmt.Fprintf(out, "    %s %d\n", colorize(color, ansiDim, "turns:"), turns)
-	fmt.Fprintf(out, "    %s %d\n", colorize(color, ansiDim, "truncations:"), trunc)
-	fmt.Fprintf(out, "    %s %d\n", colorize(color, ansiDim, "compactions:"), compact)
-	fmt.Fprintf(out, "    %s %s\n", colorize(color, ansiDim, "utilization:"), fmt.Sprintf("%.0f%%", util*100))
+	fmt.Fprintf(out, "  %s\n", ui.Colorize(color, ui.Cyan, label))
+	fmt.Fprintf(out, "    %s %d\n", ui.Colorize(color, ui.Dim, "turns:"), turns)
+	fmt.Fprintf(out, "    %s %d\n", ui.Colorize(color, ui.Dim, "truncations:"), trunc)
+	fmt.Fprintf(out, "    %s %d\n", ui.Colorize(color, ui.Dim, "compactions:"), compact)
+	fmt.Fprintf(out, "    %s %s\n", ui.Colorize(color, ui.Dim, "utilization:"), fmt.Sprintf("%.0f%%", util*100))
 	if len(tools) == 0 {
-		fmt.Fprintf(out, "    %s (none)\n", colorize(color, ansiDim, "tools:"))
+		fmt.Fprintf(out, "    %s (none)\n", ui.Colorize(color, ui.Dim, "tools:"))
 		return
 	}
 	names := make([]string, 0, len(tools))
@@ -274,7 +275,7 @@ func printTelemetryBlock(out io.Writer, color bool, label string, turns, trunc, 
 		names = append(names, n)
 	}
 	sort.Strings(names)
-	fmt.Fprintf(out, "    %s\n", colorize(color, ansiDim, "tools:"))
+	fmt.Fprintf(out, "    %s\n", ui.Colorize(color, ui.Dim, "tools:"))
 	for _, n := range names {
 		t := tools[n]
 		fmt.Fprintf(out, "      %-12s %3d calls  %dms\n", n, t.Count, t.TotalMs)

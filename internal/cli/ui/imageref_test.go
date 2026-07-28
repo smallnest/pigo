@@ -1,9 +1,8 @@
-package main
-
 // Tests for the prompt image-reference syntax (US-010, #126): @image:<path> and
 // the Markdown ![alt](<path>) form. They write a tiny real PNG to a temp file so
 // loadImageContent exercises the real read + base64 + mime path, and assert that
 // a missing file is an error (not a silently dropped image).
+package ui
 
 import (
 	"encoding/base64"
@@ -37,9 +36,9 @@ func writeTempPNG(t *testing.T) string {
 
 // TestBuildUserContentNoImage: a plain prompt yields a single text block.
 func TestBuildUserContentNoImage(t *testing.T) {
-	content, err := buildUserContent("just some text")
+	content, err := BuildUserContent("just some text")
 	if err != nil {
-		t.Fatalf("buildUserContent: %v", err)
+		t.Fatalf("BuildUserContent: %v", err)
 	}
 	if len(content) != 1 {
 		t.Fatalf("content len = %d, want 1", len(content))
@@ -53,9 +52,9 @@ func TestBuildUserContentNoImage(t *testing.T) {
 // keeps the surrounding text.
 func TestBuildUserContentAtImageSyntax(t *testing.T) {
 	path := writeTempPNG(t)
-	content, err := buildUserContent("look at @image:" + path + " please")
+	content, err := BuildUserContent("look at @image:" + path + " please")
 	if err != nil {
-		t.Fatalf("buildUserContent: %v", err)
+		t.Fatalf("BuildUserContent: %v", err)
 	}
 	assertTextThenImage(t, content, "look at", "image/png")
 }
@@ -63,9 +62,9 @@ func TestBuildUserContentAtImageSyntax(t *testing.T) {
 // TestBuildUserContentMarkdownSyntax: ![alt](path) attaches an ImageContent.
 func TestBuildUserContentMarkdownSyntax(t *testing.T) {
 	path := writeTempPNG(t)
-	content, err := buildUserContent("before ![a pixel](" + path + ") after")
+	content, err := BuildUserContent("before ![a pixel](" + path + ") after")
 	if err != nil {
-		t.Fatalf("buildUserContent: %v", err)
+		t.Fatalf("BuildUserContent: %v", err)
 	}
 	// text "before", image, text "after"
 	if len(content) != 3 {
@@ -78,9 +77,9 @@ func TestBuildUserContentMarkdownSyntax(t *testing.T) {
 
 // TestBuildUserContentMissingFile: a missing referenced file is an error.
 func TestBuildUserContentMissingFile(t *testing.T) {
-	_, err := buildUserContent("@image:/no/such/file.png")
+	_, err := BuildUserContent("@image:/no/such/file.png")
 	if err == nil {
-		t.Fatal("buildUserContent accepted a missing image file, want error")
+		t.Fatal("BuildUserContent accepted a missing image file, want error")
 	}
 }
 

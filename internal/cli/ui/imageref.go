@@ -5,7 +5,7 @@
 // block so a multimodal model can see it. The remaining (non-reference) text is
 // kept as a TextContent block. References that cannot be read are reported as an
 // error rather than silently dropped, so the user knows the image was not sent.
-package main
+package ui
 
 import (
 	"encoding/base64"
@@ -27,13 +27,13 @@ import (
 // token while the Markdown form is explicitly delimited by parentheses.
 var imageRefPattern = regexp.MustCompile(`!\[[^\]]*\]\(([^)]+)\)|@image:(\S+)`)
 
-// buildUserContent turns a raw prompt line into a content list. When the prompt
+// BuildUserContent turns a raw prompt line into a content list. When the prompt
 // contains no image references it returns a single TextContent (the common
 // case). Otherwise it returns the interleaved text and image blocks, reading and
 // base64-encoding each referenced file. It returns an error if any referenced
 // file cannot be read, so the caller can surface it instead of sending a prompt
 // that silently omits the image.
-func buildUserContent(prompt string) (agentcore.ContentList, error) {
+func BuildUserContent(prompt string) (agentcore.ContentList, error) {
 	locs := imageRefPattern.FindAllStringSubmatchIndex(prompt, -1)
 	if len(locs) == 0 {
 		return agentcore.ContentList{agentcore.NewTextContent(prompt)}, nil
