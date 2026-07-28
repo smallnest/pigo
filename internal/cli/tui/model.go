@@ -7,6 +7,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/runtime"
 )
 
 // Model is the root Bubble Tea model for the full-screen TUI. It composes a
@@ -77,6 +79,21 @@ type Model struct {
 	// the git probe and the status bar's path display.
 	cwd string
 
+	// slash is the shared slash-command registry (#383) the TUI consults exactly
+	// as the REPL does: /model, /help, user templates, plugin commands and skills.
+	// It is bound to live so a /model switch mutates the same config the run loop
+	// reads. Built in NewModel (built-ins + disk templates) and rebuilt in
+	// withSession against the session's live config.
+	slash *runtime.SlashRegistry
+	// live is the mutable run configuration the /model command switches. In a
+	// session-bound model it is the SAME pointer the run loop reads (set by
+	// withSession), so a switch takes effect on the next turn.
+	live *cli.LiveConfig
+	// menu is the autocomplete popup shown while a "/name" is being typed (#391).
+	// It filters slash by the typed prefix; the model intercepts arrow/Tab/Enter
+	// keys to drive it before delegating to the textarea.
+	menu slashMenu
+
 	// toolCards indexes the rich tool-call cards (#389, US-006) by tool-call id so
 	// a toolEndMsg can locate the card started earlier and flip its state / attach
 	// the parsed response. Each card is also appended to the transcript as an
@@ -88,16 +105,28 @@ type Model struct {
 	lastToolCard *toolCard
 }
 
-// NewModel builds the root model from the assembled Options. It performs no I/O
-// beyond reading the current working directory (for the status bar's path
-// display and git probe); session/live/slash/trust assembly is deferred to
-// downstream nodes.
+// NewModel builds the root model from the assembled Options. It reads the
+// current working directory (for the status bar's path display and git probe)
+// and assembles the shared slash-command registry (#391), which reads the user
+// prompt-template dirs (~/.pigo/{commands,prompts}) and the pre-loaded skills;
+// missing dirs are not an error. The registry is bound here to a live config
+// derived from Options; withSession rebinds it to the session's live config so a
+// /model switch reaches the run loop.
 func NewModel(opts Options) Model {
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = ""
 	}
 	theme := DefaultTheme()
+	live := &cli.LiveConfig{
+		Model:         opts.Model,
+		ProviderName:  opts.ProviderName,
+		Provider:      opts.Provider,
+		BaseURL:       opts.BaseURL,
+		Protocol:      opts.Protocol,
+		ThinkingLevel: opts.ThinkingLevel,
+		ContextWindow: cli.DefaultContextWindow,
+	}
 	return Model{
 		opts:       opts,
 		theme:      theme,
@@ -106,6 +135,9 @@ func NewModel(opts Options) Model {
 		cwd:        cwd,
 		statusBar:  newStatusBar(theme, opts, cwd),
 		toolCards:  make(map[string]*toolCard),
+		slash:      newSlashRegistry(opts, live),
+		live:       live,
+		menu:       newSlashMenu(theme),
 	}
 }
 
@@ -118,6 +150,10 @@ func (m Model) withSession(s *runSession, history []agentcore.Message) Model {
 	m.session = s
 	m.startRunFn = s.startRun
 	m.interruptFn = s.interrupt
+	// Rebind the registry to the session's live config so /model mutates the very
+	// config the run loop reads (buildConfig), not the throwaway one NewModel made.
+	m.live = s.live
+	m.slash = newSlashRegistry(m.opts, s.live)
 	seedTranscript(&m.transcript, history)
 	return m
 }
@@ -226,6 +262,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // newline) to the input editor while idle. Keys are matched via KeyPressMsg
 // .String() so the mapping is terminal-independent.
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// While idle with the autocomplete popup open, the arrow / Tab / Esc keys
+	// drive the menu instead of the transcript or textarea (FR-15). Enter is left
+	// to the main switch below, which routes through submit → runSlash so the
+	// selected/typed command runs. These are matched via KeyPressMsg.String() so
+	// the mapping is terminal-independent.
+	if !m.running && m.menu.active {
+		switch msg.String() {
+		case "up":
+			m.menu.moveUp()
+			return m, nil
+		case "down":
+			m.menu.moveDown()
+			return m, nil
+		case "tab":
+			return m.completeSlash(), nil
+		case "esc":
+			m.menu.close()
+			return m, nil
+		case "enter":
+			return m.submitSlashSelected()
+		}
+	}
+
 	switch msg.String() {
 	case "esc", "ctrl+c":
 		// Two-stage interrupt (FR-14): while a run is in flight the first press
@@ -272,10 +331,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// Everything else is editing input; gated on idle so keystrokes never corrupt
 	// an in-flight prompt. textarea handles CJK / emoji by rune and Alt+Enter as
-	// a newline.
+	// a newline. After the buffer changes, refresh the autocomplete popup so it
+	// opens/filters/closes as the user types a "/name" prefix.
 	if !m.running {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
+		m.menu.refresh(m.input.Value(), m.slash)
 		return m, cmd
 	}
 	return m, nil
@@ -291,14 +352,80 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	if prompt == "" {
 		return m, nil
 	}
+	// A "/name ..." line is a slash-command invocation, not a prompt: resolve it
+	// against the shared registry (same as the REPL) rather than sending it to the
+	// agent verbatim.
+	if strings.HasPrefix(prompt, "/") {
+		return m.runSlash(prompt)
+	}
 	m.transcript.addUser(prompt)
 	m.input.Clear()
+	m.menu.close()
+	return m.startPrompt(prompt)
+}
 
+// completeSlash fills the buffer with the highlighted candidate's "/name " so the
+// user can go on to type arguments; the trailing space ends name-completion, so
+// the refresh closes the popup. It is the Tab action while the menu is open.
+func (m Model) completeSlash() Model {
+	if c, ok := m.menu.current(); ok {
+		m.input.SetValue("/" + c.Name + " ")
+		m.menu.refresh(m.input.Value(), m.slash)
+	}
+	return m
+}
+
+// submitSlashSelected runs the command the popup highlights (Enter while the
+// menu is open). Navigating with the arrows then pressing Enter runs the
+// selected command even if the typed prefix is shorter; with no selection it
+// falls back to the raw buffer so a fully-typed "/name" still runs.
+func (m Model) submitSlashSelected() (tea.Model, tea.Cmd) {
+	line := strings.TrimSpace(m.input.Value())
+	if c, ok := m.menu.current(); ok {
+		line = "/" + c.Name
+	}
+	return m.runSlash(line)
+}
+
+// runSlash resolves a slash-command line against the shared registry and folds
+// its outcome into the transcript, mirroring the REPL's dispatch: the invocation
+// is echoed as a user block; an action command's status (e.g. /help, /model)
+// renders as a system block; a prompt/skill command's expanded text starts a
+// run; a hybrid (plugin) command shows its notifications then runs its prompt.
+// An unknown command surfaces the resolver error as a system block.
+func (m Model) runSlash(line string) (tea.Model, tea.Cmd) {
+	m.transcript.addUser(line)
+	m.input.Clear()
+	m.menu.close()
+	if m.slash == nil {
+		m.transcript.addSystem("斜杠命令不可用")
+		return m, nil
+	}
+	outcome, err := m.slash.ResolveOutcome(line)
+	if err != nil {
+		m.transcript.addSystem(err.Error())
+		return m, nil
+	}
+	if outcome.Message != "" {
+		m.transcript.addSystem(outcome.Message)
+	}
+	// An action command is complete once its status is shown; a hybrid with no
+	// prompt (notifications only) likewise starts no run.
+	if outcome.Kind == runtime.SlashAction || outcome.Prompt == "" {
+		return m, nil
+	}
+	return m.startPrompt(outcome.Prompt)
+}
+
+// startPrompt launches an agent run for prompt, blurring the editor and flipping
+// to running when a run starter is wired. With no starter (pre-session model /
+// tests) it records the pre-#392 system note and stays idle. It is shared by a
+// plain submit and by a slash prompt/skill command.
+func (m Model) startPrompt(prompt string) (tea.Model, tea.Cmd) {
 	if m.startRunFn == nil {
 		m.transcript.addSystem("（运行未接入：会话装配见 #392）")
 		return m, nil
 	}
-
 	m.input.Blur()
 	ch, cmd := m.startRunFn(prompt)
 	m.runCh = ch
@@ -359,6 +486,13 @@ func (m Model) View() tea.View {
 	}
 	b.WriteString(status)
 	b.WriteByte('\n')
+	// The autocomplete popup, when open, renders just above the input line as an
+	// overlay (it contributes no rows while idle, so the empty-shell layout is
+	// unchanged).
+	if menu := m.menu.view(width); menu != "" {
+		b.WriteString(menu)
+		b.WriteByte('\n')
+	}
 	b.WriteString(input)
 
 	return tea.View{Content: b.String(), AltScreen: true}

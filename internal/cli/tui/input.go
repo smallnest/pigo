@@ -68,6 +68,10 @@ func (in input) Update(msg tea.Msg) (input, tea.Cmd) {
 // Value returns the current buffer contents, including any embedded newlines.
 func (in input) Value() string { return in.ta.Value() }
 
+// SetValue replaces the buffer contents and moves the cursor to the end. It is
+// used by slash autocomplete (Tab) to complete the buffer to the chosen command.
+func (in *input) SetValue(s string) { in.ta.SetValue(s) }
+
 // Clear empties the buffer and resets the cursor to the start.
 func (in *input) Clear() { in.ta.Reset() }
 
