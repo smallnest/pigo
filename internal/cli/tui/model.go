@@ -541,8 +541,10 @@ func (m Model) View() tea.View {
 var keyboardEnhancements = tea.KeyboardEnhancements{ReportAllKeysAsEscapeCodes: true}
 
 // relayout re-sizes the transcript to the rows left after reserving the status
-// bar (1 row), the current input editor height, and any open autocomplete popup,
-// and reserves one content column for the transcript scrollbar. It is called on
+// bar (1 row), the current input editor height, and any open autocomplete popup.
+// It reserves one content column for the transcript scrollbar only while there
+// is history to scroll (the transcript overflows its viewport); when everything
+// fits, the transcript uses the full width and no column is held. It is called on
 // every resize and after any edit that changes the input height or menu row
 // count, so the transcript region always fills exactly the space above the
 // input/status chrome.
@@ -554,11 +556,16 @@ func (m *Model) relayout() {
 	if rows < 0 {
 		rows = 0
 	}
-	content := m.width - 1 // reserve a column for the scrollbar
-	if content < 0 {
-		content = 0
+	// Size at full width first; the scrollbar column is only reserved when the
+	// content overflows, so a non-scrolling transcript keeps the whole width.
+	m.transcript.setSize(m.width, rows)
+	if m.transcript.overflowing() {
+		content := m.width - 1 // reserve a column for the scrollbar
+		if content < 0 {
+			content = 0
+		}
+		m.transcript.setSize(content, rows)
 	}
-	m.transcript.setSize(content, rows)
 	m.input.SetWidth(m.width)
 }
 

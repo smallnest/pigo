@@ -147,23 +147,32 @@ func (t *transcript) update(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-// view renders the current visible slice of the transcript with a vertical
-// scrollbar column attached on the right (FR-10), so history is scrollable and
-// the user can see where they are in the log. The scrollbar occupies the single
-// content column relayout reserved (width-1 for the blocks, +1 for the bar).
-func (t transcript) view() string {
-	body := t.vp.View()
-	bar := t.scrollbar()
-	if bar == "" {
-		return body
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, body, bar)
+// overflowing reports whether the transcript has more content than fits in the
+// viewport, i.e. there is history to scroll. relayout uses this to reserve the
+// scrollbar column only when scrolling is possible, and view uses it to decide
+// whether to attach the thumb at all.
+func (t transcript) overflowing() bool {
+	return t.vp.Height() > 0 && t.vp.TotalLineCount() > t.vp.Height()
 }
 
-// scrollbar renders a one-column vertical scrollbar the height of the viewport.
-// When all content fits it is a blank track (keeping the column width stable);
-// otherwise a proportional thumb marks the visible window and its position marks
-// the scroll offset, so scrolling up through history moves the thumb.
+// view renders the current visible slice of the transcript. While there is
+// history to scroll (FR-10) a light-gray thumb is attached in a one-column
+// gutter on the right so the scroll position is visible; the gutter is only
+// present when the content overflows (relayout reserves the column to match), so
+// a non-scrolling transcript uses the full width. There is no track line — the
+// non-thumb rows are blank, so only the thumb is drawn.
+func (t transcript) view() string {
+	if !t.overflowing() {
+		return t.vp.View()
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, t.vp.View(), t.scrollbar())
+}
+
+// scrollbar renders the one-column vertical thumb the height of the viewport. It
+// is only called while the transcript overflows: a proportional thumb marks the
+// visible window and its position marks the scroll offset, so scrolling up
+// through history moves the thumb. Non-thumb rows are blank spaces (no track
+// line) that hold the column width stable so the body does not shift.
 func (t transcript) scrollbar() string {
 	h := t.vp.Height()
 	if h <= 0 {
@@ -171,11 +180,7 @@ func (t transcript) scrollbar() string {
 	}
 	total := t.vp.TotalLineCount()
 	if total <= h {
-		lines := make([]string, h)
-		for i := range lines {
-			lines[i] = " "
-		}
-		return strings.Join(lines, "\n")
+		return ""
 	}
 	thumb := h * h / total
 	if thumb < 1 {
@@ -196,9 +201,9 @@ func (t transcript) scrollbar() string {
 			b.WriteByte('\n')
 		}
 		if i >= pos && i < pos+thumb {
-			b.WriteString(t.theme.Accent.Render("█"))
+			b.WriteString(t.theme.ScrollThumb.Render("█"))
 		} else {
-			b.WriteString(t.theme.System.Render("│"))
+			b.WriteByte(' ')
 		}
 	}
 	return b.String()

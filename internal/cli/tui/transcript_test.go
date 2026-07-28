@@ -115,3 +115,36 @@ func TestTranscriptCJKWrap(t *testing.T) {
 		t.Errorf("counted %d 你 runes after wrap, want 5", got)
 	}
 }
+
+// TestTranscriptScrollbar verifies the scrollbar policy: the gutter is absent
+// while the content fits (no overflow → full width, no thumb), and once the
+// content overflows a light-gray thumb "█" appears with no track line "│".
+func TestTranscriptScrollbar(t *testing.T) {
+	tr := newTranscript(DefaultTheme())
+	tr.setSize(20, 4) // 4 visible rows
+
+	// Two short lines fit in 4 rows: no overflow, no scrollbar drawn.
+	tr.addUser("one")
+	tr.addUser("two")
+	if tr.overflowing() {
+		t.Fatal("transcript should not overflow while content fits")
+	}
+	if got := stripANSI(tr.view()); strings.Contains(got, "█") || strings.Contains(got, "│") {
+		t.Errorf("no scrollbar expected while content fits; got:\n%q", got)
+	}
+
+	// Enough lines to exceed 4 rows: now it overflows and the thumb appears.
+	for i := 0; i < 10; i++ {
+		tr.addUser("line")
+	}
+	if !tr.overflowing() {
+		t.Fatal("transcript should overflow once content exceeds the viewport")
+	}
+	view := stripANSI(tr.view())
+	if !strings.Contains(view, "█") {
+		t.Errorf("expected a scrollbar thumb █ while overflowing; got:\n%q", view)
+	}
+	if strings.Contains(view, "│") {
+		t.Errorf("scrollbar must not draw a track line │; got:\n%q", view)
+	}
+}
