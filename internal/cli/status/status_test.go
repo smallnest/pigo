@@ -1,4 +1,4 @@
-package main
+package status
 
 import (
 	"bytes"
@@ -12,28 +12,21 @@ import (
 )
 
 func TestRunStatus(t *testing.T) {
-	// Use the same test setup as other REPL tests
-	p := &replProvider{reply: "unused"}
-	deps, _ := newTestDeps(t, p)
+	host := newFakeHost()
+	host.live.Model = "test-model"
+	host.live.ProviderName = "test-provider"
+	host.live.BaseURL = "https://api.example.com"
+	host.live.Protocol = "anthropic"
+	host.live.ContextWindow = 128000
 
-	// Customize the live config for clearer test expectations
-	deps.live.Model = "test-model"
-	deps.live.ProviderName = "test-provider"
-	deps.live.BaseURL = "https://api.example.com"
-	deps.live.Protocol = "anthropic"
-	deps.live.ContextWindow = 128000
-
-	// Add a message to the context
-	deps.agentCtx.Messages = append(deps.agentCtx.Messages,
+	host.agentCtx.Messages = append(host.agentCtx.Messages,
 		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("hello")}},
 	)
 
-	// Test with color disabled
 	var buf bytes.Buffer
-	runStatus(&buf, &deps)
+	RunStatus(&buf, host)
 	output := buf.String()
 
-	// Check that the runtime config section appears
 	if !strings.Contains(output, "runtime config:") {
 		t.Error("expected output to contain 'runtime config:'")
 	}
@@ -53,7 +46,6 @@ func TestRunStatus(t *testing.T) {
 		t.Error("expected output to contain 'context window: 128000 tokens'")
 	}
 
-	// Check that the context section appears
 	if !strings.Contains(output, "context:") {
 		t.Error("expected output to contain 'context:'")
 	}
@@ -72,19 +64,17 @@ func TestRunStatus(t *testing.T) {
 }
 
 func TestRunStatusWithCompaction(t *testing.T) {
-	p := &replProvider{reply: "unused"}
-	deps, _ := newTestDeps(t, p)
-	deps.live.ContextWindow = 128000
+	host := newFakeHost()
+	host.live.ContextWindow = 128000
 
-	// Add messages including a compaction message
-	deps.agentCtx.Messages = append(deps.agentCtx.Messages,
+	host.agentCtx.Messages = append(host.agentCtx.Messages,
 		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("hello")}},
 		agentcore.CompactionMessage{Summary: "compacted history"},
 		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("more")}},
 	)
 
 	var buf bytes.Buffer
-	runStatus(&buf, &deps)
+	RunStatus(&buf, host)
 	output := buf.String()
 
 	if !strings.Contains(output, "compactions: 1") {
@@ -93,12 +83,11 @@ func TestRunStatusWithCompaction(t *testing.T) {
 }
 
 func TestRunStatusUnknownContextWindow(t *testing.T) {
-	p := &replProvider{reply: "unused"}
-	deps, _ := newTestDeps(t, p)
-	deps.live.ContextWindow = 0 // unknown
+	host := newFakeHost()
+	host.live.ContextWindow = 0 // unknown
 
 	var buf bytes.Buffer
-	runStatus(&buf, &deps)
+	RunStatus(&buf, host)
 	output := buf.String()
 
 	if !strings.Contains(output, "context window: unknown") {
@@ -109,34 +98,7 @@ func TestRunStatusUnknownContextWindow(t *testing.T) {
 	}
 }
 
-func TestStatusGuard(t *testing.T) {
-	// The guard logic is in the REPL loop: matches "/status" or "/status "
-	// but not "/statusfoo" or "/statusbar"
-	testCases := []struct {
-		line string
-		want bool
-	}{
-		{"/status", true},
-		{"/status ", true},
-		{"/status foo", true},
-		{"/statusbar", false},
-		{"/statusfoo", false},
-		{"/status123", false},
-		{"/stat", false},
-		{"/session", false},
-	}
-
-	for _, tc := range testCases {
-		got := (tc.line == "/status" || strings.HasPrefix(tc.line, "/status "))
-		if got != tc.want {
-			t.Errorf("line %q: got %v, want %v", tc.line, got, tc.want)
-		}
-	}
-}
-
 func TestBeforeCompactCalculation(t *testing.T) {
-	// Test the threshold calculation logic
-	// This tests the logic used in printContextStatus
 	reserve := compaction.DefaultCompactionSettings.ReserveTokens
 	if reserve != 16384 {
 		t.Errorf("expected reserve tokens to be 16384, got %d", reserve)
@@ -149,75 +111,21 @@ func TestBeforeCompactCalculation(t *testing.T) {
 	}
 }
 
-func TestRunStatusViaREPL(t *testing.T) {
-	// Verify that /status is intercepted in the REPL loop and doesn't invoke the model
-	p := &replProvider{reply: "should not be called"}
-	deps, _ := newTestDeps(t, p)
-
-	var out bytes.Buffer
-	in := strings.NewReader("/status\n/exit\n")
-	if err := runREPL(in, &out, deps); err != nil {
-		t.Fatalf("runREPL: %v", err)
-	}
-
-	// Check that the provider was not called (since /status is intercepted)
-	if p.calls != 0 {
-		t.Errorf("expected 0 model calls for /status, got %d", p.calls)
-	}
-
-	// Check that the status output appears
-	output := out.String()
-	if !strings.Contains(output, "runtime config:") {
-		t.Error("expected REPL /status output to contain 'runtime config:'")
-	}
-	if !strings.Contains(output, "context:") {
-		t.Error("expected REPL /status output to contain 'context:'")
-	}
-}
-
-func TestStatusFooNotIntercepted(t *testing.T) {
-	// Verify that "/statusfoo" is NOT intercepted as "/status"
-	p := &replProvider{reply: "model called"}
-	deps, _ := newTestDeps(t, p)
-
-	var out bytes.Buffer
-	in := strings.NewReader("/statusfoo\n/exit\n")
-	if err := runREPL(in, &out, deps); err != nil {
-		t.Fatalf("runREPL: %v", err)
-	}
-
-	// The provider should NOT be called because "/statusfoo" is treated as a
-	// slash command that doesn't exist, not as a prompt
-	if p.calls != 0 {
-		t.Errorf("expected 0 model calls for /statusfoo, got %d", p.calls)
-	}
-
-	// But the key thing: "/statusfoo" was NOT intercepted as "/status"
-	output := out.String()
-	if strings.Contains(output, "runtime config:") {
-		t.Error("expected /statusfoo to NOT run the status command")
-	}
-}
-
 func TestRunStatusEnvAndCreds(t *testing.T) {
-	p := &replProvider{reply: "unused"}
-	deps, _ := newTestDeps(t, p)
-	deps.cwd = "/tmp/test-cwd"
-	deps.live.ProviderName = "test-provider"
-	deps.live.BaseURL = "https://api.example.com"
+	host := newFakeHost()
+	host.cwd = "/tmp/test-cwd"
+	host.live.ProviderName = "test-provider"
+	host.live.BaseURL = "https://api.example.com"
 
-	// Register a skill and a plugin command so /status can count them separately.
-	deps.slash.AddSkill(runtime.SlashCommand{Name: "my-skill", Expand: func(string) string { return "" }})
-	deps.slash.AddPlugin(runtime.SlashCommand{Name: "my-plugin", Run: func(string) (string, string) { return "", "" }})
+	host.slash.AddSkill(runtime.SlashCommand{Name: "my-skill", Expand: func(string) string { return "" }})
+	host.slash.AddPlugin(runtime.SlashCommand{Name: "my-plugin", Run: func(string) (string, string) { return "", "" }})
 
-	// Set an API key for the provider.
-	deps.creds.SetOverride("test-provider", "sk-secretkey-wxyz")
+	host.creds.SetOverride("test-provider", "sk-secretkey-wxyz")
 
 	var buf bytes.Buffer
-	runStatus(&buf, &deps)
+	RunStatus(&buf, host)
 	output := buf.String()
 
-	// project & environment section
 	if !strings.Contains(output, "project & environment:") {
 		t.Error("expected 'project & environment:' section")
 	}
@@ -234,7 +142,6 @@ func TestRunStatusEnvAndCreds(t *testing.T) {
 		t.Error("expected 'plugins: 1 (my-plugin)'")
 	}
 
-	// credentials & connectivity section
 	if !strings.Contains(output, "credentials & connectivity:") {
 		t.Error("expected 'credentials & connectivity:' section")
 	}
@@ -244,7 +151,6 @@ func TestRunStatusEnvAndCreds(t *testing.T) {
 	if !strings.Contains(output, "••••wxyz") {
 		t.Error("expected masked key '••••wxyz'")
 	}
-	// The full key must NEVER appear in the output.
 	if strings.Contains(output, "sk-secretkey-wxyz") {
 		t.Error("full API key leaked into /status output")
 	}
@@ -254,12 +160,11 @@ func TestRunStatusEnvAndCreds(t *testing.T) {
 }
 
 func TestRunStatusTelemetryNoData(t *testing.T) {
-	p := &replProvider{reply: "unused"}
-	deps, _ := newTestDeps(t, p)
-	// deps.telemetry is nil from newTestDeps.
+	host := newFakeHost()
+	// host.telemetry is nil.
 
 	var buf bytes.Buffer
-	runStatus(&buf, &deps)
+	RunStatus(&buf, host)
 	output := buf.String()
 
 	if !strings.Contains(output, "telemetry:") {
@@ -271,9 +176,8 @@ func TestRunStatusTelemetryNoData(t *testing.T) {
 }
 
 func TestRunStatusTelemetryPopulated(t *testing.T) {
-	p := &replProvider{reply: "unused"}
-	deps, _ := newTestDeps(t, p)
-	deps.live.ContextWindow = 128000
+	host := newFakeHost()
+	host.live.ContextWindow = 128000
 
 	holder := cli.NewTelemetryHolder()
 	holder.Fold(agentcore.TelemetryEvent{
@@ -288,10 +192,10 @@ func TestRunStatusTelemetryPopulated(t *testing.T) {
 			"read": {Count: 4, TotalMs: 80},
 		},
 	})
-	deps.telemetry = holder
+	host.telemetry = holder
 
 	var buf bytes.Buffer
-	runStatus(&buf, &deps)
+	RunStatus(&buf, host)
 	output := buf.String()
 
 	if strings.Contains(output, "no telemetry yet") {
@@ -313,7 +217,6 @@ func TestRunStatusTelemetryPopulated(t *testing.T) {
 		t.Error("expected 'utilization: 42%'")
 	}
 
-	// Fold a second run: cumulative (5) must exceed last run (2).
 	holder.Fold(agentcore.TelemetryEvent{
 		Turns:              2,
 		TruncationCount:    0,
@@ -326,7 +229,7 @@ func TestRunStatusTelemetryPopulated(t *testing.T) {
 		},
 	})
 	buf.Reset()
-	runStatus(&buf, &deps)
+	RunStatus(&buf, host)
 	output = buf.String()
 	if !strings.Contains(output, "turns: 5") {
 		t.Error("expected cumulative 'turns: 5' after two runs")

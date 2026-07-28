@@ -29,6 +29,7 @@ import (
 	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/cli/btw"
 	"github.com/smallnest/pigo/internal/cli/goal"
+	"github.com/smallnest/pigo/internal/cli/status"
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/clipboard"
 	"github.com/smallnest/pigo/internal/compaction"
@@ -287,7 +288,7 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 			// config, context usage, and more — state a pure string→string Action
 			// closure cannot see. The exact-or-space-prefix guard keeps "/statusfoo"
 			// from being mistaken for "/status".
-			runStatus(out, &deps)
+			status.RunStatus(out, &deps)
 			continue
 		}
 		if line == "/goal" || strings.HasPrefix(line, "/goal ") {

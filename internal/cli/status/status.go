@@ -1,6 +1,10 @@
 // This file implements the /status slash command (US-002, #292) that prints a
 // colored multi-section status report with runtime config, context usage, and more.
-package main
+//
+// It reaches the session's collaborators and mutable state through the cli.Host
+// contract (like /goal and /btw) rather than importing the concrete replDeps
+// aggregate, keeping the dependency single-direction (repl→status).
+package status
 
 import (
 	"context"
@@ -10,44 +14,47 @@ import (
 	"strings"
 
 	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/compaction"
 	"github.com/smallnest/pigo/internal/runtime"
 	"github.com/smallnest/pigo/internal/trust"
 )
 
-// runStatus prints a colored multi-section status report to out using data
-// from deps. It shows runtime config, context usage, and (later) credentials
-// and telemetry.
-func runStatus(out io.Writer, deps *replDeps) {
+// RunStatus prints a colored multi-section status report to out using data
+// read from host through the cli.Host accessors. It shows runtime config,
+// context usage, project/environment, credentials, and telemetry.
+func RunStatus(out io.Writer, host cli.Host) {
 	color := ui.Enabled()
 
 	fmt.Fprintln(out)
-	printRuntimeConfig(out, color, deps)
+	printRuntimeConfig(out, color, host)
 	fmt.Fprintln(out)
-	printContextStatus(out, color, deps)
+	printContextStatus(out, color, host)
 	fmt.Fprintln(out)
-	printEnvStatus(out, color, deps)
+	printEnvStatus(out, color, host)
 	fmt.Fprintln(out)
-	printCredentialsStatus(out, color, deps)
+	printCredentialsStatus(out, color, host)
 	fmt.Fprintln(out)
-	printTelemetryStatus(out, color, deps)
+	printTelemetryStatus(out, color, host)
 }
 
 // printRuntimeConfig prints the runtime model configuration section.
-func printRuntimeConfig(out io.Writer, color bool, deps *replDeps) {
-	model := deps.live.Model
-	providerName := deps.live.ProviderName
-	baseURL := deps.live.BaseURL
-	protocol := deps.live.Protocol
-	thinkingLevel := string(deps.live.ThinkingLevel)
-	contextWindow := deps.live.ContextWindow
+func printRuntimeConfig(out io.Writer, color bool, host cli.Host) {
+	live := host.Live()
+	header := host.Header()
+	model := live.Model
+	providerName := live.ProviderName
+	baseURL := live.BaseURL
+	protocol := live.Protocol
+	thinkingLevel := string(live.ThinkingLevel)
+	contextWindow := live.ContextWindow
 
 	if model == "" {
-		model = deps.header.Model
+		model = header.Model
 	}
 	if providerName == "" {
-		providerName = deps.header.Provider
+		providerName = header.Provider
 	}
 	if baseURL == "" {
 		baseURL = "(default)"
@@ -73,10 +80,10 @@ func printRuntimeConfig(out io.Writer, color bool, deps *replDeps) {
 }
 
 // printContextStatus prints the current context usage and compaction section.
-func printContextStatus(out io.Writer, color bool, deps *replDeps) {
-	msgs := deps.agentCtx.Messages
+func printContextStatus(out io.Writer, color bool, host cli.Host) {
+	msgs := host.AgentCtx().Messages
 	tokens := compaction.EstimateContextTokens(msgs).Tokens
-	contextWindow := deps.live.ContextWindow
+	contextWindow := host.Live().ContextWindow
 
 	compactions := 0
 	for _, m := range msgs {
@@ -137,14 +144,14 @@ func printContextStatus(out io.Writer, color bool, deps *replDeps) {
 // printEnvStatus prints the project & environment section: cwd, trust status,
 // and counts of loaded skills and plugins (with names). User command templates
 // are listed separately when present.
-func printEnvStatus(out io.Writer, color bool, deps *replDeps) {
+func printEnvStatus(out io.Writer, color bool, host cli.Host) {
 	fmt.Fprintf(out, "%s\n", ui.Colorize(color, ui.Bold, "project & environment:"))
-	fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "cwd:"), deps.cwd)
-	fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "trust:"), trustStatus(deps.trust, deps.cwd))
+	fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "cwd:"), host.Cwd())
+	fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "trust:"), trustStatus(host.Trust(), host.Cwd()))
 
 	var skills, plugins, userCmds []string
-	if deps.slash != nil {
-		for _, c := range deps.slash.List() {
+	if slash := host.Slash(); slash != nil {
+		for _, c := range slash.List() {
 			switch c.Source {
 			case runtime.SourceSkill:
 				skills = append(skills, c.Name)
@@ -194,11 +201,13 @@ func namesSuffix(names []string) string {
 
 // printCredentialsStatus prints the credentials & connectivity section: API key
 // presence (masked, never plaintext) and the provider endpoint URL.
-func printCredentialsStatus(out io.Writer, color bool, deps *replDeps) {
+func printCredentialsStatus(out io.Writer, color bool, host cli.Host) {
 	fmt.Fprintf(out, "%s\n", ui.Colorize(color, ui.Bold, "credentials & connectivity:"))
-	provider := deps.live.ProviderName
-	if deps.creds != nil && deps.creds.HasCredential(context.Background(), provider) {
-		key := deps.creds.GetAPIKey(context.Background(), provider)
+	live := host.Live()
+	creds := host.Creds()
+	provider := live.ProviderName
+	if creds != nil && creds.HasCredential(context.Background(), provider) {
+		key := creds.GetAPIKey(context.Background(), provider)
 		fmt.Fprintf(out, "  %s %s %s\n",
 			ui.Colorize(color, ui.Dim, "api key:"),
 			ui.Colorize(color, ui.Green, "set"),
@@ -208,7 +217,7 @@ func printCredentialsStatus(out io.Writer, color bool, deps *replDeps) {
 			ui.Colorize(color, ui.Dim, "api key:"),
 			ui.Colorize(color, ui.Yellow, "not set"))
 	}
-	endpoint := deps.live.BaseURL
+	endpoint := live.BaseURL
 	if endpoint == "" {
 		endpoint = "(default)"
 	}
@@ -231,9 +240,9 @@ func maskKey(key string) string {
 // cumulative (since session start) and last run - each showing turn count,
 // truncation/compaction counts, context utilization, and a per-tool table.
 // Both blocks show "no telemetry yet" before any run has completed.
-func printTelemetryStatus(out io.Writer, color bool, deps *replDeps) {
+func printTelemetryStatus(out io.Writer, color bool, host cli.Host) {
 	fmt.Fprintf(out, "%s\n", ui.Colorize(color, ui.Bold, "telemetry:"))
-	holder := deps.telemetry
+	holder := host.Telemetry()
 	if holder == nil || !holder.HasTelemetry() {
 		fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "since session start:"), ui.Colorize(color, ui.Dim, "no telemetry yet"))
 		fmt.Fprintf(out, "  %s %s\n", ui.Colorize(color, ui.Dim, "last run:"), ui.Colorize(color, ui.Dim, "no telemetry yet"))
