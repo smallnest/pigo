@@ -181,6 +181,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusBar.SetGit(msg)
 		return m, nil
 
+	case tea.MouseWheelMsg:
+		// Mouse-wheel scrolling reaches the transcript viewport whether idle or
+		// running, so history stays scrollable with the wheel — not just PgUp/PgDn.
+		// The viewport (MouseWheelEnabled by default) turns the wheel event into a
+		// scroll; enabling MouseModeCellMotion in View is what makes the terminal
+		// deliver these events under the alt-screen at all.
+		cmd := m.transcript.update(msg)
+		return m, cmd
+
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
@@ -506,7 +515,10 @@ func (m Model) View() tea.View {
 	// below the input editor.
 	b.WriteString(status)
 
-	return tea.View{Content: b.String(), AltScreen: true}
+	// MouseModeCellMotion enables click/release/wheel events. Without it the
+	// alt-screen swallows the wheel (no native scrollback), so history could only
+	// be reached via PgUp/PgDn; enabling it lets the wheel scroll the transcript.
+	return tea.View{Content: b.String(), AltScreen: true, MouseMode: tea.MouseModeCellMotion}
 }
 
 // relayout re-sizes the transcript to the rows left after reserving the status
