@@ -60,6 +60,16 @@ type Model struct {
 	// cwd is the launch directory, captured once at construction and reused for
 	// the git probe and the status bar's path display.
 	cwd string
+
+	// toolCards indexes the rich tool-call cards (#389, US-006) by tool-call id so
+	// a toolEndMsg can locate the card started earlier and flip its state / attach
+	// the parsed response. Each card is also appended to the transcript as an
+	// ordered block (by pointer), so mutating one here re-renders it inline on the
+	// next reflow.
+	toolCards map[string]*toolCard
+	// lastToolCard points at the most recently started card; Ctrl+O toggles its
+	// expanded state and re-flows the transcript.
+	lastToolCard *toolCard
 }
 
 // NewModel builds the root model from the assembled Options. It performs no I/O
@@ -78,6 +88,7 @@ func NewModel(opts Options) Model {
 		transcript: newTranscript(theme),
 		cwd:        cwd,
 		statusBar:  newStatusBar(theme, opts, cwd),
+		toolCards:  make(map[string]*toolCard),
 	}
 }
 
@@ -116,14 +127,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.pumpNext()
 
 	case toolStartMsg:
-		// Tool cards land in #389; for now a system line records the activity.
-		m.transcript.addSystem("· " + msg.name)
+		// Create a rich tool-call card, index it by id for the later end event, and
+		// append it as an ordered transcript block so it renders inline (#389).
+		card := &toolCard{id: msg.id, name: msg.name, input: msg.input, state: cardRunning}
+		m.toolCards[msg.id] = card
+		m.lastToolCard = card
+		m.transcript.addToolCard(card)
 		return m, m.pumpNext()
 
 	case toolUpdateMsg:
 		return m, m.pumpNext()
 
 	case toolEndMsg:
+		// Flip the card's state and attach the parsed response tree. The card is
+		// held by pointer in the transcript, so a reflow re-renders it in place.
+		if card, ok := m.toolCards[msg.id]; ok {
+			if msg.ok {
+				card.state = cardSuccess
+			} else {
+				card.state = cardWarn
+			}
+			card.response = parseToolResult(msg.result)
+			m.transcript.reflow()
+		}
 		return m, m.pumpNext()
 
 	case telemetryMsg:
@@ -158,6 +184,14 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c", "ctrl+d":
 		m.quitting = true
 		return m, tea.Quit
+	case "ctrl+o":
+		// Toggle the most-recent tool card between its capped preview and the full
+		// response tree, then re-flow so the change shows inline (#389).
+		if m.lastToolCard != nil {
+			m.lastToolCard.expanded = !m.lastToolCard.expanded
+			m.transcript.reflow()
+		}
+		return m, nil
 	case "enter":
 		if !m.running {
 			return m.submit()

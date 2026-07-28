@@ -26,14 +26,18 @@ const (
 	roleUser blockRole = iota
 	roleAssistant
 	roleSystem
+	roleTool
 )
 
 // transcriptBlock is one rendered turn in the transcript. text is the raw
 // (unstyled, unwrapped) message body; the role selects the theme style and any
-// prefix applied at render time.
+// prefix applied at render time. For roleTool blocks text is unused and card
+// points at the live tool card (#389); the pointer lets a later toolEndMsg /
+// Ctrl+O mutate the card in place and have it re-render on the next reflow.
 type transcriptBlock struct {
 	role blockRole
 	text string
+	card *toolCard
 }
 
 // transcript is the scrolling message log. It wraps a viewport.Model and keeps
@@ -88,10 +92,19 @@ func (t *transcript) addUser(text string) {
 	t.reflow()
 }
 
-// addSystem appends a system / meta notice (used for tool activity and run
-// lifecycle until tool cards land in #389).
+// addSystem appends a system / meta notice (used for run lifecycle and other
+// inline notes).
 func (t *transcript) addSystem(text string) {
 	t.blocks = append(t.blocks, transcriptBlock{role: roleSystem, text: text})
+	t.reflow()
+}
+
+// addToolCard appends a rich tool-call card (#389) as an ordered block so it
+// renders inline in the transcript. The card is held by pointer, so a later
+// state change (toolEndMsg) or expand toggle (Ctrl+O) followed by reflow
+// re-renders it in place.
+func (t *transcript) addToolCard(c *toolCard) {
+	t.blocks = append(t.blocks, transcriptBlock{role: roleTool, card: c})
 	t.reflow()
 }
 
@@ -166,6 +179,9 @@ func (t *transcript) reflow() {
 // WrapToWidth) before styling so ANSI escapes never confuse the width math and
 // no double-width rune is split.
 func (t transcript) renderBlock(blk transcriptBlock) string {
+	if blk.role == roleTool && blk.card != nil {
+		return blk.card.render(t.theme, t.width)
+	}
 	wrapped := WrapToWidth(blk.text, t.width)
 	switch blk.role {
 	case roleUser:
