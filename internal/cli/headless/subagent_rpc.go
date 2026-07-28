@@ -8,7 +8,7 @@
 // It reuses internal/jsonrpc's message types (Request/Response/ID/Version) for
 // (de)serialization so the wire format matches the client exactly; the agent
 // execution itself is runtime.RunSubAgentOnce.
-package main
+package headless
 
 import (
 	"bufio"
@@ -27,14 +27,14 @@ import (
 	"github.com/smallnest/pigo/internal/runtime"
 )
 
-// runSubAgentRPC is the `pigo --subagent-rpc` entry point. It reads
+// RunSubAgentRPC is the `pigo --subagent-rpc` entry point. It reads
 // newline-delimited JSON-RPC requests from in, runs each sub-agent request, and
 // writes one response per request to out. It returns 0 (success) when stdin
 // closes; a per-request failure is an RPC error response, not a non-zero exit,
 // so the parent can distinguish "the child answered with an error" from "the
 // child crashed" (the latter is detected by the parent's transport when stdout
 // closes without a response).
-func runSubAgentRPC(ctx context.Context, in io.Reader, out, errOut io.Writer) int {
+func RunSubAgentRPC(ctx context.Context, in io.Reader, out, errOut io.Writer) int {
 	scanner := bufio.NewScanner(in)
 	// A sub-agent prompt can be large; match the jsonrpc client's line cap.
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)

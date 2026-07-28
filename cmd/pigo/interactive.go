@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +19,7 @@ import (
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/headless"
 	"github.com/smallnest/pigo/internal/cli/run"
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/plugin"
@@ -29,18 +29,11 @@ import (
 	"github.com/smallnest/pigo/internal/trust"
 )
 
-// sessionStore returns the session store rooted at ~/.pigo/sessions (or under
-// PIGO_HOME when set), creating the directory on first use.
+// sessionStore returns the session store for the interactive REPL. It is a thin
+// alias for headless.SessionStore so the REPL and headless runs share one store
+// rooted at ~/.pigo/sessions (or PIGO_HOME).
 func sessionStore() (*session.Store, error) {
-	dir := os.Getenv("PIGO_HOME")
-	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("resolve home dir: %w", err)
-		}
-		dir = filepath.Join(home, ".pigo")
-	}
-	return session.NewStore(filepath.Join(dir, "sessions"))
+	return headless.SessionStore()
 }
 
 // interactiveOptions carries the resolved run configuration plus optional
@@ -226,43 +219,6 @@ func runInteractive(opts interactiveOptions) error {
 		goal:      agenttool.NewGoalState(),
 		telemetry: cli.NewTelemetryHolder(),
 	})
-}
-
-// printSessions prints the stored sessions, most-recent first, to out.
-func printSessions(out io.Writer) error {
-	store, err := sessionStore()
-	if err != nil {
-		return err
-	}
-	headers, err := store.List()
-	if err != nil {
-		return err
-	}
-	if len(headers) == 0 {
-		fmt.Fprintln(out, "no sessions")
-		return nil
-	}
-	for _, h := range headers {
-		fmt.Fprintf(out, "%s\t%s\t%s\n", h.ID, h.UpdatedAt.Local().Format("2006-01-02 15:04"), h.Model)
-	}
-	return nil
-}
-
-// mostRecentSessionID returns the id of the most recently updated session, or
-// "" if there are none.
-func mostRecentSessionID() (string, error) {
-	store, err := sessionStore()
-	if err != nil {
-		return "", err
-	}
-	headers, err := store.List()
-	if err != nil {
-		return "", err
-	}
-	if len(headers) == 0 {
-		return "", nil
-	}
-	return headers[0].ID, nil
 }
 
 // promptTemplateSources carries the prompt-template discovery sources that

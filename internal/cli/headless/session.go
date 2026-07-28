@@ -1,3 +1,7 @@
+// Package headless drives pigo's non-interactive run paths: the print /
+// stream-json headless run, the session listing/resume helpers, and the
+// process-isolated sub-agent JSON-RPC server (--subagent-rpc).
+//
 // This file gives headless / stream-json runs the same session persistence and
 // resume the interactive REPL has (cmd/pigo/interactive.go). Before this, a
 // headless run built an in-memory AgentContext and threw it away on exit, so
@@ -10,14 +14,70 @@
 // after it completes. The session id is threaded into the run so it appears in
 // the first stream-json event (对标 pi/Claude Code) and can be passed back via
 // --resume to continue the run.
-package main
+package headless
 
 import (
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/session"
 )
+
+// SessionStore returns the session store rooted at ~/.pigo/sessions (or under
+// PIGO_HOME when set), creating the directory on first use. It is shared by the
+// headless run path and the interactive REPL.
+func SessionStore() (*session.Store, error) {
+	dir := os.Getenv("PIGO_HOME")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("resolve home dir: %w", err)
+		}
+		dir = filepath.Join(home, ".pigo")
+	}
+	return session.NewStore(filepath.Join(dir, "sessions"))
+}
+
+// PrintSessions prints the stored sessions, most-recent first, to out.
+func PrintSessions(out io.Writer) error {
+	store, err := SessionStore()
+	if err != nil {
+		return err
+	}
+	headers, err := store.List()
+	if err != nil {
+		return err
+	}
+	if len(headers) == 0 {
+		fmt.Fprintln(out, "no sessions")
+		return nil
+	}
+	for _, h := range headers {
+		fmt.Fprintf(out, "%s\t%s\t%s\n", h.ID, h.UpdatedAt.Local().Format("2006-01-02 15:04"), h.Model)
+	}
+	return nil
+}
+
+// MostRecentSessionID returns the id of the most recently updated session, or
+// "" if there are none.
+func MostRecentSessionID() (string, error) {
+	store, err := SessionStore()
+	if err != nil {
+		return "", err
+	}
+	headers, err := store.List()
+	if err != nil {
+		return "", err
+	}
+	if len(headers) == 0 {
+		return "", nil
+	}
+	return headers[0].ID, nil
+}
 
 // headlessSession is the session state backing one headless run: the store, the
 // header (whose ID is the session id emitted and used for resume), and the
@@ -43,7 +103,7 @@ type headlessSession struct {
 // messages to seed into the context ahead of the new prompt, plus the session
 // state used to persist the run afterward.
 func openHeadlessSession(resumeID, model, providerName, sysPrompt string) (agentcore.MessageList, headlessSession, error) {
-	store, err := sessionStore()
+	store, err := SessionStore()
 	if err != nil {
 		return nil, headlessSession{}, err
 	}

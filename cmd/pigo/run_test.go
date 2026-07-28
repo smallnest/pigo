@@ -10,8 +10,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-
-	"github.com/smallnest/pigo/internal/runtime"
 )
 
 // TestDispatchListSessionsEmpty verifies --list-sessions is a standalone action
@@ -43,36 +41,6 @@ func TestDispatchContinueNoSessions(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "no sessions to continue") {
 		t.Errorf("errOut = %q, want the no-sessions-to-continue message", errOut.String())
-	}
-}
-
-// TestParseOutputMode covers the three accepted spellings and one rejection,
-// pinning the flag contract the headless driver depends on.
-func TestParseOutputMode(t *testing.T) {
-	cases := []struct {
-		in      string
-		want    runtime.HeadlessMode
-		wantErr bool
-	}{
-		{"text", runtime.PrintMode, false},
-		{"", runtime.PrintMode, false},
-		{"stream-json", runtime.StreamJSONMode, false},
-		{"yaml", 0, true},
-	}
-	for _, c := range cases {
-		got, err := parseOutputMode(c.in)
-		if c.wantErr {
-			if err == nil {
-				t.Errorf("parseOutputMode(%q): want error, got nil", c.in)
-			}
-			continue
-		}
-		if err != nil {
-			t.Errorf("parseOutputMode(%q): unexpected error %v", c.in, err)
-		}
-		if got != c.want {
-			t.Errorf("parseOutputMode(%q) = %v, want %v", c.in, got, c.want)
-		}
 	}
 }
 

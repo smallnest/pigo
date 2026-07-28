@@ -1,7 +1,7 @@
-package main
+package headless
 
 // Tests for the sub-agent RPC subprocess mode (US-019, #135): the pure
-// filterBuiltinTools helper and the runSubAgentRPC validation branches
+// filterBuiltinTools helper and the RunSubAgentRPC validation branches
 // (method-not-found, invalid params, parse error) that return RPC errors before
 // any provider is resolved. The happy-path transport is covered in
 // internal/runtime via a compiled helper binary; RunSubAgentOnce (the agent
@@ -78,7 +78,7 @@ func TestRunSubAgentRPCValidation(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			var out, errOut bytes.Buffer
-			code := runSubAgentRPC(context.Background(), strings.NewReader(c.line+"\n"), &out, &errOut)
+			code := RunSubAgentRPC(context.Background(), strings.NewReader(c.line+"\n"), &out, &errOut)
 			if code != 0 {
 				t.Errorf("exit code = %d, want 0 (validation errors are RPC responses, not non-zero exits)", code)
 			}
@@ -110,7 +110,7 @@ func TestRunSubAgentRPCScannerError(t *testing.T) {
 	// A line longer than the 16 MiB scanner cap triggers a scanner error.
 	huge := strings.Repeat("a", 17*1024*1024)
 	var out, errOut bytes.Buffer
-	code := runSubAgentRPC(context.Background(), strings.NewReader(huge), &out, &errOut)
+	code := RunSubAgentRPC(context.Background(), strings.NewReader(huge), &out, &errOut)
 	if code == 0 {
 		t.Error("exit code = 0 on scanner error, want non-zero")
 	}

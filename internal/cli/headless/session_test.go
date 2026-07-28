@@ -1,4 +1,4 @@
-package main
+package headless
 
 // Tests for headless session persistence and resume (session id in stream-json
 // + --resume for headless runs). openHeadlessSession/persist are exercised

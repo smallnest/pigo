@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #363</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+    code { background:#F2EFEA; padding:0.05rem 0.3rem; border-radius:3px; font-size:0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/363">#363</a> &mdash; 迁移 headless/subagent 到 internal/cli/headless &mdash; 2026-07-28</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>SessionStore</code> exported and homed in the headless package</h3>
+      <p><strong>Ambiguity:</strong> The session-store constructor was a private <code>sessionStore()</code> in <code>cmd/pigo</code>, used by both the REPL and the headless path. The spec did not say where it should live after the split.</p>
+      <p><strong>Choice:</strong> Moved it to <code>internal/cli/headless</code> as the exported <code>SessionStore()</code>, alongside <code>PrintSessions</code> and <code>MostRecentSessionID</code>, which all depend on it.</p>
+      <p><strong>Rationale:</strong> <code>printSessions</code>/<code>mostRecentSessionID</code>/<code>openHeadlessSession</code> all move here and use the store; headless cannot import <code>cmd/pigo</code> (package main), so the store must sit at or below headless.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Extract dispatch's headless block into <code>headless.Run(RunParams)</code></h3>
+      <p><strong>Ambiguity:</strong> The run-lifecycle wiring (plugin command resolve → session open → thinking level → credentials → RunHeadless → persist) lived inline in <code>dispatch</code>.</p>
+      <p><strong>Choice:</strong> Moved it behind a <code>RunParams</code> struct and a single <code>headless.Run</code> entry point; <code>dispatch</code> now only resolves <code>Mode</code> and <code>Env</code> then delegates.</p>
+      <p><strong>Rationale:</strong> Keeps the headless run owned by the headless package and makes <code>dispatch</code> a thin seam, matching the #362 run-assembly split.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Export only symbols crossed by the package boundary</h3>
+      <p><strong>Ambiguity:</strong> Which of the moved identifiers to export.</p>
+      <p><strong>Choice:</strong> Exported <code>RunSubAgentRPC</code>, <code>ParseOutputMode</code>, <code>Run</code>, <code>RunParams</code>, <code>SessionStore</code>, <code>PrintSessions</code>, <code>MostRecentSessionID</code>; kept <code>openHeadlessSession</code>, <code>headlessSession</code>, <code>persist</code>, <code>filterBuiltinTools</code>, <code>handleSubAgentRequest</code>, <code>resolveHeadlessPluginCommand</code> unexported.</p>
+      <p><strong>Rationale:</strong> Same export policy as #362 — export a symbol only when a caller outside the package needs it.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Removed the duplicate session helpers from <code>cmd/pigo</code></h3>
+      <p><strong>Spec:</strong> A pure move would leave the callers referencing the new package.</p>
+      <p><strong>Implemented:</strong> Deleted <code>printSessions</code>/<code>mostRecentSessionID</code> from <code>interactive.go</code> outright (they became dead once <code>dispatch</code> called the headless versions), and reduced <code>sessionStore()</code> to a one-line wrapper over <code>headless.SessionStore()</code>.</p>
+      <p><strong>Why:</strong> Leaving two copies would be a maintenance trap; the wrapper is kept only so the REPL call site reads naturally.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> <code>ParseOutputMode</code> kept as a separate call in dispatch</h3>
+      <p><strong>Alternatives:</strong> (a) fold output-mode parsing into <code>headless.Run</code>; (b) keep it a distinct exported call in <code>dispatch</code> before <code>SetupEnv</code>.</p>
+      <p><strong>Chosen:</strong> (b).</p>
+      <p><strong>Why:</strong> A bad <code>--output-format</code> must return exit code 2 <em>before</em> provider/env setup; keeping the parse ahead of <code>SetupEnv</code> preserves the original exit-code ordering, verified by <code>TestDispatchBadOutputFormat</code>.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> REPL → headless <code>SessionStore</code> dependency direction</h3>
+      <p><strong>Assumption:</strong> It is acceptable for the interactive REPL (staying in <code>cmd/pigo</code>, later <code>internal/cli/repl</code>) to depend on <code>internal/cli/headless</code> purely for the shared session store.</p>
+      <p><strong>Verify:</strong> When #367 moves the REPL into <code>internal/cli/repl</code>, decide whether <code>SessionStore</code> should instead live in a neutral package (e.g. <code>internal/session</code> or <code>internal/cli/run</code>) so neither of REPL/headless depends on the other.</p>
+      <p><strong>Follow-up:</strong> Revisit during #367.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
+
