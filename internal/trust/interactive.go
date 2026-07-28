@@ -1,18 +1,19 @@
 // This file holds the interactive pieces of project trust (US-018, #134). The
-// trust store itself lives in internal/trust; here we have the REPL-only parts:
+// trust store itself lives alongside in manager.go; here are the REPL-facing
+// parts:
 //
-//   - the first-run trust dialog (ensureTrustPrompt), shown when the cwd has no
+//   - the first-run trust dialog (EnsureTrustPrompt), shown when the cwd has no
 //     saved decision;
-//   - the /trust command (registerTrustCommand), which saves or reports the
+//   - the /trust command (RegisterCommand), which saves or reports the
 //     current project's decision;
-//   - the BeforeToolCall hook (trustBeforeToolCall) that asks before side-effect
+//   - the BeforeToolCall hook (BeforeToolCall) that asks before side-effect
 //     tools (bash/write/edit) run in an untrusted directory.
 //
 // All prompts share the REPL's single *bufio.Reader so input typed ahead is
 // never split between the main loop and a confirmation. Headless mode is
 // unaffected: trust is a REPL safety feature and headless is an explicit,
 // non-interactive invocation.
-package main
+package trust
 
 import (
 	"bufio"
@@ -27,39 +28,38 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/runtime"
-	"github.com/smallnest/pigo/internal/trust"
 )
 
-// sideEffectTools are the built-in tools with filesystem or process side
+// SideEffectTools are the built-in tools with filesystem or process side
 // effects that trust gates. Read-only tools (read/grep/find), in-memory tools
 // (todo), and network-read tools (webfetch) are never gated.
-var sideEffectTools = map[string]bool{
+var SideEffectTools = map[string]bool{
 	"bash":  true,
 	"write": true,
 	"edit":  true,
 }
 
-// establishTrust decides how the launch directory's trust is established before
+// EstablishTrust decides how the launch directory's trust is established before
 // the REPL runs. When approve is true (对标 pi 的 --approve/-a), it grants
 // session trust up front so the first-launch prompt is skipped and side-effect
 // tools run without per-call confirmation. Otherwise it defers to
-// ensureTrustPrompt, which asks only on the first launch in an undecided
+// EnsureTrustPrompt, which asks only on the first launch in an undecided
 // directory. mgr==nil disables trust entirely, so approve is a no-op.
-func establishTrust(out io.Writer, in *bufio.Reader, mgr *trust.Manager, cwd string, approve bool) {
+func EstablishTrust(out io.Writer, in *bufio.Reader, mgr *Manager, cwd string, approve bool) {
 	if approve {
 		if mgr != nil {
 			mgr.SetSessionTrust(cwd)
 		}
 		return
 	}
-	ensureTrustPrompt(out, in, mgr, cwd)
+	EnsureTrustPrompt(out, in, mgr, cwd)
 }
 
-// ensureTrustPrompt runs the first-run trust dialog when cwd has no saved
+// EnsureTrustPrompt runs the first-run trust dialog when cwd has no saved
 // decision (NearestTrustDecision reports Found=false). When a decision already
 // exists (trusted/untrusted/null) it is a no-op: the user already answered, so
 // pigo does not re-ask on every launch. mgr==nil disables trust entirely.
-func ensureTrustPrompt(out io.Writer, in *bufio.Reader, mgr *trust.Manager, cwd string) {
+func EnsureTrustPrompt(out io.Writer, in *bufio.Reader, mgr *Manager, cwd string) {
 	if mgr == nil {
 		return
 	}
@@ -78,14 +78,14 @@ func ensureTrustPrompt(out io.Writer, in *bufio.Reader, mgr *trust.Manager, cwd 
 	switch choice {
 	case 1:
 		target := chooseScope(out, in, cwd)
-		if err := mgr.SetDecision(target, trust.Trusted); err != nil {
+		if err := mgr.SetDecision(target, Trusted); err != nil {
 			fmt.Fprintf(out, "pigo: could not save trust decision: %v\n", err)
 			return
 		}
 		fmt.Fprintf(out, "Trusted %s (saved to %s).\n", cwd, target)
 	case 3:
 		target := chooseScope(out, in, cwd)
-		if err := mgr.SetDecision(target, trust.Untrusted); err != nil {
+		if err := mgr.SetDecision(target, Untrusted); err != nil {
 			fmt.Fprintf(out, "pigo: could not save trust decision: %v\n", err)
 			return
 		}
@@ -138,12 +138,12 @@ func readMenuChoice(out io.Writer, in *bufio.Reader, prompt string, max, def int
 	}
 }
 
-// registerTrustCommand installs the /trust action command, which saves or
+// RegisterCommand installs the /trust action command, which saves or
 // reports the current project's trust decision. It is an instance built-in
 // (AddBuiltin) because its closure captures the trust manager and cwd - state
 // out of reach of an init()-time global registration. mgr==nil is a no-op: the
 // command is not installed, so /trust reports unknown when trust is disabled.
-func registerTrustCommand(reg *runtime.SlashRegistry, mgr *trust.Manager, cwd string) {
+func RegisterCommand(reg *runtime.SlashRegistry, mgr *Manager, cwd string) {
 	if mgr == nil {
 		return
 	}
@@ -153,7 +153,7 @@ func registerTrustCommand(reg *runtime.SlashRegistry, mgr *trust.Manager, cwd st
 		Action: func(args string) string {
 			switch strings.TrimSpace(strings.ToLower(args)) {
 			case "", "on":
-				if err := mgr.SetDecision(cwd, trust.Trusted); err != nil {
+				if err := mgr.SetDecision(cwd, Trusted); err != nil {
 					return fmt.Sprintf("pigo: could not save trust: %v", err)
 				}
 				return fmt.Sprintf("trusted %s (saved)", cwd)
@@ -163,7 +163,7 @@ func registerTrustCommand(reg *runtime.SlashRegistry, mgr *trust.Manager, cwd st
 				// "always" granted earlier in the session would keep the dir
 				// trusted until restart and the message below would be a lie.
 				mgr.ClearSessionTrust(cwd)
-				if err := mgr.SetDecision(cwd, trust.Untrusted); err != nil {
+				if err := mgr.SetDecision(cwd, Untrusted); err != nil {
 					return fmt.Sprintf("pigo: could not save trust: %v", err)
 				}
 				return fmt.Sprintf("marked %s untrusted (saved); side-effect tools will ask", cwd)
@@ -183,7 +183,7 @@ func registerTrustCommand(reg *runtime.SlashRegistry, mgr *trust.Manager, cwd st
 	})
 }
 
-// trustBeforeToolCall builds the permission hook that gates side-effect tools
+// BeforeToolCall builds the permission hook that gates side-effect tools
 // (bash/write/edit) on the cwd's trust decision. In a trusted directory the
 // call is allowed (nil). Otherwise the user is prompted; "always" grants
 // session trust so subsequent side-effect calls skip the prompt. mgr==nil
@@ -207,12 +207,12 @@ func registerTrustCommand(reg *runtime.SlashRegistry, mgr *trust.Manager, cwd st
 // ToolExecutionStartEvent returns ctx.Err() and the tool never runs. A fix that
 // unblocks the read on signal would require injecting input on SIGINT, which is
 // out of scope for this change.
-func trustBeforeToolCall(mgr *trust.Manager, cwd string, in *bufio.Reader, out io.Writer, mu *sync.Mutex) agentcore.BeforeToolCallFunc {
+func BeforeToolCall(mgr *Manager, cwd string, in *bufio.Reader, out io.Writer, mu *sync.Mutex) agentcore.BeforeToolCallFunc {
 	if mgr == nil {
 		return nil
 	}
 	return func(ctx context.Context, call agentcore.AgentToolCall) *agentcore.BeforeToolCallDecision {
-		if !sideEffectTools[call.Name] {
+		if !SideEffectTools[call.Name] {
 			return nil
 		}
 		if mu != nil {
@@ -226,7 +226,7 @@ func trustBeforeToolCall(mgr *trust.Manager, cwd string, in *bufio.Reader, out i
 		if mgr.IsTrusted(cwd) {
 			return nil
 		}
-		allow, always := confirmToolCall(out, in, call)
+		allow, always := ConfirmToolCall(out, in, call)
 		if always {
 			mgr.SetSessionTrust(cwd)
 		}
@@ -241,11 +241,11 @@ func trustBeforeToolCall(mgr *trust.Manager, cwd string, in *bufio.Reader, out i
 	}
 }
 
-// confirmToolCall asks whether a side-effect tool call may run in an untrusted
+// ConfirmToolCall asks whether a side-effect tool call may run in an untrusted
 // directory. It returns (allow, always): allow runs the call this once; always
 // runs it AND grants session trust so subsequent side-effect calls skip the
 // prompt. Denial (no/empty/EOF) returns (false, false).
-func confirmToolCall(out io.Writer, in *bufio.Reader, call agentcore.AgentToolCall) (allow bool, always bool) {
+func ConfirmToolCall(out io.Writer, in *bufio.Reader, call agentcore.AgentToolCall) (allow bool, always bool) {
 	fmt.Fprintf(out, "\npigo wants to run %q in an untrusted directory.\n", call.Name)
 	if summary := toolCallSummary(call); summary != "" {
 		fmt.Fprintf(out, "  %s\n", summary)

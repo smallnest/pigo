@@ -409,7 +409,7 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 		Batch: agenttool.BatchConfig{
 			ToolExecutorConfig: agenttool.ToolExecutorConfig{
 				Registry:       deps.reg,
-				BeforeToolCall: trustBeforeToolCall(deps.trust, deps.cwd, deps.in, out, deps.confirmMu),
+				BeforeToolCall: trust.BeforeToolCall(deps.trust, deps.cwd, deps.in, out, deps.confirmMu),
 			},
 		},
 		Reminders: deps.reminders,

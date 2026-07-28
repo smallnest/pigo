@@ -34,6 +34,7 @@ import (
 	"github.com/smallnest/pigo/internal/compaction"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
+	"github.com/smallnest/pigo/internal/trust"
 )
 
 // btwHeader is the fixed banner shown when entering a side thread, so the user
@@ -213,7 +214,7 @@ func askSide(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, 
 		Batch: agenttool.BatchConfig{
 			ToolExecutorConfig: agenttool.ToolExecutorConfig{
 				Registry:       deps.reg,
-				BeforeToolCall: trustBeforeToolCall(deps.trust, deps.cwd, deps.in, out, deps.confirmMu),
+				BeforeToolCall: trust.BeforeToolCall(deps.trust, deps.cwd, deps.in, out, deps.confirmMu),
 			},
 		},
 		Reminders: deps.reminders,

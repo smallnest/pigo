@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0359</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/359">#359</a> &mdash; trust.go 并入 internal/trust &mdash; 2026-07-28</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> New file <code>interactive.go</code> instead of appending to <code>manager.go</code></h3>
+      <p><strong>Ambiguity:</strong> The spec said "全部符号迁入 internal/trust" without specifying file layout within the package.</p>
+      <p><strong>Choice:</strong> Put the REPL-facing pieces in a new <code>internal/trust/interactive.go</code> (and <code>interactive_test.go</code>), leaving the persistence store in <code>manager.go</code>.</p>
+      <p><strong>Rationale:</strong> Preserves the original separation the package doc already described (store vs. interactive glue), keeps each file focused, and avoids a 600-line manager.go. Same package, so exported names are shared regardless.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Exported only the six named symbols; kept helpers unexported</h3>
+      <p><strong>Ambiguity:</strong> The spec named <code>EstablishTrust/EnsureTrustPrompt/RegisterCommand/BeforeToolCall/ConfirmToolCall/SideEffectTools</code> but was silent on the internal helpers (<code>chooseScope</code>, <code>readMenuChoice</code>, <code>toolCallSummary</code>, <code>truncateForPrompt</code>).</p>
+      <p><strong>Choice:</strong> Exported exactly the six listed symbols; left the four helpers lowercase.</p>
+      <p><strong>Rationale:</strong> The helpers have no cross-package callers — exporting them would widen the API surface for no benefit. Tests for helpers live in-package so they access them directly.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None — implementation followed the spec as written. All six symbols exported with the exact names given, tests moved to <code>package trust</code>, old <code>cmd/pigo/trust.go</code> deleted, behavior byte-for-byte preserved.</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> <code>SideEffectTools</code> exported as a mutable package var</h3>
+      <p><strong>Alternatives:</strong> (a) export the map as-is; (b) hide it behind an <code>IsSideEffect(name string) bool</code> accessor to prevent external mutation.</p>
+      <p><strong>Pros/cons:</strong> The accessor is safer against accidental mutation but adds indirection and diverges from the spec's explicit <code>SideEffectTools</code> name.</p>
+      <p><strong>Why chosen:</strong> The spec names <code>SideEffectTools</code> directly, and the only consumers are in-package (<code>BeforeToolCall</code>). A mutable-map risk is theoretical here; matched the spec verbatim.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> <code>internal/trust</code> now imports <code>internal/runtime</code> and <code>internal/agentcore</code></h3>
+      <p><strong>Alternatives:</strong> keep the interactive glue in <code>cmd/pigo</code> (status quo) vs. move it into <code>internal/trust</code> and accept the new deps.</p>
+      <p><strong>Pros/cons:</strong> The move consolidates all trust logic in one package (spec goal) but couples the previously dependency-free store package to runtime/agentcore.</p>
+      <p><strong>Why chosen:</strong> Verified no import cycle — <code>internal/runtime</code> and <code>internal/agentcore</code> do not import <code>internal/trust</code>, so the dependency is one-directional and <code>go build ./...</code> confirms it.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should the store stay dependency-free?</h3>
+      <p><strong>Assumption:</strong> It is acceptable for <code>internal/trust</code> to depend on <code>internal/runtime</code> and <code>internal/agentcore</code> now that the interactive glue lives here.</p>
+      <p><strong>Verify:</strong> If a future goal is to keep the persistence store importable from low-level packages without pulling in runtime, the interactive glue may need to move to a sub-package (e.g. <code>internal/trust/prompt</code>). Not needed today.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

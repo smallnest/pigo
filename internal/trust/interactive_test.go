@@ -1,9 +1,9 @@
-package main
+package trust
 
-// Tests for the project-trust REPL integration (US-018, #134): the first-run
+// Tests for the project-trust interactive glue (US-018, #134): the first-run
 // prompt, the tool-call confirmation, the summary preview, and the
 // BeforeToolCall gating hook. The trust store itself is covered in
-// internal/trust; here we exercise the interactive glue.
+// manager_test.go; here we exercise the interactive pieces.
 
 import (
 	"bufio"
@@ -16,13 +16,12 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/runtime"
-	"github.com/smallnest/pigo/internal/trust"
 )
 
 // newTrustManagerAt builds a Manager backed by path.
-func newTrustManagerAt(t *testing.T, path string) *trust.Manager {
+func newTrustManagerAt(t *testing.T, path string) *Manager {
 	t.Helper()
-	m, err := trust.NewManager(path)
+	m, err := NewManager(path)
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
@@ -31,7 +30,7 @@ func newTrustManagerAt(t *testing.T, path string) *trust.Manager {
 
 // newTrustManager builds a Manager backed by a fresh temp file and returns the
 // manager plus its path (so a test can reload to verify persistence).
-func newTrustManager(t *testing.T) (*trust.Manager, string) {
+func newTrustManager(t *testing.T) (*Manager, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "trust.json")
 	return newTrustManagerAt(t, path), path
@@ -46,9 +45,9 @@ func TestEnsureTrustPromptTrustedThisDir(t *testing.T) {
 	mgr, _ := newTrustManager(t)
 	cwd := t.TempDir()
 	var out bytes.Buffer
-	ensureTrustPrompt(&out, readerOf("1\n1\n"), mgr, cwd)
+	EnsureTrustPrompt(&out, readerOf("1\n1\n"), mgr, cwd)
 
-	if got := mgr.NearestTrustDecision(cwd); !got.Found || got.Decision != trust.Trusted || got.Path != cwd {
+	if got := mgr.NearestTrustDecision(cwd); !got.Found || got.Decision != Trusted || got.Path != cwd {
 		t.Errorf("after prompt, NearestTrustDecision(%q) = %+v, want Trusted/@cwd", cwd, got)
 	}
 	if !strings.Contains(out.String(), "First time in this directory") {
@@ -62,9 +61,9 @@ func TestEnsureTrustPromptRejectParent(t *testing.T) {
 	mgr, _ := newTrustManager(t)
 	cwd := t.TempDir()
 	parent := filepath.Dir(cwd)
-	ensureTrustPrompt(&bytes.Buffer{}, readerOf("3\n2\n"), mgr, cwd)
+	EnsureTrustPrompt(&bytes.Buffer{}, readerOf("3\n2\n"), mgr, cwd)
 
-	if got := mgr.NearestTrustDecision(cwd); !got.Found || got.Decision != trust.Untrusted || got.Path != parent {
+	if got := mgr.NearestTrustDecision(cwd); !got.Found || got.Decision != Untrusted || got.Path != parent {
 		t.Errorf("after reject-parent, NearestTrustDecision(%q) = %+v, want Untrusted/@parent", cwd, got)
 	}
 }
@@ -74,7 +73,7 @@ func TestEnsureTrustPromptRejectParent(t *testing.T) {
 func TestEnsureTrustPromptJustOnce(t *testing.T) {
 	mgr, path := newTrustManager(t)
 	cwd := t.TempDir()
-	ensureTrustPrompt(&bytes.Buffer{}, readerOf("2\n"), mgr, cwd)
+	EnsureTrustPrompt(&bytes.Buffer{}, readerOf("2\n"), mgr, cwd)
 
 	if !mgr.IsTrusted(cwd) {
 		t.Error("IsTrusted(cwd) = false after just-once, want true")
@@ -87,18 +86,18 @@ func TestEnsureTrustPromptJustOnce(t *testing.T) {
 }
 
 // TestEnsureTrustPromptSkipsWhenDecided verifies that when a decision already
-// exists, ensureTrustPrompt is a no-op: it writes nothing and reads nothing.
+// exists, EnsureTrustPrompt is a no-op: it writes nothing and reads nothing.
 func TestEnsureTrustPromptSkipsWhenDecided(t *testing.T) {
 	mgr, _ := newTrustManager(t)
 	cwd := t.TempDir()
-	if err := mgr.SetDecision(cwd, trust.Trusted); err != nil {
+	if err := mgr.SetDecision(cwd, Trusted); err != nil {
 		t.Fatalf("SetDecision: %v", err)
 	}
 	var out bytes.Buffer
 	// Empty reader: if the prompt tried to read it would block/EOF; it must not.
-	ensureTrustPrompt(&out, readerOf(""), mgr, cwd)
+	EnsureTrustPrompt(&out, readerOf(""), mgr, cwd)
 	if out.Len() != 0 {
-		t.Errorf("ensureTrustPrompt wrote %q when a decision existed, want no output", out.String())
+		t.Errorf("EnsureTrustPrompt wrote %q when a decision existed, want no output", out.String())
 	}
 }
 
@@ -110,13 +109,13 @@ func TestEstablishTrustApprove(t *testing.T) {
 	mgr, path := newTrustManager(t)
 	cwd := t.TempDir()
 	var out bytes.Buffer
-	establishTrust(&out, readerOf(""), mgr, cwd, true)
+	EstablishTrust(&out, readerOf(""), mgr, cwd, true)
 
 	if !mgr.IsTrusted(cwd) {
 		t.Error("IsTrusted(cwd) = false after --approve, want true")
 	}
 	if out.Len() != 0 {
-		t.Errorf("establishTrust wrote %q with --approve, want no prompt", out.String())
+		t.Errorf("EstablishTrust wrote %q with --approve, want no prompt", out.String())
 	}
 	m2 := newTrustManagerAt(t, path)
 	if m2.IsTrusted(cwd) {
@@ -124,7 +123,7 @@ func TestEstablishTrustApprove(t *testing.T) {
 	}
 }
 
-// TestEstablishTrustWithoutApprove verifies that without --approve, establishTrust
+// TestEstablishTrustWithoutApprove verifies that without --approve, EstablishTrust
 // defers to the first-launch prompt (which runs for an undecided directory).
 func TestEstablishTrustWithoutApprove(t *testing.T) {
 	mgr, _ := newTrustManager(t)
@@ -132,13 +131,13 @@ func TestEstablishTrustWithoutApprove(t *testing.T) {
 	var out bytes.Buffer
 	// "2\n" answers the just-once prompt; if the prompt did not run, this input
 	// would be left unread and IsTrusted would stay false.
-	establishTrust(&out, readerOf("2\n"), mgr, cwd, false)
+	EstablishTrust(&out, readerOf("2\n"), mgr, cwd, false)
 
 	if !strings.Contains(out.String(), "First time in this directory") {
 		t.Errorf("without --approve, expected the trust prompt; got %q", out.String())
 	}
 	if !mgr.IsTrusted(cwd) {
-		t.Error("IsTrusted(cwd) = false after just-once via establishTrust, want true")
+		t.Error("IsTrusted(cwd) = false after just-once via EstablishTrust, want true")
 	}
 }
 
@@ -160,9 +159,9 @@ func TestConfirmToolCall(t *testing.T) {
 	}
 	for _, c := range cases {
 		var out bytes.Buffer
-		allow, always := confirmToolCall(&out, readerOf(c.in), call)
+		allow, always := ConfirmToolCall(&out, readerOf(c.in), call)
 		if allow != c.allow || always != c.always {
-			t.Errorf("confirmToolCall(%q) = (%v,%v), want (%v,%v)", c.in, allow, always, c.allow, c.always)
+			t.Errorf("ConfirmToolCall(%q) = (%v,%v), want (%v,%v)", c.in, allow, always, c.allow, c.always)
 		}
 	}
 }
@@ -210,16 +209,16 @@ func TestTrustBeforeToolCallGating(t *testing.T) {
 	call := agentcore.AgentToolCall{Name: "write", Arguments: []byte(`{"path":"/tmp/x"}`)}
 
 	// nil manager -> no hook.
-	if h := trustBeforeToolCall(nil, cwd, nil, nil, mu); h != nil {
+	if h := BeforeToolCall(nil, cwd, nil, nil, mu); h != nil {
 		t.Error("nil manager should yield nil hook")
 	}
 
 	// Trusted dir: hook returns nil (allow) without prompting.
 	mgr, _ := newTrustManager(t)
-	if err := mgr.SetDecision(cwd, trust.Trusted); err != nil {
+	if err := mgr.SetDecision(cwd, Trusted); err != nil {
 		t.Fatalf("SetDecision: %v", err)
 	}
-	hook := trustBeforeToolCall(mgr, cwd, readerOf(""), &bytes.Buffer{}, mu)
+	hook := BeforeToolCall(mgr, cwd, readerOf(""), &bytes.Buffer{}, mu)
 	if dec := hook(context.Background(), call); dec != nil {
 		t.Errorf("trusted dir: hook returned %+v, want nil", dec)
 	}
@@ -227,7 +226,7 @@ func TestTrustBeforeToolCallGating(t *testing.T) {
 	// Untrusted dir, user denies: hook blocks with an error result.
 	mgr2, _ := newTrustManager(t)
 	var out bytes.Buffer
-	hook2 := trustBeforeToolCall(mgr2, cwd, readerOf("n\n"), &out, mu)
+	hook2 := BeforeToolCall(mgr2, cwd, readerOf("n\n"), &out, mu)
 	dec := hook2(context.Background(), call)
 	if dec == nil || !dec.Block {
 		t.Errorf("untrusted + deny: hook returned %+v, want a Block decision", dec)
@@ -238,7 +237,7 @@ func TestTrustBeforeToolCallGating(t *testing.T) {
 	mgr3, _ := newTrustManager(t)
 	var out3 bytes.Buffer
 	// Only one line of input ("a\n"); a second prompt would block on EOF.
-	hook3 := trustBeforeToolCall(mgr3, cwd, readerOf("a\n"), &out3, mu)
+	hook3 := BeforeToolCall(mgr3, cwd, readerOf("a\n"), &out3, mu)
 	if dec := hook3(context.Background(), call); dec != nil {
 		t.Errorf("untrusted + always: hook returned %+v, want nil (allow)", dec)
 	}
@@ -257,7 +256,7 @@ func TestTrustBeforeToolCallSkipsNonSideEffect(t *testing.T) {
 	cwd := t.TempDir()
 	mgr, _ := newTrustManager(t)
 	mu := &sync.Mutex{}
-	hook := trustBeforeToolCall(mgr, cwd, readerOf(""), &bytes.Buffer{}, mu)
+	hook := BeforeToolCall(mgr, cwd, readerOf(""), &bytes.Buffer{}, mu)
 	for _, name := range []string{"read", "grep", "find", "todo", "webfetch"} {
 		if dec := hook(context.Background(), agentcore.AgentToolCall{Name: name}); dec != nil {
 			t.Errorf("non-side-effect tool %q was gated (%+v), want nil", name, dec)
@@ -274,7 +273,7 @@ func TestRegisterTrustCommand(t *testing.T) {
 	cwd := t.TempDir()
 	mgr, _ := newTrustManager(t)
 	reg := runtime.NewSlashRegistry()
-	registerTrustCommand(reg, mgr, cwd)
+	RegisterCommand(reg, mgr, cwd)
 	cmd, ok := reg.Lookup("trust")
 	if !ok {
 		t.Fatal("/trust command not registered")
@@ -288,7 +287,7 @@ func TestRegisterTrustCommand(t *testing.T) {
 	if got := cmd.Action(""); !strings.Contains(got, "trusted") {
 		t.Errorf("on = %q, want 'trusted'", got)
 	}
-	if res := mgr.NearestTrustDecision(cwd); !res.Found || res.Decision != trust.Trusted {
+	if res := mgr.NearestTrustDecision(cwd); !res.Found || res.Decision != Trusted {
 		t.Errorf("after on, nearest = %+v, want Trusted/@cwd", res)
 	}
 
@@ -297,7 +296,7 @@ func TestRegisterTrustCommand(t *testing.T) {
 	cwd2 := t.TempDir()
 	mgr2, _ := newTrustManager(t)
 	reg2 := runtime.NewSlashRegistry()
-	registerTrustCommand(reg2, mgr2, cwd2)
+	RegisterCommand(reg2, mgr2, cwd2)
 	cmd2, _ := reg2.Lookup("trust")
 	cmd2.Action("once")
 	if !mgr2.IsTrusted(cwd2) {
@@ -309,7 +308,7 @@ func TestRegisterTrustCommand(t *testing.T) {
 	if mgr2.IsTrusted(cwd2) {
 		t.Error("after off, IsTrusted = true, want false (session grant must be revoked)")
 	}
-	if res := mgr2.NearestTrustDecision(cwd2); !res.Found || res.Decision != trust.Untrusted {
+	if res := mgr2.NearestTrustDecision(cwd2); !res.Found || res.Decision != Untrusted {
 		t.Errorf("after off, nearest = %+v, want Untrusted/@cwd", res)
 	}
 

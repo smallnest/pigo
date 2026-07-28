@@ -29,6 +29,7 @@ import (
 	"github.com/smallnest/pigo/internal/compaction"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
+	"github.com/smallnest/pigo/internal/trust"
 )
 
 // goalMaxAutomaticTurns caps how many autonomous continuations a single /goal
@@ -214,7 +215,7 @@ func runGoalLoop(setCancel func(context.CancelFunc), out io.Writer, deps *replDe
 		Batch: agenttool.BatchConfig{
 			ToolExecutorConfig: agenttool.ToolExecutorConfig{
 				Registry:       goalReg,
-				BeforeToolCall: trustBeforeToolCall(deps.trust, deps.cwd, deps.in, out, deps.confirmMu),
+				BeforeToolCall: trust.BeforeToolCall(deps.trust, deps.cwd, deps.in, out, deps.confirmMu),
 			},
 		},
 		Reminders: reminders,

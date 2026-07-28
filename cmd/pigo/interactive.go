@@ -192,7 +192,7 @@ func runInteractive(opts interactiveOptions) error {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pigo: slash-commands: %v\n", err)
 	}
-	registerTrustCommand(slash, mgr, cwd)
+	trust.RegisterCommand(slash, mgr, cwd)
 
 	// --approve grants the launch directory session trust up front (对标 pi 的
 	// --approve/-a), so the first-launch prompt is skipped and side-effect tools
@@ -200,7 +200,7 @@ func runInteractive(opts interactiveOptions) error {
 	// undecided directory, ask the user how much to trust it before any tool
 	// runs. This happens before replay so the trust question is the first thing
 	// the user sees, not their prior history.
-	establishTrust(os.Stdout, reader, mgr, cwd, opts.approve)
+	trust.EstablishTrust(os.Stdout, reader, mgr, cwd, opts.approve)
 
 	// Replay the resumed conversation so the user sees history before re-prompting.
 	if len(history) > 0 {
