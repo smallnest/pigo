@@ -12,6 +12,7 @@ import (
 	"os"
 
 	"github.com/smallnest/pigo/internal/cli/headless"
+	"github.com/smallnest/pigo/internal/cli/repl"
 	"github.com/smallnest/pigo/internal/cli/run"
 	"github.com/smallnest/pigo/internal/cli/ui"
 )
@@ -133,23 +134,23 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
 			return 2
 		}
-		if err := runInteractive(interactiveOptions{
-			model:             opts.model,
-			providerName:      env.ProviderName,
-			provider:          env.Provider,
-			baseURL:           opts.baseURL,
-			apiKey:            opts.apiKey,
-			protocol:          opts.protocol,
-			thinkingLevel:     thinking,
-			tools:             env.Tools,
-			sysPrompt:         env.SysPrompt,
-			resumeID:          resumeID,
-			approve:           opts.approve,
-			skills:            env.Skills,
-			plugins:           env.Plugins,
-			configPrompts:     opts.configPrompts,
-			cliPrompts:        opts.promptTemplates,
-			noPromptTemplates: opts.noPromptTemplates,
+		if err := repl.Run(repl.Options{
+			Model:             opts.model,
+			ProviderName:      env.ProviderName,
+			Provider:          env.Provider,
+			BaseURL:           opts.baseURL,
+			APIKey:            opts.apiKey,
+			Protocol:          opts.protocol,
+			ThinkingLevel:     thinking,
+			Tools:             env.Tools,
+			SysPrompt:         env.SysPrompt,
+			ResumeID:          resumeID,
+			Approve:           opts.approve,
+			Skills:            env.Skills,
+			Plugins:           env.Plugins,
+			ConfigPrompts:     opts.configPrompts,
+			CliPrompts:        opts.promptTemplates,
+			NoPromptTemplates: opts.noPromptTemplates,
 		}); err != nil {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
 			return 1

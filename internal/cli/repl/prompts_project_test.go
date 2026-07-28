@@ -1,4 +1,4 @@
-package main
+package repl
 
 // Tests for project-level .pigo/prompts (US-006, #337): loaded at the project
 // tier only when the project is trusted, overrides global same-name templates,

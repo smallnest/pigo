@@ -1,4 +1,4 @@
-package main
+package repl
 
 // Tests for /btw discoverability (#283, US-006/FR-10): /btw must appear in the
 // /help listing and be completable at the REPL slash prompt. Both flow from

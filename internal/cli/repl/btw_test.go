@@ -1,4 +1,4 @@
-package main
+package repl
 
 // Tests for the /btw side-thread command (#279): a side question must run an
 // agent stream but MUST NOT mutate or persist the main conversation. These

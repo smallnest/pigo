@@ -9,7 +9,7 @@
 // to stdout as it streams, persists the session, and returns to the prompt. A
 // SIGINT during a run cancels that run's context and returns to the prompt; when
 // idle, the reader sees EOF/interrupt and exits cleanly.
-package main
+package repl
 
 import (
 	"bufio"
@@ -41,7 +41,7 @@ import (
 )
 
 // replDeps bundles the collaborators a REPL run needs. They are assembled once
-// by runInteractive and reused across every prompt in the session.
+// by Run and reused across every prompt in the session.
 type replDeps struct {
 	store    *session.Store
 	header   session.SessionHeader
@@ -70,7 +70,7 @@ type replDeps struct {
 	cwd string
 	// in is the shared buffered input reader. The main loop and the tool-call
 	// confirmation prompt both read from it so input typed ahead is never split
-	// between them. It is created by runInteractive (wrapping os.Stdin) or, for
+	// between them. It is created by Run (wrapping os.Stdin) or, for
 	// direct test callers, lazily from the in argument at the top of runREPL.
 	in *bufio.Reader
 	// confirmMu serializes tool-call confirmation prompts so concurrent
@@ -92,7 +92,7 @@ type replDeps struct {
 	persisted int
 
 	// goal holds the session's autonomous-goal state (对标 pi-goal), driven by
-	// the /goal command. It is always non-nil (runInteractive seeds an idle
+	// the /goal command. It is always non-nil (Run seeds an idle
 	// state); the GoalReminderProvider and the goal tools share this handle so
 	// the objective is injected each turn and goal_complete/goal_blocked can end
 	// the run.
@@ -149,7 +149,7 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 	// between them the way it would be if the loop used a bufio.Scanner with
 	// its own private buffer (a Scanner can read past the current line into its
 	// internal buffer, trapping bytes the confirmation prompt would then never
-	// see). deps.in is set by runInteractive (wrapping os.Stdin); the in
+	// see). deps.in is set by Run (wrapping os.Stdin); the in
 	// parameter is only a fallback for direct callers (tests) that do not set
 	// deps.in, and is ignored once deps.in is populated.
 	if deps.in == nil {

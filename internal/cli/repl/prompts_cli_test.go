@@ -1,4 +1,4 @@
-package main
+package repl
 
 // Tests for --prompt-template (CLI tier) and --no-prompt-templates (US-008,
 // #339): CLI paths load at the CLI tier, --no-prompt-templates suppresses all

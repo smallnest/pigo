@@ -3,7 +3,7 @@
 // terminal, pigo starts the REPL loop (see repl.go); each run's messages are
 // persisted to a local JSONL session so the conversation can be listed, resumed
 // and replayed later.
-package main
+package repl
 
 import (
 	"bufio"
@@ -36,58 +36,58 @@ func sessionStore() (*session.Store, error) {
 	return headless.SessionStore()
 }
 
-// interactiveOptions carries the resolved run configuration plus optional
-// resume state into runInteractive.
-type interactiveOptions struct {
-	model        string
-	providerName string
-	provider     provider.Provider
-	baseURL      string
-	apiKey       string
-	protocol     string
-	// thinkingLevel is the resolved reasoning-effort level (US-023): it seeds the
+// Options carries the resolved run configuration plus optional
+// resume state into Run.
+type Options struct {
+	Model        string
+	ProviderName string
+	Provider     provider.Provider
+	BaseURL      string
+	APIKey       string
+	Protocol     string
+	// ThinkingLevel is the resolved reasoning-effort level (US-023): it seeds the
 	// live run config so every REPL turn requests it, until a control command
 	// changes it.
-	thinkingLevel agentcore.ThinkingLevel
-	tools         []agentcore.AgentTool
-	sysPrompt     string
+	ThinkingLevel agentcore.ThinkingLevel
+	Tools         []agentcore.AgentTool
+	SysPrompt     string
 
-	// resumeID, when non-empty, resumes an existing session: its messages seed
+	// ResumeID, when non-empty, resumes an existing session: its messages seed
 	// the context and replayed transcript. Otherwise a fresh session is created.
-	resumeID string
+	ResumeID string
 
-	// approve, when true, grants the launch directory session trust before the
+	// Approve, when true, grants the launch directory session trust before the
 	// run so the first-launch trust prompt is skipped and side-effect tools run
 	// without per-call confirmation (对标 pi 的 --approve/-a).
-	approve bool
-	// skills is the pre-loaded skill set (loaded once by setupAgentEnv, shared
+	Approve bool
+	// Skills is the pre-loaded skill set (loaded once by setupAgentEnv, shared
 	// with prompt injection). Each is registered as a /skill-name command. Empty
 	// under --no-skills, so nothing is registered.
-	skills []*runtime.Skill
+	Skills []*runtime.Skill
 
-	// plugins holds the loaded plugin manager so the REPL can deliver lifecycle
+	// Plugins holds the loaded plugin manager so the REPL can deliver lifecycle
 	// events to subscribed plugins (US-017, #133). It may be nil (no plugins).
-	plugins *plugin.Manager
+	Plugins *plugin.Manager
 
-	// configPrompts holds prompt-template paths from the config.toml `prompts`
+	// ConfigPrompts holds prompt-template paths from the config.toml `prompts`
 	// array (settings tier); each is a file or dir loaded non-recursively.
-	configPrompts []string
-	// cliPrompts holds --prompt-template paths (CLI tier, repeatable).
-	cliPrompts []string
-	// noPromptTemplates disables all prompt-template discovery (global, project,
+	ConfigPrompts []string
+	// CliPrompts holds --prompt-template paths (CLI tier, repeatable).
+	CliPrompts []string
+	// NoPromptTemplates disables all prompt-template discovery (global, project,
 	// settings, CLI); built-in slash commands are unaffected. Independent of
 	// --no-skills.
-	noPromptTemplates bool
+	NoPromptTemplates bool
 }
 
-// runInteractive starts the line-based REPL over a persisted session. It keeps
+// Run starts the line-based REPL over a persisted session. It keeps
 // a single growing AgentContext across prompts (so turns share history) and
 // saves the session's messages after each run completes (see runREPL/streamRun
 // in repl.go).
-func runInteractive(opts interactiveOptions) error {
+func Run(opts Options) error {
 	creds := provider.NewCredentialStore(nil)
-	creds.SetOverride(opts.providerName, opts.apiKey)
-	reg := run.ToolRegistry(opts.tools)
+	creds.SetOverride(opts.ProviderName, opts.APIKey)
+	reg := run.ToolRegistry(opts.Tools)
 
 	store, err := sessionStore()
 	if err != nil {
@@ -102,11 +102,11 @@ func runInteractive(opts interactiveOptions) error {
 		history  []agentcore.AgentMessage
 		curLeaf  string // active leaf id on resume; "" for a fresh session
 	)
-	if opts.resumeID != "" {
+	if opts.ResumeID != "" {
 		// Interactive resume always appends a fresh user message before running,
 		// so a session that ended normally (trailing assistant reply) is resumable
 		// here. Load the raw session and rebuild the context directly.
-		h, entries, err := store.LoadEntries(opts.resumeID)
+		h, entries, err := store.LoadEntries(opts.ResumeID)
 		if err != nil {
 			return err
 		}
@@ -118,20 +118,20 @@ func runInteractive(opts interactiveOptions) error {
 			curLeaf = entries[len(entries)-1].ID
 		}
 		header = h
-		agentCtx = &agentcore.AgentContext{SystemPrompt: h.SystemPrompt, Messages: msgs, Tools: opts.tools}
+		agentCtx = &agentcore.AgentContext{SystemPrompt: h.SystemPrompt, Messages: msgs, Tools: opts.Tools}
 		history = msgs
 		if agentCtx.SystemPrompt == "" {
-			agentCtx.SystemPrompt = opts.sysPrompt
+			agentCtx.SystemPrompt = opts.SysPrompt
 		}
 	} else {
-		agentCtx = &agentcore.AgentContext{SystemPrompt: opts.sysPrompt, Tools: opts.tools}
+		agentCtx = &agentcore.AgentContext{SystemPrompt: opts.SysPrompt, Tools: opts.Tools}
 		header = session.SessionHeader{
 			ID:           session.NewID(now),
 			CreatedAt:    now,
 			UpdatedAt:    now,
-			Model:        opts.model,
-			Provider:     opts.providerName,
-			SystemPrompt: opts.sysPrompt,
+			Model:        opts.Model,
+			Provider:     opts.ProviderName,
+			SystemPrompt: opts.SysPrompt,
 		}
 	}
 
@@ -140,12 +140,12 @@ func runInteractive(opts interactiveOptions) error {
 	// takes effect on the next turn; header is updated so the switch is persisted
 	// with the session.
 	live := &cli.LiveConfig{
-		Model:         opts.model,
-		ProviderName:  opts.providerName,
-		Provider:      opts.provider,
-		BaseURL:       opts.baseURL,
-		Protocol:      opts.protocol,
-		ThinkingLevel: opts.thinkingLevel,
+		Model:         opts.Model,
+		ProviderName:  opts.ProviderName,
+		Provider:      opts.Provider,
+		BaseURL:       opts.BaseURL,
+		Protocol:      opts.Protocol,
+		ThinkingLevel: opts.ThinkingLevel,
 		ContextWindow: cli.DefaultContextWindow,
 	}
 
@@ -175,10 +175,10 @@ func runInteractive(opts interactiveOptions) error {
 	// ~/.agents/skills. A load error is non-fatal — the REPL still runs with the
 	// built-ins. Instance built-ins that need live state (/model, /help) are
 	// registered against `live`.
-	slash, err := buildSlashRegistry(live, opts.skills, opts.plugins, promptTemplateSources{
-		settings:       opts.configPrompts,
-		cli:            opts.cliPrompts,
-		disable:        opts.noPromptTemplates,
+	slash, err := buildSlashRegistry(live, opts.Skills, opts.Plugins, promptTemplateSources{
+		settings:       opts.ConfigPrompts,
+		cli:            opts.CliPrompts,
+		disable:        opts.NoPromptTemplates,
 		projectDir:     filepath.Join(cwd, ".pigo", "prompts"),
 		projectTrusted: mgr != nil && mgr.IsTrusted(cwd),
 	})
@@ -193,7 +193,7 @@ func runInteractive(opts interactiveOptions) error {
 	// undecided directory, ask the user how much to trust it before any tool
 	// runs. This happens before replay so the trust question is the first thing
 	// the user sees, not their prior history.
-	trust.EstablishTrust(os.Stdout, reader, mgr, cwd, opts.approve)
+	trust.EstablishTrust(os.Stdout, reader, mgr, cwd, opts.Approve)
 
 	// Replay the resumed conversation so the user sees history before re-prompting.
 	if len(history) > 0 {
@@ -206,7 +206,7 @@ func runInteractive(opts interactiveOptions) error {
 		agentCtx:  agentCtx,
 		live:      live,
 		reg:       reg,
-		reminders: run.TodoReminders(opts.tools),
+		reminders: run.TodoReminders(opts.Tools),
 		slash:     slash,
 		creds:     creds,
 		trust:     mgr,
@@ -215,7 +215,7 @@ func runInteractive(opts interactiveOptions) error {
 		confirmMu: &sync.Mutex{},
 		curLeaf:   curLeaf,
 		persisted: len(history),
-		notifier:  plugin.NewEventNotifier(opts.plugins, os.Stderr),
+		notifier:  plugin.NewEventNotifier(opts.Plugins, os.Stderr),
 		goal:      agenttool.NewGoalState(),
 		telemetry: cli.NewTelemetryHolder(),
 	})

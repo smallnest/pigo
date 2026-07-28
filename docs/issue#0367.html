@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0367</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/367">#367</a> &mdash; 迁移 REPL 到 internal/cli/repl &mdash; 2026-07-28</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Export exactly one entry point: repl.Run(repl.Options{})</h3>
+      <p><strong>Ambiguity:</strong> The issue names <code>runInteractive</code>-&gt;<code>Run</code> and <code>interactiveOptions</code>-&gt;<code>Options</code> but does not say what else must cross the package boundary.</p>
+      <p><strong>Choice:</strong> Exported only <code>Run</code> and the <code>Options</code> struct with all 16 fields (Model, ProviderName, Provider, BaseURL, APIKey, Protocol, ThinkingLevel, Tools, SysPrompt, ResumeID, Approve, Skills, Plugins, ConfigPrompts, CliPrompts, NoPromptTemplates). Everything else — replDeps, runREPL, replLineEditor, buildSlashRegistry, loadPromptPaths, promptTemplateSources — stays package-private.</p>
+      <p><strong>Rationale:</strong> run.go is the sole cross-package caller; a single exported constructor keeps the seam minimal and lets the REPL internals evolve freely. Mirrors the established pattern from #364/#365/#366.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> prompts_config_test.go split across two packages</h3>
+      <p><strong>Spec:</strong> "对应 *_test.go 迁入并转为 package repl" reads as moving whole test files.</p>
+      <p><strong>Implemented:</strong> Split the file — <code>TestApplyFileConfigPrompts</code> (drives <code>cliOptions</code>/<code>applyFileConfig</code>, both in package main) stays in cmd/pigo; the three tests exercising <code>loadPromptPaths</code>/<code>buildSlashRegistry</code>/<code>promptTemplateSources</code> moved to internal/cli/repl since those symbols moved with the REPL.</p>
+      <p><strong>Why:</strong> A test must live in the package that owns the unexported symbols it calls. <code>cliOptions</code>/<code>applyFileConfig</code> are CLI-parse concerns that stay in main (per #369's thin-entry goal), so a clean split is the only compiling option.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> git mv + perl package-rename over hand-editing 19 files</h3>
+      <p><strong>Alternatives:</strong> (a) manually move and re-clause each file; (b) <code>git mv</code> in bulk then perl-rewrite the package clause.</p>
+      <p><strong>Pros/cons:</strong> (b) preserves rename history in the diff and is fast, but files with leading comment blocks before <code>package main</code> needed a second targeted perl pass (first-match <code>^package main</code>) since <code>\Apackage</code> did not match.</p>
+      <p><strong>Winner:</strong> (b) — history-preserving and verifiable via "no package main remaining" grep; build/vet/test gate correctness.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Do cliOptions/applyFileConfig eventually move too?</h3>
+      <p><strong>Assumption:</strong> They stay in package main as flag-parsing glue; #369 (thin main entry) will decide whether any of that logic relocates into internal/cli.</p>
+      <p><strong>Verify:</strong> During #369, confirm the main package retains only flag parse + dispatch and that TestApplyFileConfigPrompts still belongs there.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

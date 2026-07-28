@@ -2,7 +2,7 @@
 // (US-005, #295) that drive the package-main REPL harness (runREPL/newTestDeps)
 // or inspect CLI flags. The direct-call rendering tests live in
 // internal/cli/status alongside RunStatus.
-package main
+package repl
 
 import (
 	"bytes"

@@ -1,4 +1,4 @@
-package main
+package repl
 
 import (
 	"bufio"
@@ -368,7 +368,7 @@ func TestMLBufferLeftRightCrossLines(t *testing.T) {
 func TestMLBufferUpDownClampColumn(t *testing.T) {
 	b := newMLBuffer()
 	b.setString("long line\nhi") // cursor at end of "hi" → (1,2)
-	b.up()                        // move to "long line", col stays 2
+	b.up()                       // move to "long line", col stays 2
 	if b.row != 0 || b.col != 2 {
 		t.Fatalf("up = (%d,%d), want (0,2)", b.row, b.col)
 	}

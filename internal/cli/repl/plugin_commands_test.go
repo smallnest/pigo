@@ -1,4 +1,4 @@
-package main
+package repl
 
 // Tests for plugin slash-command wiring (#265): a plugin-declared command
 // (Manager.Commands()) is registered into the REPL slash registry as a hybrid

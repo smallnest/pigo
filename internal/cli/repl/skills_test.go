@@ -1,4 +1,4 @@
-package main
+package repl
 
 // Tests for default skill loading from ~/.agents/skills and its exposure as
 // /skill-name slash commands. skillsDir honors the PIGO_SKILLS_DIR override so

@@ -1,4 +1,4 @@
-package main
+package repl
 
 // Isolation / zero-pollution tests for /btw (#284, PRD Success Metrics). These
 // lock the feature's most important correctness guarantee: a side thread's

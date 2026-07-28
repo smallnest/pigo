@@ -1,4 +1,4 @@
-package main
+package repl
 
 // Tests for the line-based REPL (#106): slash-command dispatch (action prints
 // message and does NOT run; prompt runs; unknown command errors and does NOT

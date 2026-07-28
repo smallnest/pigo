@@ -1,4 +1,4 @@
-package main
+package repl
 
 // Tests for global prompt-template discovery (US-005, #336): buildSlashRegistry
 // loads both the legacy ~/.pigo/commands and the pi-aligned ~/.pigo/prompts

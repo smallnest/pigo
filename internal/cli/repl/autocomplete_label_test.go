@@ -1,4 +1,4 @@
-package main
+package repl
 
 // Tests for formatSlashAutocompleteLabel (US-010, #340): the Tab-completion
 // label renders as "name <argument-hint> - description", omitting the hint
@@ -50,10 +50,10 @@ func TestSlashAutocompleteSuggestionStillCompletesName(t *testing.T) {
 	reg := runtime.NewSlashRegistry()
 	reg.AddBuiltin(runtime.SlashCommand{Name: "model", Action: func(string) string { return "" }})
 	reg.AddUser(runtime.SlashCommand{
-		Name:          "review",
-		ArgumentHint:  "<PR-URL>",
-		Description:   "Review PRs",
-		Expand:        func(string) string { return "" },
+		Name:         "review",
+		ArgumentHint: "<PR-URL>",
+		Description:  "Review PRs",
+		Expand:       func(string) string { return "" },
 	})
 	e := newREPLLineEditor(strings.NewReader(""), bufio.NewReader(strings.NewReader("")), io.Discard, reg, nil)
 	if got := e.suggestion("/rev"); got != "/review" {

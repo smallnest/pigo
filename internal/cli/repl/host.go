@@ -3,7 +3,7 @@
 // and mutable state through the cli.Host contract rather than the concrete
 // aggregate. The compile-time assertion below fails the build if replDeps drifts
 // out of conformance.
-package main
+package repl
 
 import (
 	"bufio"

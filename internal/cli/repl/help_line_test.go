@@ -1,4 +1,4 @@
-package main
+package repl
 
 // Tests for /help's template listing (US-011, #341): formatHelpLine renders
 // "/name <argument-hint> - description (source: <tier>)" (hint omitted when
