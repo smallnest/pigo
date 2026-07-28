@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0366</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/366">#366</a> &mdash; 迁移 /status 到 internal/cli/status &mdash; 2026-07-28</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Decouple /status from replDeps via the cli.Host contract</h3>
+      <p><strong>Ambiguity:</strong> The migration issue says "move /status into internal/cli/status" but does not spell out how the command should reach session state (live config, agent context, credentials, telemetry) once it can no longer import package main's concrete replDeps.</p>
+      <p><strong>Choice:</strong> Rewrote <code>RunStatus(out io.Writer, host cli.Host)</code> and every print helper to read state through the existing <code>cli.Host</code> accessors (Live/Header/AgentCtx/Cwd/Trust/Slash/Creds/Telemetry), exactly as /goal (#364) and /btw (#365) already do.</p>
+      <p><strong>Rationale:</strong> Keeps the dependency direction single (repl → status) and avoids an import cycle. Reusing the established seam means no new interface surface and a consistent pattern across all migrated control commands.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Export only RunStatus; keep helpers unexported</h3>
+      <p><strong>Ambiguity:</strong> Which identifiers must cross the package boundary.</p>
+      <p><strong>Choice:</strong> Exported just <code>RunStatus</code> (the sole REPL entry point). <code>printRuntimeConfig</code>, <code>printContextStatus</code>, <code>trustStatus</code>, <code>namesSuffix</code>, <code>maskKey</code>, <code>printTelemetryBlock</code> stay package-private.</p>
+      <p><strong>Rationale:</strong> Minimal public surface — only the one symbol the REPL calls is exported; internal helpers remain free to change without affecting callers.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> REPL-integration and headless-flag tests stay in package main</h3>
+      <p><strong>Spec:</strong> A literal reading of "migrate /status" would move the whole test file into the new package.</p>
+      <p><strong>Implemented:</strong> Split the tests — direct-call rendering tests (TestRunStatus, ...TelemetryPopulated, TestMaskKey, plus the e2e direct-call set) moved to <code>internal/cli/status</code> using a fake host; tests that drive <code>runREPL</code>/<code>newTestDeps</code> or inspect the <code>--status</code> pflag (TestStatusGuard, TestRunStatusViaREPL, TestStatusFooNotIntercepted, TestStatusNotInHeadless, TestStatusE2EViaREPL) were relocated to a new <code>cmd/pigo/status_repl_test.go</code>.</p>
+      <p><strong>Why:</strong> The REPL harness (replProvider/newTestDeps/runREPL) lives in package main and cannot be imported from internal/cli/status without an import cycle. This mirrors the pragmatic split validated in #365 (btw); the harness-coupled tests fully relocate when the REPL itself migrates in #367.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Fake host over the full replDeps fixture</h3>
+      <p><strong>Alternatives:</strong> (a) build a real replDeps in the status package's tests; (b) a minimal <code>fakeHost</code> that embeds <code>cli.Host</code> and overrides only the eight accessors RunStatus reads.</p>
+      <p><strong>Pros/cons:</strong> (a) would re-create the import cycle and drag in the entire session-assembly machinery; (b) is a few lines, panics loudly if RunStatus ever reads an unexpected accessor, and its collaborators are all buildable from public constructors (<code>cli.LiveConfig{}</code>, <code>agentcore.AgentContext{}</code>, <code>runtime.NewSlashRegistry()</code>, <code>provider.NewCredentialStore(nil)</code>, <code>cli.NewTelemetryHolder()</code>).</p>
+      <p><strong>Winner:</strong> (b) — no cycle, minimal surface, consistent with the btw fakeHost from #365.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> When do the relocated REPL-integration tests move into the status package?</h3>
+      <p><strong>Assumption:</strong> Once #367 migrates the REPL loop out of package main, the harness (runREPL/newTestDeps) becomes importable and the five tests parked in cmd/pigo/status_repl_test.go can move alongside RunStatus.</p>
+      <p><strong>Verify:</strong> During #367, confirm the harness is exported/relocated and fold these tests back into internal/cli/status rather than leaving them permanently split.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
