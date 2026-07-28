@@ -155,47 +155,42 @@ func (t transcript) overflowing() bool {
 	return t.vp.Height() > 0 && t.vp.TotalLineCount() > t.vp.Height()
 }
 
-// view renders the current visible slice of the transcript. While there is
-// history to scroll (FR-10) a light-gray thumb is attached in a one-column
-// gutter on the right so the scroll position is visible; the gutter is only
-// present when the content overflows (relayout reserves the column to match), so
-// a non-scrolling transcript uses the full width. There is no track line — the
-// non-thumb rows are blank, so only the thumb is drawn.
+// view renders the current visible slice of the transcript with a persistent
+// one-column vertical scrollbar down the right edge (FR-10). The scrollbar is
+// always present (relayout reserves its column) so it never flickers in and out:
+// a light-gray track (░) runs the full height and a darker thumb (█) marks the
+// visible window. When the whole transcript fits, the thumb fills the column.
 func (t transcript) view() string {
-	if !t.overflowing() {
-		return t.vp.View()
-	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, t.vp.View(), t.scrollbar())
 }
 
-// scrollbar renders the one-column vertical thumb the height of the viewport. It
-// is only called while the transcript overflows: a proportional thumb marks the
-// visible window and its position marks the scroll offset, so scrolling up
-// through history moves the thumb. Non-thumb rows draw a dim shaded track (░) so
-// the scrollbar is always visible as a column when scrolling is possible; the
-// solid thumb (█) contrasts against it on any terminal background. This is not
-// the thin │ rule that was removed — it is a full-width shaded gutter.
+// scrollbar renders the one-column vertical scrollbar the height of the
+// viewport. A proportional thumb (█) marks the visible window and its position
+// marks the scroll offset, so scrolling up through history moves the thumb; the
+// remaining rows draw a light-gray track (░). When the content fits (no
+// overflow) the thumb fills the full height. This is a shaded gutter, not the
+// thin │ rule that was removed earlier.
 func (t transcript) scrollbar() string {
 	h := t.vp.Height()
 	if h <= 0 {
 		return ""
 	}
 	total := t.vp.TotalLineCount()
-	if total <= h {
-		return ""
-	}
-	thumb := h * h / total
-	if thumb < 1 {
-		thumb = 1
-	}
-	maxOff := total - h
-	off := t.vp.YOffset()
-	if off > maxOff {
-		off = maxOff
-	}
+	thumb := h
 	pos := 0
-	if maxOff > 0 {
-		pos = off * (h - thumb) / maxOff
+	if total > h {
+		thumb = h * h / total
+		if thumb < 1 {
+			thumb = 1
+		}
+		maxOff := total - h
+		off := t.vp.YOffset()
+		if off > maxOff {
+			off = maxOff
+		}
+		if maxOff > 0 {
+			pos = off * (h - thumb) / maxOff
+		}
 	}
 	var b strings.Builder
 	for i := 0; i < h; i++ {

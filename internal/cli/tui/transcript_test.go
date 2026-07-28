@@ -116,24 +116,31 @@ func TestTranscriptCJKWrap(t *testing.T) {
 	}
 }
 
-// TestTranscriptScrollbar verifies the scrollbar policy: the gutter is absent
-// while the content fits (no overflow → full width, no thumb), and once the
-// content overflows a light-gray thumb "█" appears with no track line "│".
+// TestTranscriptScrollbar verifies the persistent scrollbar policy: the gutter
+// is always present. While the content fits, the thumb "█" fills the full height
+// (no track). Once the content overflows, a shorter thumb "█" appears alongside
+// the light-gray track "░", and never the thin rule "│".
 func TestTranscriptScrollbar(t *testing.T) {
 	tr := newTranscript(DefaultTheme())
 	tr.setSize(20, 4) // 4 visible rows
 
-	// Two short lines fit in 4 rows: no overflow, no scrollbar drawn.
+	// Two short lines fit in 4 rows: scrollbar present, thumb fills the column,
+	// no track and no rule.
 	tr.addUser("one")
 	tr.addUser("two")
 	if tr.overflowing() {
 		t.Fatal("transcript should not overflow while content fits")
 	}
-	if got := stripANSI(tr.view()); strings.Contains(got, "█") || strings.Contains(got, "│") {
-		t.Errorf("no scrollbar expected while content fits; got:\n%q", got)
+	fit := stripANSI(tr.view())
+	if !strings.Contains(fit, "█") {
+		t.Errorf("expected a full-height thumb █ while content fits; got:\n%q", fit)
+	}
+	if strings.Contains(fit, "░") {
+		t.Errorf("no track ░ expected while content fits (thumb fills column); got:\n%q", fit)
 	}
 
-	// Enough lines to exceed 4 rows: now it overflows and the thumb appears.
+	// Enough lines to exceed 4 rows: now it overflows, thumb shrinks and track
+	// appears.
 	for i := 0; i < 10; i++ {
 		tr.addUser("line")
 	}
@@ -143,6 +150,9 @@ func TestTranscriptScrollbar(t *testing.T) {
 	view := stripANSI(tr.view())
 	if !strings.Contains(view, "█") {
 		t.Errorf("expected a scrollbar thumb █ while overflowing; got:\n%q", view)
+	}
+	if !strings.Contains(view, "░") {
+		t.Errorf("expected a track ░ while overflowing; got:\n%q", view)
 	}
 	if strings.Contains(view, "│") {
 		t.Errorf("scrollbar must not draw a track line │; got:\n%q", view)

@@ -49,8 +49,8 @@ const (
 	colorWarn    = "214" // yellow/amber
 	colorAccent  = "39"  // blue (file names, highlights)
 	colorGray    = "245" // secondary / muted text
-	colorScroll  = "245" // scrollbar thumb (medium gray, visible on light+dark)
-	colorTrack   = "238" // scrollbar track (dim gray)
+	colorScroll  = "244" // scrollbar thumb (medium gray, visible on light+dark)
+	colorTrack   = "252" // scrollbar track (very light gray, subtle)
 	colorUser    = "15"  // bright white
 	colorAssist  = "252" // near-white
 	colorStatus  = "62"  // status bar background (violet)

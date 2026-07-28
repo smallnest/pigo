@@ -537,16 +537,13 @@ func (m *Model) relayout() {
 	if rows < 0 {
 		rows = 0
 	}
-	// Size at full width first; the scrollbar column is only reserved when the
-	// content overflows, so a non-scrolling transcript keeps the whole width.
-	m.transcript.setSize(m.width, rows)
-	if m.transcript.overflowing() {
-		content := m.width - 1 // reserve a column for the scrollbar
-		if content < 0 {
-			content = 0
-		}
-		m.transcript.setSize(content, rows)
+	// Reserve one content column for the persistent scrollbar so the transcript
+	// body never shifts as history grows past a screen.
+	content := m.width - 1
+	if content < 0 {
+		content = 0
 	}
+	m.transcript.setSize(content, rows)
 	m.input.SetWidth(m.width)
 }
 
