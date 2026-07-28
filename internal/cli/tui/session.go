@@ -50,6 +50,11 @@ type runSession struct {
 	// Messages[persisted:] as a branch from curLeaf (see cli.PersistTurn).
 	curLeaf   string
 	persisted int
+
+	// cancelRun cancels the in-flight run's context; startRun sets it and the
+	// two-stage interrupt (Model.interruptFn → interrupt) calls it. It is nil
+	// before the first run and after a run is cancelled.
+	cancelRun context.CancelFunc
 }
 
 // newRunSession assembles the run session from the resolved Options, opening the
@@ -180,7 +185,21 @@ func (s *runSession) startRun(prompt string) (chan tea.Msg, tea.Cmd) {
 		RoleField: agentcore.RoleUser,
 		Content:   content,
 	})
-	return startRun(context.Background(), s.agentCtx, s.buildConfig())
+	// Use a cancellable context so the two-stage interrupt (FR-14) can stop this
+	// run: cancelling propagates through StartRun/DrainStream, which then emits a
+	// runEndMsg and the model returns to idle.
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancelRun = cancel
+	return startRun(ctx, s.agentCtx, s.buildConfig())
+}
+
+// interrupt cancels the in-flight run, if any. It is bound to Model.interruptFn
+// by withSession so pressing Esc / Ctrl+C while running stops the current run
+// instead of quitting the program (FR-14). Safe to call when no run is active.
+func (s *runSession) interrupt() {
+	if s.cancelRun != nil {
+		s.cancelRun()
+	}
 }
 
 // persist writes the messages produced since the last persist as a new branch

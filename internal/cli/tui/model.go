@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/smallnest/pigo/internal/agentcore"
 )
@@ -31,9 +30,10 @@ type Model struct {
 	// transcript is the scrolling message log (user / assistant / system turns).
 	transcript transcript
 
-	// input is the minimal prompt buffer. The full textarea (with CJK-aware
-	// editing) lands in #390; this holds just enough to submit a line.
-	input string
+	// input is the multi-line prompt editor (#390). It wraps a bubbles textarea
+	// so CJK / emoji are edited by rune (no dropped-byte bug), Enter submits and
+	// Alt+Enter inserts a newline. It is blurred while a run is in flight.
+	input input
 
 	// running is true while an agent run is draining through runCh. Input submit
 	// is gated on it so a new run cannot start mid-run.
@@ -54,6 +54,14 @@ type Model struct {
 	// context, live config). It is nil for a session-less model; when set, the
 	// model persists the conversation to ~/.pigo/sessions after each turn ends.
 	session *runSession
+
+	// interruptFn cancels the in-flight run (the first stage of the two-stage
+	// interrupt, FR-14): pressing Esc / Ctrl+C while running signals the run to
+	// stop rather than quitting the program. It is a seam wired alongside
+	// startRunFn by session assembly (#392) — typically the run ctx's cancel
+	// func. Until then it may be nil, in which case an interrupt while running is
+	// a safe no-op (the pump keeps draining until it ends on its own).
+	interruptFn func()
 
 	// quitting is set when a quit key (Ctrl+C / Ctrl+D) is seen, so View can be a
 	// no-op on the final frame while the program tears down and restores the
@@ -94,6 +102,7 @@ func NewModel(opts Options) Model {
 		opts:       opts,
 		theme:      theme,
 		transcript: newTranscript(theme),
+		input:      newInput(),
 		cwd:        cwd,
 		statusBar:  newStatusBar(theme, opts, cwd),
 		toolCards:  make(map[string]*toolCard),
@@ -108,6 +117,7 @@ func NewModel(opts Options) Model {
 func (m Model) withSession(s *runSession, history []agentcore.Message) Model {
 	m.session = s
 	m.startRunFn = s.startRun
+	m.interruptFn = s.interrupt
 	seedTranscript(&m.transcript, history)
 	return m
 }
@@ -116,7 +126,7 @@ func (m Model) withSession(s *runSession, history []agentcore.Message) Model {
 // can show the branch/dirty state as soon as it resolves; the alt-screen is
 // requested declaratively via the AltScreen field on the View returned by View.
 func (m Model) Init() tea.Cmd {
-	return fetchGitCmd(m.cwd)
+	return tea.Batch(fetchGitCmd(m.cwd), m.input.Focus())
 }
 
 // Update implements tea.Model. It tracks the terminal size, drives the minimal
@@ -129,6 +139,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.transcript.setSize(msg.Width, transcriptHeight(msg.Height))
+		m.input.SetWidth(msg.Width)
 		return m, nil
 
 	case gitInfoMsg:
@@ -201,18 +212,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.transcript.addSystem("会话保存失败：" + err.Error())
 			}
 		}
-		// A run may have changed the working tree (edits, new files); re-probe git
-		// so the status bar reflects the post-run dirty/ahead state.
-		return m, fetchGitCmd(m.cwd)
+		// The editor was blurred at submit; re-enable it so the next prompt can be
+		// typed, and re-probe git since a run may have changed the working tree.
+		focus := m.input.Focus()
+		return m, tea.Batch(focus, fetchGitCmd(m.cwd))
 	}
 	return m, nil
 }
 
-// handleKey processes a key press: quit keys, prompt submit, minimal line
-// editing, and viewport scrolling.
+// handleKey processes a key press. It resolves the keys the shell owns —
+// two-stage interrupt/quit, prompt submit, transcript scrolling — and delegates
+// everything else (character entry, in-buffer cursor movement, Alt+Enter
+// newline) to the input editor while idle. Keys are matched via KeyPressMsg
+// .String() so the mapping is terminal-independent.
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "ctrl+c", "ctrl+d":
+	case "esc", "ctrl+c":
+		// Two-stage interrupt (FR-14): while a run is in flight the first press
+		// interrupts that run (cancel the run ctx / signal the pump) and stays in
+		// the program; when idle it quits.
+		if m.running {
+			if m.interruptFn != nil {
+				m.interruptFn()
+			}
+			m.transcript.addSystem("（正在中断当前运行…）")
+			return m, nil
+		}
 		m.quitting = true
 		return m, tea.Quit
 	case "ctrl+o":
@@ -223,49 +248,58 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.transcript.reflow()
 		}
 		return m, nil
+	case "ctrl+d":
+		// Ctrl+D quits only when idle; mid-run it is ignored so a run is never
+		// dropped by a stray EOF key.
+		if !m.running {
+			m.quitting = true
+			return m, tea.Quit
+		}
+		return m, nil
 	case "enter":
 		if !m.running {
 			return m.submit()
 		}
 		return m, nil
-	case "backspace":
-		if !m.running && m.input != "" {
-			r := []rune(m.input)
-			m.input = string(r[:len(r)-1])
-		}
-		return m, nil
-	case "up", "down", "pgup", "pgdown", "home", "end":
-		// Scrolling reaches the transcript viewport whether idle or running, so
-		// history stays readable while a run streams.
+	case "pgup", "pgdown":
+		// Page scrolling reaches the transcript viewport whether idle or running,
+		// so history stays readable while a run streams. Line-oriented keys (up /
+		// down / home / end) belong to the multi-line editor and are delegated
+		// below.
 		cmd := m.transcript.update(msg)
 		return m, cmd
 	}
 
-	// Printable input extends the buffer (minimal; full textarea is #390). Gated
-	// on idle so keystrokes don't corrupt a prompt while a run streams.
-	if !m.running && msg.Text != "" {
-		m.input += msg.Text
+	// Everything else is editing input; gated on idle so keystrokes never corrupt
+	// an in-flight prompt. textarea handles CJK / emoji by rune and Alt+Enter as
+	// a newline.
+	if !m.running {
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
 	}
 	return m, nil
 }
 
-// submit starts a run for the current input line: it appends the user block,
-// clears the buffer, and — when a run starter is wired — flips to running and
+// submit starts a run for the current buffer: it appends the user block, clears
+// and blurs the editor, flips to running, and — when a run starter is wired —
 // returns the first pump Cmd. With no starter (pre-#392) it records the prompt
-// and a system note without launching anything.
+// and a system note without launching anything, and leaves the editor ready for
+// the next line.
 func (m Model) submit() (tea.Model, tea.Cmd) {
-	prompt := strings.TrimSpace(m.input)
+	prompt := strings.TrimSpace(m.input.Value())
 	if prompt == "" {
 		return m, nil
 	}
 	m.transcript.addUser(prompt)
-	m.input = ""
+	m.input.Clear()
 
 	if m.startRunFn == nil {
 		m.transcript.addSystem("（运行未接入：会话装配见 #392）")
 		return m, nil
 	}
 
+	m.input.Blur()
 	ch, cmd := m.startRunFn(prompt)
 	m.runCh = ch
 	m.running = true
@@ -303,10 +337,9 @@ func (m Model) View() tea.View {
 
 	status := m.statusBar.Render(width)
 
-	input := lipgloss.NewStyle().
-		Width(width).
-		Foreground(lipgloss.Color("241")).
-		Render("> " + m.input)
+	// The input editor renders its own prompt column and cursor; keep it to the
+	// single visible row the View row math reserves.
+	input := m.input.View()
 
 	// Reserve one row for the status bar and one for the input line; the rest is
 	// the transcript area. Guard against tiny terminals so the region never goes
