@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/cli/btw"
 )
 
 // TestBtwDoesNotPolluteMainContext verifies that "/btw <q>" launches a run
@@ -30,8 +31,8 @@ func TestBtwDoesNotPolluteMainContext(t *testing.T) {
 	if len(deps.agentCtx.Messages) != 0 {
 		t.Fatalf("main context must be untouched by /btw, got %d messages", len(deps.agentCtx.Messages))
 	}
-	if !strings.Contains(out.String(), btwHeader) {
-		t.Errorf("expected side-thread header %q in output", btwHeader)
+	if !strings.Contains(out.String(), btw.BtwHeader) {
+		t.Errorf("expected side-thread header %q in output", btw.BtwHeader)
 	}
 	if !strings.Contains(out.String(), "side answer") {
 		t.Errorf("expected the side answer to be printed, got: %q", out.String())
@@ -139,10 +140,10 @@ func TestBtwFollowUpLoopAccumulates(t *testing.T) {
 	side := &agentcore.AgentContext{}
 	deps, _ := newTestDeps(t, &replProvider{reply: "a"})
 	setCancel := func(context.CancelFunc) {}
-	settings := resolveBtwSettings(&bytes.Buffer{}, &deps)
-	askSide(setCancel, &bytes.Buffer{}, &deps, side, settings, "q1")
+	settings := btw.ResolveBtwSettings(&bytes.Buffer{}, &deps)
+	btw.AskSide(setCancel, &bytes.Buffer{}, &deps, side, settings, "q1")
 	n1 := len(side.Messages)
-	askSide(setCancel, &bytes.Buffer{}, &deps, side, settings, "q2")
+	btw.AskSide(setCancel, &bytes.Buffer{}, &deps, side, settings, "q2")
 	if len(side.Messages) <= n1 {
 		t.Fatalf("side context should accumulate across follow-ups: %d then %d", n1, len(side.Messages))
 	}
@@ -156,7 +157,7 @@ func TestNewSideContextIsolated(t *testing.T) {
 			agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("hi")}},
 		},
 	}
-	side := newSideContext(main)
+	side := btw.NewSideContext(main)
 	if side.SystemPrompt != "sys" {
 		t.Errorf("side thread should inherit the system prompt")
 	}

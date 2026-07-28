@@ -27,6 +27,7 @@ import (
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/btw"
 	"github.com/smallnest/pigo/internal/cli/goal"
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/clipboard"
@@ -191,7 +192,7 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 
 	for {
 		fmt.Fprintln(out)
-		raw, err := editor.readLine(fmt.Sprintf("pigo(%s)> ", deps.live.Model))
+		raw, err := editor.ReadLine(fmt.Sprintf("pigo(%s)> ", deps.live.Model))
 		if errors.Is(err, errLineInterrupted) {
 			continue
 		}
@@ -305,7 +306,7 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 			// can express. The exact-or-space-prefix guard keeps "/btweak" from
 			// being mistaken for "/btw". It reuses the same SIGINT cancel plumbing
 			// as a normal turn via setCancel.
-			runBtw(setCancel, out, &deps, editor, line)
+			btw.RunBtw(setCancel, out, &deps, editor, line)
 			continue
 		}
 

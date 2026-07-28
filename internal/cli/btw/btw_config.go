@@ -8,7 +8,7 @@
 // with no restart. A missing file, an empty object, or an absent field all mean
 // "inherit the session default" silently — only a malformed file or an
 // unusable model override produces a (non-fatal) warning.
-package main
+package btw
 
 import (
 	"encoding/json"
@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/cli/run"
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/provider"
@@ -34,15 +35,15 @@ type btwConfig struct {
 	ThinkingLevel string `json:"thinkingLevel,omitempty"`
 }
 
-// btwRunSettings is the resolved model/provider/thinking a side run uses. It is
+// BtwRunSettings is the resolved model/provider/thinking a side run uses. It is
 // computed once per /btw invocation from the session defaults overlaid with
-// btw.json, and passed down to askSide so every turn of that invocation uses
+// btw.json, and passed down to AskSide so every turn of that invocation uses
 // the same settings.
-type btwRunSettings struct {
-	model         string
-	providerName  string
-	provider      provider.Provider
-	thinkingLevel agentcore.ThinkingLevel
+type BtwRunSettings struct {
+	Model         string
+	ProviderName  string
+	Provider      provider.Provider
+	ThinkingLevel agentcore.ThinkingLevel
 }
 
 // btwConfigPath returns the path to the /btw override config, or "" when the
@@ -76,8 +77,8 @@ func loadBtwConfig(path string) (btwConfig, error) {
 	return cfg, nil
 }
 
-// resolveBtwSettings computes the model/provider/thinking a side run should use.
-// It starts from the session defaults (deps.live) and overlays btw.json:
+// ResolveBtwSettings computes the model/provider/thinking a side run should use.
+// It starts from the session defaults (host.Live()) and overlays btw.json:
 //
 //   - No config / empty object / absent fields → inherit the session values.
 //   - thinkingLevel set → validate and override (invalid value warns, falls back).
@@ -86,13 +87,15 @@ func loadBtwConfig(path string) (btwConfig, error) {
 //     back to the session model+provider.
 //
 // A malformed config file warns once and inherits everything. Nothing here
-// mutates deps.live, so the override is confined to the side thread (FR-8).
-func resolveBtwSettings(out io.Writer, deps *replDeps) btwRunSettings {
-	s := btwRunSettings{
-		model:         deps.live.Model,
-		providerName:  deps.live.ProviderName,
-		provider:      deps.live.Provider,
-		thinkingLevel: deps.live.ThinkingLevel,
+// mutates the session live config, so the override is confined to the side
+// thread (FR-8).
+func ResolveBtwSettings(out io.Writer, host cli.Host) BtwRunSettings {
+	live := host.Live()
+	s := BtwRunSettings{
+		Model:         live.Model,
+		ProviderName:  live.ProviderName,
+		Provider:      live.Provider,
+		ThinkingLevel: live.ThinkingLevel,
 	}
 
 	cfg, err := loadBtwConfig(btwConfigPath())
@@ -103,20 +106,20 @@ func resolveBtwSettings(out io.Writer, deps *replDeps) btwRunSettings {
 
 	if lvl := strings.TrimSpace(cfg.ThinkingLevel); lvl != "" {
 		if v, ok := validThinkingLevel(lvl); ok {
-			s.thinkingLevel = v
+			s.ThinkingLevel = v
 		} else {
-			fmt.Fprintf(out, "%s\n", ui.Colorize(ui.Enabled(), ui.Dim, fmt.Sprintf("btw: ignoring invalid thinkingLevel %q, using %q", lvl, s.thinkingLevel)))
+			fmt.Fprintf(out, "%s\n", ui.Colorize(ui.Enabled(), ui.Dim, fmt.Sprintf("btw: ignoring invalid thinkingLevel %q, using %q", lvl, s.ThinkingLevel)))
 		}
 	}
 
-	if model := strings.TrimSpace(cfg.Model); model != "" && model != s.model {
-		prov, providerName, perr := provider.ResolveProvider(model, deps.live.BaseURL, deps.live.Protocol, "", os.Getenv)
+	if model := strings.TrimSpace(cfg.Model); model != "" && model != s.Model {
+		prov, providerName, perr := provider.ResolveProvider(model, live.BaseURL, live.Protocol, "", os.Getenv)
 		if perr != nil {
-			fmt.Fprintf(out, "%s\n", ui.Colorize(ui.Enabled(), ui.Dim, fmt.Sprintf("btw: cannot use model %q (%v), falling back to %q", model, perr, s.model)))
+			fmt.Fprintf(out, "%s\n", ui.Colorize(ui.Enabled(), ui.Dim, fmt.Sprintf("btw: cannot use model %q (%v), falling back to %q", model, perr, s.Model)))
 		} else {
-			s.model = model
-			s.providerName = providerName
-			s.provider = prov
+			s.Model = model
+			s.ProviderName = providerName
+			s.Provider = prov
 		}
 	}
 

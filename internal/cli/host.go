@@ -7,6 +7,7 @@ package cli
 
 import (
 	"bufio"
+	"errors"
 	"sync"
 
 	"github.com/smallnest/pigo/internal/agentcore"
@@ -17,6 +18,13 @@ import (
 	"github.com/smallnest/pigo/internal/session"
 	"github.com/smallnest/pigo/internal/trust"
 )
+
+// ErrLineInterrupted is returned by an Editor.ReadLine when the user hits an
+// idle Ctrl+C at the prompt (rather than during a run). Control commands that
+// run their own follow-up loop (e.g. /btw) check for it with errors.Is to leave
+// the loop cleanly. It lives here, beside the Editor contract, so a subpackage
+// can recognize the interrupt without importing the concrete line editor.
+var ErrLineInterrupted = errors.New("line input interrupted")
 
 // Host is the seam through which a control command (/goal, /btw, /status) and
 // the REPL loop access the collaborators and mutable state of a session. It is

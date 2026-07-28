@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,11 +11,15 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
 )
 
-var errLineInterrupted = errors.New("line input interrupted")
+// errLineInterrupted aliases cli.ErrLineInterrupted so the editor's own returns
+// and tests keep the short local name while subpackages (e.g. /btw) recognize
+// the same sentinel through the exported cli.ErrLineInterrupted.
+var errLineInterrupted = cli.ErrLineInterrupted
 
 // mlBuffer models the readLine input as one or more lines with a cursor at
 // (row, col), col counted in runes within the current line. A fresh buffer
@@ -414,7 +417,7 @@ func atoiDefault(s string, def int) int {
 	return def
 }
 
-func (e *replLineEditor) readLine(prompt string) (string, error) {
+func (e *replLineEditor) ReadLine(prompt string) (string, error) {
 	if e.terminal == nil {
 		fmt.Fprint(e.out, prompt)
 		return e.in.ReadString('\n')

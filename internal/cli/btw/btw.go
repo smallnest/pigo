@@ -2,24 +2,26 @@
 // agent extension @narumitw/pi-btw): a throwaway "side thread" for asking the
 // model a quick side question that must NOT pollute the main conversation.
 //
-// /btw is intercepted in the REPL loop (see repl.go) rather than routed through
-// a slash Action closure because it must run an agent stream and read the live
-// main context — none of which a pure string→string Action can do, exactly like
-// /compact and /goal.
+// /btw is intercepted in the REPL loop rather than routed through a slash Action
+// closure because it must run an agent stream and read the live main context —
+// none of which a pure string→string Action can do, exactly like /compact and
+// /goal. It reaches the session's collaborators and mutable state through the
+// cli.Host contract and reads follow-up lines through cli.Editor, so it need not
+// import the concrete replDeps aggregate that assembles them.
 //
 // Isolation contract (the whole point of the feature): a side thread runs on a
 // COPY of the main conversation as background, and its question/answer are only
-// ever appended to that copy — never to deps.agentCtx.Messages. Nothing is
-// persisted: no store.Save, no change to deps.persisted / deps.curLeaf /
-// deps.header.UpdatedAt. Closing the side thread, switching sessions or
-// restarting pigo discards everything.
+// ever appended to that copy — never to host.AgentCtx().Messages. Nothing is
+// persisted: no store.Save, no change to the persisted cursor / current leaf /
+// header timestamp. Closing the side thread, switching sessions or restarting
+// pigo discards everything.
 //
 // Scope: /btw is intercepted in the REPL loop and runs a side question against a
 // copy of the main context (#279); it supports multi-turn follow-ups in the same
 // ephemeral thread (#280), bare-/btw reopen of the most recent side thread this
 // process (#281), and an optional model/thinking override config (#282, see
 // btw_config.go) that affects only the side thread.
-package main
+package btw
 
 import (
 	"context"
@@ -30,6 +32,7 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/compaction"
 	"github.com/smallnest/pigo/internal/provider"
@@ -42,11 +45,15 @@ import (
 // conversation (对标 pi-btw's "btw · side thread" header).
 const btwHeader = "btw · side thread"
 
+// BtwHeader exposes the side-thread banner text so callers (and tests) can
+// recognize it in output.
+const BtwHeader = btwHeader
+
 // btwPrompt is the input prompt shown for follow-up questions inside a side
 // thread, distinguishing it from the main "pigo(model)>" prompt.
 const btwPrompt = "btw> "
 
-// runBtw handles a /btw invocation. With an argument it starts a fresh side
+// RunBtw handles a /btw invocation. With an argument it starts a fresh side
 // thread, asks that question, then enters a follow-up loop so the user can keep
 // asking in the same ephemeral thread. Bare "/btw" reopens the most recent side
 // thread from this process — replaying its Q&A history — and drops back into the
@@ -55,45 +62,45 @@ const btwPrompt = "btw> "
 // SIGINT handler can interrupt the side run, reusing the same plumbing as a
 // normal turn.
 //
-// The main context is never mutated: runBtw builds a private side AgentContext
+// The main context is never mutated: RunBtw builds a private side AgentContext
 // seeded with a copy of the main messages, runs every turn against that copy,
-// and returns without touching deps.agentCtx or persisting anything. The side
-// thread is retained in-process (deps.lastBtw) so a later bare /btw can reopen
+// and returns without touching host.AgentCtx() or persisting anything. The side
+// thread is retained in-process (host.LastBtw()) so a later bare /btw can reopen
 // it, but it is never written to disk — restarting pigo discards it.
-func runBtw(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, editor *replLineEditor, line string) {
+func RunBtw(setCancel func(context.CancelFunc), out io.Writer, host cli.Host, editor cli.Editor, line string) {
 	question := strings.TrimSpace(strings.TrimPrefix(line, "/btw"))
 	// Resolve the side thread's model/thinking once per invocation from the
 	// session defaults overlaid with btw.json (#282). Re-read each call so an
 	// edit takes effect next time with no restart.
-	settings := resolveBtwSettings(out, deps)
+	settings := ResolveBtwSettings(out, host)
 	if question == "" {
 		// Bare /btw: reopen the most recent side thread if one exists this process,
 		// replaying its history; otherwise guide the user to supply a question.
-		if deps.lastBtw == nil {
+		if host.LastBtw() == nil {
 			fmt.Fprintln(out, "usage: /btw <question> — ask a quick side question without touching the main conversation")
 			return
 		}
 		printBtwHeader(out)
-		replaySideHistory(out, deps.lastBtw, deps.lastBtwBase)
+		replaySideHistory(out, host.LastBtw(), host.LastBtwBase())
 		if editor != nil {
-			btwFollowUpLoop(setCancel, out, deps, editor, deps.lastBtw, settings)
+			btwFollowUpLoop(setCancel, out, host, editor, host.LastBtw(), settings)
 		}
 		return
 	}
 
-	side := newSideContext(deps.agentCtx)
-	// Remember this thread so a later bare /btw can reopen it. lastBtwBase marks
+	side := NewSideContext(host.AgentCtx())
+	// Remember this thread so a later bare /btw can reopen it. LastBtwBase marks
 	// where the copied background ends and the side Q&A begins, so a reopen only
 	// replays the side turns, not the whole main transcript.
-	deps.lastBtw = side
-	deps.lastBtwBase = len(side.Messages)
+	host.SetLastBtw(side)
+	host.SetLastBtwBase(len(side.Messages))
 	printBtwHeader(out)
-	askSide(setCancel, out, deps, side, settings, question)
+	AskSide(setCancel, out, host, side, settings, question)
 	// Follow-up loop: keep answering in the same ephemeral thread until the user
 	// exits. A nil editor (direct test callers that only ask one question) skips
 	// the loop entirely, so a single /btw asks exactly one question and returns.
 	if editor != nil {
-		btwFollowUpLoop(setCancel, out, deps, editor, side, settings)
+		btwFollowUpLoop(setCancel, out, host, editor, side, settings)
 	}
 }
 
@@ -127,10 +134,10 @@ func replaySideHistory(out io.Writer, side *agentcore.AgentContext, base int) {
 // /quit, EOF, or an idle Ctrl+C (errLineInterrupted) — the same exit affordances
 // as the main REPL, but confined to the side thread (FR-5). A blank line is
 // ignored (stays in the thread). Nothing here touches the main context.
-func btwFollowUpLoop(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, editor *replLineEditor, side *agentcore.AgentContext, settings btwRunSettings) {
+func btwFollowUpLoop(setCancel func(context.CancelFunc), out io.Writer, host cli.Host, editor cli.Editor, side *agentcore.AgentContext, settings BtwRunSettings) {
 	for {
-		raw, err := editor.readLine(btwPrompt)
-		if errors.Is(err, errLineInterrupted) {
+		raw, err := editor.ReadLine(btwPrompt)
+		if errors.Is(err, cli.ErrLineInterrupted) {
 			// Idle Ctrl+C at the side prompt leaves the thread (a Ctrl+C during a
 			// run is handled inside askSide via the SIGINT cancel plumbing).
 			fmt.Fprintln(out, "left side thread")
@@ -149,16 +156,16 @@ func btwFollowUpLoop(setCancel func(context.CancelFunc), out io.Writer, deps *re
 		if q == "" {
 			continue
 		}
-		askSide(setCancel, out, deps, side, settings, q)
+		AskSide(setCancel, out, host, side, settings, q)
 	}
 }
 
-// newSideContext builds the side thread's private AgentContext. Its Messages are
+// NewSideContext builds the side thread's private AgentContext. Its Messages are
 // a fresh slice seeded with a shallow COPY of the main messages (the elements
 // are immutable value/interface messages, so a copied slice header is enough to
-// guarantee appends to the side thread never reach deps.agentCtx.Messages). The
-// system prompt and tools are shared by value; only Messages diverges.
-func newSideContext(main *agentcore.AgentContext) *agentcore.AgentContext {
+// guarantee appends to the side thread never reach the main context's Messages).
+// The system prompt and tools are shared by value; only Messages diverges.
+func NewSideContext(main *agentcore.AgentContext) *agentcore.AgentContext {
 	msgs := make(agentcore.MessageList, len(main.Messages))
 	copy(msgs, main.Messages)
 	return &agentcore.AgentContext{
@@ -173,13 +180,13 @@ func printBtwHeader(out io.Writer) {
 	fmt.Fprintln(out, ui.Colorize(ui.Enabled(), ui.Dim, btwHeader))
 }
 
-// askSide appends the question to the side context and streams one answer,
+// AskSide appends the question to the side context and streams one answer,
 // mirroring streamRun's rendering but targeting the side context so nothing is
 // written back to the main conversation or to disk. It reuses the REPL's SIGINT
 // cancel plumbing via setCancel. The model/provider/thinking come from settings
-// (session defaults overlaid with btw.json, #282), never from deps.live, so a
+// (session defaults overlaid with btw.json, #282), never from host.Live(), so a
 // /btw override cannot leak into the main session.
-func askSide(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, side *agentcore.AgentContext, settings btwRunSettings, question string) {
+func AskSide(setCancel func(context.CancelFunc), out io.Writer, host cli.Host, side *agentcore.AgentContext, settings BtwRunSettings, question string) {
 	content, err := ui.BuildUserContent(question)
 	if err != nil {
 		fmt.Fprintf(out, "pigo: %v\n", err)
@@ -203,30 +210,30 @@ func askSide(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, 
 
 	cfg := runtime.RunConfig{
 		LoopConfig: runtime.LoopConfig{
-			Model:         settings.model,
-			Provider:      settings.providerName,
-			ThinkingLevel: settings.thinkingLevel,
-			Stream:        provider.StreamFnFromProvider(settings.provider),
-			GetAPIKey:     deps.creds.GetAPIKey,
-			ContextWindow: deps.live.ContextWindow,
+			Model:         settings.Model,
+			Provider:      settings.ProviderName,
+			ThinkingLevel: settings.ThinkingLevel,
+			Stream:        provider.StreamFnFromProvider(settings.Provider),
+			GetAPIKey:     host.Creds().GetAPIKey,
+			ContextWindow: host.Live().ContextWindow,
 			Compaction:    compaction.DefaultCompactionSettings,
 		},
 		Batch: agenttool.BatchConfig{
 			ToolExecutorConfig: agenttool.ToolExecutorConfig{
-				Registry:       deps.reg,
-				BeforeToolCall: trust.BeforeToolCall(deps.trust, deps.cwd, deps.in, out, deps.confirmMu),
+				Registry:       host.Registry(),
+				BeforeToolCall: trust.BeforeToolCall(host.Trust(), host.Cwd(), host.Input(), out, host.ConfirmMu()),
 			},
 		},
-		Reminders: deps.reminders,
+		Reminders: host.Reminders(),
 	}
 	stream := runtime.StartRun(runCtx, side, cfg)
-	drainSideStream(runCtx, out, deps, stream)
+	drainSideStream(runCtx, out, host, stream)
 }
 
 // drainSideStream prints the streamed assistant text and tool activity of a side
 // run, mirroring streamRun/drainGoalStream. It blocks until the run ends. Unlike
 // the main loop it persists nothing.
-func drainSideStream(ctx context.Context, out io.Writer, deps *replDeps, stream *runtime.LoopEventStream) {
+func drainSideStream(ctx context.Context, out io.Writer, host cli.Host, stream *runtime.LoopEventStream) {
 	var reply strings.Builder
 	flushReply := func() {
 		if reply.Len() == 0 {
@@ -240,7 +247,7 @@ func drainSideStream(ctx context.Context, out io.Writer, deps *replDeps, stream 
 		reply.Reset()
 	}
 	_, err := runtime.DrainStream(ctx, stream, runtime.StreamHandler{
-		OnEvent: deps.notifierHandle(),
+		OnEvent: host.NotifierHandle(),
 		OnText: func(delta string) {
 			reply.WriteString(delta)
 		},
