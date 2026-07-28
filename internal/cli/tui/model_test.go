@@ -27,11 +27,12 @@ func TestModelQuitKeys(t *testing.T) {
 }
 
 // TestModelViewShell verifies the empty shell renders on the alt-screen and,
-// once a size is known, occupies the full terminal height (status bar + empty
-// transcript rows + input line).
+// once a size is known, occupies the full terminal height (empty transcript rows
+// + status bar + input line), with the real status bar (#386) painting its
+// fields.
 func TestModelViewShell(t *testing.T) {
-	m := NewModel(Options{})
-	next, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 10})
+	m := NewModel(Options{Model: "test-model"})
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
 	view := next.View()
 	if !view.AltScreen {
 		t.Error("View should request the alt-screen")
@@ -39,8 +40,8 @@ func TestModelViewShell(t *testing.T) {
 	if got := strings.Count(view.Content, "\n"); got != 9 {
 		t.Errorf("newline count = %d, want 9 (10 rows)", got)
 	}
-	if !strings.Contains(view.Content, "TUI") {
-		t.Errorf("status bar placeholder missing from view: %q", view.Content)
+	if !strings.Contains(view.Content, "test-model") {
+		t.Errorf("status bar model field missing from view: %q", view.Content)
 	}
 }
 

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -26,19 +27,38 @@ type Model struct {
 	// no-op on the final frame while the program tears down and restores the
 	// terminal.
 	quitting bool
+
+	// statusBar renders the persistent bottom line (#386, US-003). It is fed the
+	// terminal width, telemetry-derived context usage, and the async git probe
+	// result; View renders it just above the input line.
+	statusBar statusBar
+
+	// cwd is the launch directory, captured once at construction and reused for
+	// the git probe and the status bar's path display.
+	cwd string
 }
 
-// NewModel builds the root model from the assembled Options. It performs no I/O;
-// session/live/slash/trust assembly is deferred to downstream nodes.
+// NewModel builds the root model from the assembled Options. It performs no I/O
+// beyond reading the current working directory (for the status bar's path
+// display and git probe); session/live/slash/trust assembly is deferred to
+// downstream nodes.
 func NewModel(opts Options) Model {
-	return Model{opts: opts}
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = ""
+	}
+	return Model{
+		opts:      opts,
+		cwd:       cwd,
+		statusBar: newStatusBar(DefaultTheme(), opts, cwd),
+	}
 }
 
-// Init implements tea.Model. The skeleton has no startup command; the alt-screen
-// is requested declaratively via the AltScreen field on the View returned by
-// View, so there is nothing to kick off here.
+// Init implements tea.Model. It kicks off the async git probe so the status bar
+// can show the branch/dirty state as soon as it resolves; the alt-screen is
+// requested declaratively via the AltScreen field on the View returned by View.
 func (m Model) Init() tea.Cmd {
-	return nil
+	return fetchGitCmd(m.cwd)
 }
 
 // Update implements tea.Model. It tracks the terminal size and quits on the
@@ -50,6 +70,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		return m, nil
+	case gitInfoMsg:
+		m.statusBar.SetGit(msg)
+		return m, nil
+	case telemetryMsg:
+		m.statusBar.SetTelemetry(telemetryEventView{
+			util:   msg.ev.ContextUtilization,
+			window: msg.ev.ContextWindow,
+		})
+		return m, nil
+	case runEndMsg:
+		// A run may have changed the working tree (edits, new files); re-probe git
+		// so the status bar reflects the post-run dirty/ahead state.
+		return m, fetchGitCmd(m.cwd)
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c", "ctrl+d":
@@ -60,10 +93,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// View implements tea.Model. It renders the empty shell on the alt-screen: a
-// placeholder status bar at the top, an empty transcript area that grows to fill
-// the available height, and an empty input line at the bottom. Setting
-// AltScreen on the returned View is how Bubble Tea v2 enters/leaves the
+// View implements tea.Model. It renders the shell on the alt-screen: an empty
+// transcript area that grows to fill the available height, the persistent status
+// bar (#386) on the second-to-last row, and the input line at the bottom.
+// Setting AltScreen on the returned View is how Bubble Tea v2 enters/leaves the
 // alternate screen buffer, so the user's scrollback is restored on quit.
 func (m Model) View() tea.View {
 	if m.quitting {
@@ -79,11 +112,7 @@ func (m Model) View() tea.View {
 		height = 24
 	}
 
-	status := lipgloss.NewStyle().
-		Width(width).
-		Foreground(lipgloss.Color("15")).
-		Background(lipgloss.Color("62")).
-		Render("pigo — TUI (骨架) · Ctrl+C/Ctrl+D 退出")
+	status := m.statusBar.Render(width)
 
 	input := lipgloss.NewStyle().
 		Width(width).
@@ -99,11 +128,11 @@ func (m Model) View() tea.View {
 	}
 
 	var b strings.Builder
-	b.WriteString(status)
-	b.WriteByte('\n')
 	for i := 0; i < transcriptRows; i++ {
 		b.WriteByte('\n')
 	}
+	b.WriteString(status)
+	b.WriteByte('\n')
 	b.WriteString(input)
 
 	return tea.View{Content: b.String(), AltScreen: true}
