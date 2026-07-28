@@ -1,0 +1,167 @@
+package main
+
+// Tests for the thin CLI entry point: the dispatch seam (options+writers →
+// exit code), the config.toml overlay (applyFileConfig precedence), and the
+// settings-tier prompts pass-through. These exercise the branching without
+// spawning a provider or re-parsing the global flag set.
+
+import (
+	"bytes"
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/smallnest/pigo/internal/cli/config"
+)
+
+// --- dispatch seam ---
+
+// TestDispatchListSessionsEmpty verifies --list-sessions is a standalone action
+// that succeeds (exit 0) and prints the empty-store message, using an isolated
+// PIGO_HOME so it never touches the real session store.
+func TestDispatchListSessionsEmpty(t *testing.T) {
+	t.Setenv("PIGO_HOME", t.TempDir())
+	var out, errOut bytes.Buffer
+	code := dispatch(context.Background(), cliOptions{listSessions: true}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0 (errOut=%q)", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "no sessions") {
+		t.Errorf("out = %q, want the empty-store message", out.String())
+	}
+}
+
+// TestDispatchContinueNoSessions verifies --continue with an empty store is an
+// error (exit 1) that says there is nothing to continue, rather than starting a
+// blank REPL.
+func TestDispatchContinueNoSessions(t *testing.T) {
+	t.Setenv("PIGO_HOME", t.TempDir())
+	// Ensure a non-terminal path is not taken before the continue guard: continue
+	// resolves the id first and errors when the store is empty.
+	var out, errOut bytes.Buffer
+	code := dispatch(context.Background(), cliOptions{continueLast: true}, &out, &errOut)
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1 (errOut=%q)", code, errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "no sessions to continue") {
+		t.Errorf("errOut = %q, want the no-sessions-to-continue message", errOut.String())
+	}
+}
+
+// TestDispatchNoPromptNonTerminal verifies the CI/pipe guard: no prompt, no
+// resume, and a non-terminal stdout is a usage error (exit 2) with a diagnostic
+// on errOut — reachable now that dispatch takes its writers as parameters.
+func TestDispatchNoPromptNonTerminal(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := dispatch(context.Background(), cliOptions{}, &out, &errOut)
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(errOut.String(), "no prompt") {
+		t.Errorf("errOut = %q, want it to mention the missing prompt", errOut.String())
+	}
+}
+
+// TestDispatchBadOutputFormat verifies an unknown --output-format is rejected
+// (exit 2) before any provider work, naming the offending value.
+func TestDispatchBadOutputFormat(t *testing.T) {
+	var out, errOut bytes.Buffer
+	code := dispatch(context.Background(), cliOptions{prompt: "hi", outputFmt: "yaml"}, &out, &errOut)
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(errOut.String(), "yaml") {
+		t.Errorf("errOut = %q, want it to name the bad format", errOut.String())
+	}
+}
+
+// --- config.toml overlay ---
+
+// changedSet turns a set of flag names into a lookup func for applyFileConfig.
+func changedSet(names ...string) func(string) bool {
+	set := make(map[string]bool, len(names))
+	for _, n := range names {
+		set[n] = true
+	}
+	return func(name string) bool { return set[name] }
+}
+
+func TestApplyFileConfig_FillsUnsetFlags(t *testing.T) {
+	opts := cliOptions{model: "openrouter/free", outputFmt: "text"}
+	cfg := config.FileConfig{
+		Model:         "claude-opus-4-8",
+		BaseURL:       "https://example.com",
+		APIKey:        "sk-test",
+		Protocol:      "anthropic",
+		Provider:      "deepseek",
+		ThinkingLevel: "high",
+		OutputFormat:  "stream-json",
+		NoTools:       true,
+		NoSkills:      true,
+		Approve:       true,
+		SystemPrompt:  "be terse",
+	}
+	applyFileConfig(&opts, cfg, changedSet())
+
+	if opts.model != "claude-opus-4-8" {
+		t.Errorf("model = %q, want claude-opus-4-8", opts.model)
+	}
+	if opts.baseURL != "https://example.com" {
+		t.Errorf("baseURL = %q", opts.baseURL)
+	}
+	if opts.apiKey != "sk-test" {
+		t.Errorf("apiKey = %q", opts.apiKey)
+	}
+	if opts.protocol != "anthropic" {
+		t.Errorf("protocol = %q", opts.protocol)
+	}
+	if opts.provider != "deepseek" {
+		t.Errorf("provider = %q", opts.provider)
+	}
+	if opts.thinkingLevel != "high" {
+		t.Errorf("thinkingLevel = %q", opts.thinkingLevel)
+	}
+	if opts.outputFmt != "stream-json" {
+		t.Errorf("outputFmt = %q", opts.outputFmt)
+	}
+	if !opts.noTools || !opts.noSkills || !opts.approve {
+		t.Errorf("bool flags not applied: %+v", opts)
+	}
+	if opts.systemPrompt != "be terse" {
+		t.Errorf("systemPrompt = %q", opts.systemPrompt)
+	}
+}
+
+func TestApplyFileConfig_CLIWins(t *testing.T) {
+	opts := cliOptions{model: "cli-model", outputFmt: "text"}
+	cfg := config.FileConfig{Model: "config-model", OutputFormat: "stream-json"}
+	// --model was set on the command line; --output-format was not.
+	applyFileConfig(&opts, cfg, changedSet("model"))
+
+	if opts.model != "cli-model" {
+		t.Errorf("CLI model should win, got %q", opts.model)
+	}
+	if opts.outputFmt != "stream-json" {
+		t.Errorf("unset output-format should take config value, got %q", opts.outputFmt)
+	}
+}
+
+func TestApplyFileConfig_EmptyConfigNoChange(t *testing.T) {
+	opts := cliOptions{model: "openrouter/free", outputFmt: "text"}
+	applyFileConfig(&opts, config.FileConfig{}, changedSet())
+	if opts.model != "openrouter/free" || opts.outputFmt != "text" {
+		t.Fatalf("empty config should not change opts, got %+v", opts)
+	}
+	if opts.baseURL != "" || opts.provider != "" || opts.noTools {
+		t.Fatalf("empty config should leave unset fields empty, got %+v", opts)
+	}
+}
+
+func TestApplyFileConfigPrompts(t *testing.T) {
+	var opts cliOptions
+	cfg := config.FileConfig{Prompts: []string{"./my-prompts", "/abs/x.md"}}
+	applyFileConfig(&opts, cfg, func(string) bool { return false })
+	if len(opts.configPrompts) != 2 || opts.configPrompts[0] != "./my-prompts" || opts.configPrompts[1] != "/abs/x.md" {
+		t.Errorf("opts.configPrompts = %v, want [./my-prompts /abs/x.md]", opts.configPrompts)
+	}
+}
