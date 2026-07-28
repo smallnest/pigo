@@ -1,103 +1,10 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
-	"reflect"
 	"testing"
+
+	"github.com/smallnest/pigo/internal/cli/config"
 )
-
-func TestFileConfigPath_XDGOverride(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdgroot")
-	got := fileConfigPath()
-	want := filepath.Join("/tmp/xdgroot", "pigo", "config.toml")
-	if got != want {
-		t.Fatalf("fileConfigPath() = %q, want %q", got, want)
-	}
-}
-
-func TestFileConfigPath_DefaultHome(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "")
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skip("no home dir")
-	}
-	got := fileConfigPath()
-	want := filepath.Join(home, ".config", "pigo", "config.toml")
-	if got != want {
-		t.Fatalf("fileConfigPath() = %q, want %q", got, want)
-	}
-}
-
-func TestLoadFileConfig_Missing(t *testing.T) {
-	cfg, err := loadFileConfig(filepath.Join(t.TempDir(), "does-not-exist.toml"))
-	if err != nil {
-		t.Fatalf("missing file should not error, got %v", err)
-	}
-	if !reflect.DeepEqual(cfg, fileConfig{}) {
-		t.Fatalf("missing file should yield zero config, got %+v", cfg)
-	}
-}
-
-func TestLoadFileConfig_EmptyPath(t *testing.T) {
-	cfg, err := loadFileConfig("")
-	if err != nil {
-		t.Fatalf("empty path should not error, got %v", err)
-	}
-	if !reflect.DeepEqual(cfg, fileConfig{}) {
-		t.Fatalf("empty path should yield zero config, got %+v", cfg)
-	}
-}
-
-func TestLoadFileConfig_Valid(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.toml")
-	content := `
-model = "claude-opus-4-8"
-base_url = "https://example.com"
-api_key = "sk-test"
-protocol = "anthropic"
-provider = "deepseek"
-thinking_level = "high"
-output_format = "stream-json"
-no_tools = true
-no_skills = true
-approve = true
-system_prompt = "be terse"
-`
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := loadFileConfig(path)
-	if err != nil {
-		t.Fatalf("valid file should parse, got %v", err)
-	}
-	want := fileConfig{
-		Model:         "claude-opus-4-8",
-		BaseURL:       "https://example.com",
-		APIKey:        "sk-test",
-		Protocol:      "anthropic",
-		Provider:      "deepseek",
-		ThinkingLevel: "high",
-		OutputFormat:  "stream-json",
-		NoTools:       true,
-		NoSkills:      true,
-		Approve:       true,
-		SystemPrompt:  "be terse",
-	}
-	if !reflect.DeepEqual(cfg, want) {
-		t.Fatalf("parsed config = %+v, want %+v", cfg, want)
-	}
-}
-
-func TestLoadFileConfig_Malformed(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "bad.toml")
-	if err := os.WriteFile(path, []byte("model = = ="), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := loadFileConfig(path); err == nil {
-		t.Fatal("malformed file should error")
-	}
-}
 
 // changedSet turns a set of flag names into a lookup func for applyFileConfig.
 func changedSet(names ...string) func(string) bool {
@@ -110,7 +17,7 @@ func changedSet(names ...string) func(string) bool {
 
 func TestApplyFileConfig_FillsUnsetFlags(t *testing.T) {
 	opts := cliOptions{model: "openrouter/free", outputFmt: "text"}
-	cfg := fileConfig{
+	cfg := config.FileConfig{
 		Model:         "claude-opus-4-8",
 		BaseURL:       "https://example.com",
 		APIKey:        "sk-test",
@@ -156,7 +63,7 @@ func TestApplyFileConfig_FillsUnsetFlags(t *testing.T) {
 
 func TestApplyFileConfig_CLIWins(t *testing.T) {
 	opts := cliOptions{model: "cli-model", outputFmt: "text"}
-	cfg := fileConfig{Model: "config-model", OutputFormat: "stream-json"}
+	cfg := config.FileConfig{Model: "config-model", OutputFormat: "stream-json"}
 	// --model was set on the command line; --output-format was not.
 	applyFileConfig(&opts, cfg, changedSet("model"))
 
@@ -170,7 +77,7 @@ func TestApplyFileConfig_CLIWins(t *testing.T) {
 
 func TestApplyFileConfig_EmptyConfigNoChange(t *testing.T) {
 	opts := cliOptions{model: "openrouter/free", outputFmt: "text"}
-	applyFileConfig(&opts, fileConfig{}, changedSet())
+	applyFileConfig(&opts, config.FileConfig{}, changedSet())
 	if opts.model != "openrouter/free" || opts.outputFmt != "text" {
 		t.Fatalf("empty config should not change opts, got %+v", opts)
 	}

@@ -6,25 +6,6 @@ import (
 	"github.com/smallnest/pigo/internal/provider"
 )
 
-// TestGenericBaseURLEnvVar verifies the <PROVIDER>_BASE_URL name derivation,
-// especially the hyphen→underscore conversion and uppercasing.
-func TestGenericBaseURLEnvVar(t *testing.T) {
-	cases := []struct {
-		name string
-		want string
-	}{
-		{"deepseek", "DEEPSEEK_BASE_URL"},
-		{"zai-coding-cn", "ZAI_CODING_CN_BASE_URL"},
-		{"vercel-ai-gateway", "VERCEL_AI_GATEWAY_BASE_URL"},
-		{"", ""},
-	}
-	for _, c := range cases {
-		if got := genericBaseURLEnvVar(c.name); got != c.want {
-			t.Errorf("genericBaseURLEnvVar(%q) = %q, want %q", c.name, got, c.want)
-		}
-	}
-}
-
 // TestResolveBaseURLPrecedence exercises all four precedence levels for a
 // hyphenated provider (zai-coding-cn → ZAI_CODING_CN_BASE_URL), asserting that
 // each higher-precedence source shadows every lower one.

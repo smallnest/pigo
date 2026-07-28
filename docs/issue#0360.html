@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0360</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/360">#360</a> &mdash; internal/cli/config：配置文件加载/覆盖与 baseurl 非 provider 部分 &mdash; 2026-07-28</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span>"baseurl 非 provider 部分" 界定为纯名称派生函数</h3>
+      <p><strong>Ambiguity:</strong> 验收要求迁出 baseurl 的"非 provider 部分"，但 <code>resolveBaseURL</code> 与 provider 注册表耦合，边界不明确。</p>
+      <p><strong>Choice:</strong> 仅将私有辅助 <code>genericBaseURLEnvVar</code> 提升为 <code>config.GenericBaseURLEnvVar</code>（hyphen→underscore、大写、加 <code>_BASE_URL</code> 后缀），<code>resolveBaseURL</code> 留在 cmd/pigo 调用它。</p>
+      <p><strong>Rationale:</strong> 该函数是纯字符串派生，不依赖 provider 注册表，正是"非 provider 部分"；<code>resolveBaseURL</code> 依赖 <code>ProviderSpec</code>，按验收明确留待 #361。config 包不 import provider，无环风险。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span>config 包保持零 cliOptions 依赖</h3>
+      <p><strong>Ambiguity:</strong> 验收列出 <code>loadFileConfig/applyFileConfig/fileConfigPath</code> 一并"导出化"，未说明是否都进 config 包。</p>
+      <p><strong>Choice:</strong> config 包只承载与 cliOptions 无关的加载/派生逻辑（<code>FileConfig</code>、<code>FileConfigPath</code>、<code>LoadFileConfig</code>、<code>GenericBaseURLEnvVar</code>）；overlay 绑定 <code>applyFileConfig</code> 留在 cmd/pigo。</p>
+      <p><strong>Rationale:</strong> config 包保持"只加载与解码、不涉及运行装配"的单一职责，与包 doc 注释一致，也避免过早牵动 cliOptions。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span><code>applyFileConfig</code> 未迁入 config 包</h3>
+      <p><strong>Spec:</strong> "<code>loadFileConfig/applyFileConfig/fileConfigPath</code> 等导出化，cmd/pigo 改引用新包"，字面读法暗示三者都进 config 包。</p>
+      <p><strong>Implemented:</strong> <code>applyFileConfig</code> 保留在 cmd/pigo，签名改为消费 <code>config.FileConfig</code>；其余三个迁入 config 包并导出。</p>
+      <p><strong>Why:</strong> <code>applyFileConfig</code> 直接读写 <code>cliOptions</code>（package main 的未导出结构体，属 #362 运行装配层）。若强行迁入会迫使 cliOptions 提前迁移或引入额外抽象，破坏 PR 聚焦度。行为（CLI > file > default 优先级）完全不变。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span>拆分加载逻辑 vs 一次性搬运整个配置层</h3>
+      <p><strong>Alternatives:</strong> (A) 只搬纯加载/派生部分，overlay 留在原地；(B) 连同 cliOptions 一起迁入 config 包一步到位。</p>
+      <p><strong>Pros/Cons:</strong> B 让配置层"完整"但会吞掉 #362 的范围、引入 config→run 的耦合，且本 issue 依赖链只到 #357；A 保持每个 issue 边界清晰、可独立 review 与回滚。</p>
+      <p><strong>Winner:</strong> A —— 与 issue 拆分粒度一致，overlay 待 cliOptions 在 #362 落位后再自然归位。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span><code>applyFileConfig</code> 的最终归属</h3>
+      <p><strong>Assumption:</strong> overlay 绑定会随 #362（cliOptions 迁入 internal/cli/run）一起搬走，而非留在 cmd/pigo。</p>
+      <p><strong>Verify:</strong> 处理 #362 时确认 <code>applyFileConfig</code> 迁入 run 包并消费 <code>config.FileConfig</code>，届时 cmd/pigo 不再持有任何配置 overlay 逻辑。</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span>无独立 SPEC/PRD 文件</h3>
+      <p><strong>Assumption:</strong> 需求以 GitHub Issue #360 正文的验收条件为准，无 <code>tasks/prd-*.md</code>。接口契约由现有代码用法推导，正确性由 build/vet/test + 既有测试断言把关。</p>
+      <p><strong>Verify:</strong> 若后续存在正式 PRD，复核 config 包公开 API 命名与其一致。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

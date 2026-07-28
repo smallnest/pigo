@@ -12,28 +12,14 @@ import (
 	"testing"
 
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/config"
 	"github.com/smallnest/pigo/internal/cli/testutil"
 	"github.com/smallnest/pigo/internal/runtime"
 )
 
-func TestLoadFileConfigPromptsArray(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.toml")
-	content := "prompts = [\"./my-prompts\", \"/abs/x.md\"]\n"
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := loadFileConfig(path)
-	if err != nil {
-		t.Fatalf("loadFileConfig: %v", err)
-	}
-	if len(cfg.Prompts) != 2 || cfg.Prompts[0] != "./my-prompts" || cfg.Prompts[1] != "/abs/x.md" {
-		t.Errorf("Prompts = %v, want [./my-prompts /abs/x.md]", cfg.Prompts)
-	}
-}
-
 func TestApplyFileConfigPrompts(t *testing.T) {
 	var opts cliOptions
-	cfg := fileConfig{Prompts: []string{"./my-prompts", "/abs/x.md"}}
+	cfg := config.FileConfig{Prompts: []string{"./my-prompts", "/abs/x.md"}}
 	applyFileConfig(&opts, cfg, func(string) bool { return false })
 	if len(opts.configPrompts) != 2 || opts.configPrompts[0] != "./my-prompts" || opts.configPrompts[1] != "/abs/x.md" {
 		t.Errorf("opts.configPrompts = %v, want [./my-prompts /abs/x.md]", opts.configPrompts)

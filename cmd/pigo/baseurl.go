@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/smallnest/pigo/internal/cli/config"
 	"github.com/smallnest/pigo/internal/provider"
 )
 
@@ -33,24 +34,11 @@ func resolveBaseURL(spec provider.ProviderSpec, flagBaseURL string) string {
 		}
 	}
 	// 3. Generic <PROVIDER>_BASE_URL convention.
-	if envName := genericBaseURLEnvVar(spec.Name); envName != "" {
+	if envName := config.GenericBaseURLEnvVar(spec.Name); envName != "" {
 		if v := strings.TrimSpace(os.Getenv(envName)); v != "" {
 			return v
 		}
 	}
 	// 4. Registry default.
 	return spec.DefaultBaseURL
-}
-
-// genericBaseURLEnvVar derives the generic base-url override env var name for a
-// provider: the provider name uppercased with hyphens rewritten to underscores,
-// suffixed with _BASE_URL. For example "zai-coding-cn" → "ZAI_CODING_CN_BASE_URL"
-// and "deepseek" → "DEEPSEEK_BASE_URL". An empty provider name yields "".
-func genericBaseURLEnvVar(providerName string) string {
-	n := strings.TrimSpace(providerName)
-	if n == "" {
-		return ""
-	}
-	n = strings.ReplaceAll(n, "-", "_")
-	return strings.ToUpper(n) + "_BASE_URL"
 }

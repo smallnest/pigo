@@ -21,6 +21,7 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/cli/config"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
 )
@@ -78,7 +79,7 @@ func main() {
 	// Overlay ~/.config/pigo/config.toml: file values replace built-in defaults,
 	// but any flag the user set on the command line still wins (CLI > file >
 	// default). A malformed file warns but does not abort — defaults apply.
-	if cfg, err := loadFileConfig(fileConfigPath()); err != nil {
+	if cfg, err := config.LoadFileConfig(config.FileConfigPath()); err != nil {
 		fmt.Fprintf(os.Stderr, "pigo: %v\n", err)
 	} else {
 		applyFileConfig(&opts, cfg, flag.CommandLine.Changed)
