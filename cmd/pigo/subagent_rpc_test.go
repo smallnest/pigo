@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/cli/run"
 	"github.com/smallnest/pigo/internal/jsonrpc"
 	"github.com/smallnest/pigo/internal/runtime"
 )
@@ -23,9 +24,9 @@ import (
 // list keeps all builtins, a subset keeps only the named tools, and unknown
 // names are silently ignored.
 func TestFilterBuiltinTools(t *testing.T) {
-	all := builtinTools(t.TempDir(), false)
+	all := run.BuiltinTools(t.TempDir(), false)
 	if len(all) == 0 {
-		t.Fatal("builtinTools returned no tools")
+		t.Fatal("BuiltinTools returned no tools")
 	}
 	namesOf := func(ts []agentcore.AgentTool) []string {
 		out := make([]string, len(ts))

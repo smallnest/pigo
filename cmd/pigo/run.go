@@ -1,10 +1,8 @@
-// This file holds the run-assembly seam (architecture deepening ②). main() used
-// to build the provider, tool set, system prompt, and RunConfig separately in
-// its REPL branch and its headless branch — the same assembly written twice, and
-// a RunConfig literal duplicated between here and repl.go's streamRun. That setup
-// now lives in one place: setupAgentEnv assembles the shared environment, and
-// newRunConfig builds the loop configuration both drivers run. main() is left to
-// parse flags, dispatch, and map the outcome to an exit code.
+// This file holds the run dispatch seam. main() parses flags and calls dispatch,
+// which resolves the command (list / REPL / headless / subagent-rpc) and maps
+// the outcome to an exit code. The shared run-assembly setup (provider, tools,
+// system prompt, RunConfig) moved to internal/cli/run (US-005, #362); dispatch
+// wires those pieces together for the driver each path needs.
 package main
 
 import (
@@ -13,228 +11,15 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/cli/run"
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
 )
-
-// agentEnv is the environment every run shares: the working directory, the tool
-// set rooted at it, the resolved provider, and the system prompt. It is
-// assembled once (setupAgentEnv) and consumed by whichever driver runs.
-type agentEnv struct {
-	cwd          string
-	tools        []agentcore.AgentTool
-	provider     provider.Provider
-	providerName string
-	sysPrompt    string
-
-	// skills is the discovered skill set (loaded once here, empty under
-	// --no-skills). It is threaded into the REPL so each skill is registered as a
-	// /skill-name command, and the model-invocable subset is already injected into
-	// sysPrompt.
-	skills []*runtime.Skill
-
-	// plugins holds any loaded external plugins so the caller can Close them
-	// when the run ends. It is nil when no plugins were discovered.
-	plugins *plugin.Manager
-}
-
-// setupAgentEnv resolves the provider for model/baseURL, builds the tool set
-// rooted at the working directory, and constructs the system prompt — the setup
-// the REPL and headless drivers both need. systemPrompt, when non-empty,
-// replaces the default base instruction (对标 pi 的 --system-prompt);
-// appendSystemPrompt entries are each resolved (a path to an existing file is
-// read, otherwise the value is literal text) and layered onto the end of the
-// prompt (对标 pi 的 --append-system-prompt). It returns an error rather than
-// exiting so the caller owns exit-code mapping.
-func setupAgentEnv(model, baseURL, protocol, providerName string, noTools, noSkills bool, systemPrompt string, appendSystemPrompt []string) (agentEnv, error) {
-	cwd, _ := os.Getwd()
-	prov, resolvedName, err := provider.ResolveProvider(model, baseURL, protocol, providerName, os.Getenv)
-	if err != nil {
-		return agentEnv{}, err
-	}
-	appends, err := resolveAppendInstructions(appendSystemPrompt)
-	if err != nil {
-		return agentEnv{}, err
-	}
-	tools := builtinTools(cwd, noTools)
-	// Discover external plugins (US-016) and append their tools. Plugin loading
-	// is fault-tolerant: a plugin that fails to start is logged and skipped, and
-	// disabling tools (--no-tools) skips plugin discovery entirely.
-	var mgr *plugin.Manager
-	if !noTools {
-		if m, err := plugin.Discover(pluginsDir(), os.Stderr, os.Stderr); err == nil {
-			tools = append(tools, m.Tools()...)
-			mgr = m
-		} else {
-			fmt.Fprintf(os.Stderr, "pigo: plugin discovery failed: %v\n", err)
-		}
-	}
-	// Load skills once (shared between prompt injection and /skill-name
-	// registration). A partial parse error still yields the skills that DID load,
-	// so one malformed file is a non-fatal warning rather than a hard failure.
-	skills, err := loadSkills(noSkills)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "pigo: skills: %v\n", err)
-	}
-	// The model can only load a skill's body when the read tool is present, so
-	// advertise skills in the prompt only then (对标 pi 的 selectedTools check).
-	sysPrompt, err := runtime.BuildSystemPrompt(runtime.PromptConfig{
-		BaseInstruction:    systemPrompt,
-		WorkingDir:         cwd,
-		Root:               cwd,
-		AppendInstructions: appends,
-		Skills:             skills,
-		ReadToolAvailable:  hasReadTool(tools),
-	})
-	if err != nil {
-		return agentEnv{}, err
-	}
-	return agentEnv{
-		cwd:          cwd,
-		tools:        tools,
-		provider:     prov,
-		providerName: resolvedName,
-		sysPrompt:    sysPrompt,
-		skills:       skills,
-		plugins:      mgr,
-	}, nil
-}
-
-// hasReadTool reports whether the read tool is present in the tool set. Skills
-// are advertised in the system prompt only when it is, since the model needs
-// the read tool to load a skill's body on demand.
-func hasReadTool(tools []agentcore.AgentTool) bool {
-	for _, t := range tools {
-		if t.Name() == "read" {
-			return true
-		}
-	}
-	return false
-}
-
-// resolveAppendInstructions maps each --append-system-prompt value to the text
-// to append. Following pi, a value that names an existing regular file is read
-// and its contents are appended; any other value (a non-existent path, or a
-// directory) is treated as literal text. Only a value that stats as a regular
-// file but then fails to read (e.g. a permission error) is reported, so a
-// genuinely broken file path is not silently appended verbatim.
-func resolveAppendInstructions(values []string) ([]string, error) {
-	if len(values) == 0 {
-		return nil, nil
-	}
-	out := make([]string, 0, len(values))
-	for _, v := range values {
-		info, statErr := os.Stat(v)
-		if statErr == nil && !info.IsDir() {
-			data, err := os.ReadFile(v)
-			if err != nil {
-				return nil, fmt.Errorf("read --append-system-prompt file %q: %w", v, err)
-			}
-			out = append(out, string(data))
-			continue
-		}
-		out = append(out, v)
-	}
-	return out, nil
-}
-
-// pluginsDir returns the directory external plugins are discovered from:
-// $PIGO_HOME/plugins, or ~/.pigo/plugins by default. An empty string is returned
-// when the home directory cannot be resolved and no override is set (Discover
-// then treats it as "no plugins").
-func pluginsDir() string {
-	dir := os.Getenv("PIGO_HOME")
-	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		dir = filepath.Join(home, ".pigo")
-	}
-	return filepath.Join(dir, "plugins")
-}
-
-// configDir returns the directory pigo reads its global config layer from:
-// $PIGO_HOME, or ~/.pigo by default. An empty string is returned when the home
-// directory cannot be resolved and no override is set (the caller then treats
-// the global layer as absent).
-func configDir() string {
-	dir := os.Getenv("PIGO_HOME")
-	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		dir = filepath.Join(home, ".pigo")
-	}
-	return dir
-}
-
-// resolveThinkingLevel resolves the effective reasoning-effort level through the
-// layered config chain (US-023): default < global < project < env < CLI flag.
-// The global layer is $PIGO_HOME/config.json (or ~/.pigo/config.json); the
-// project layer is ./.pigo/config.json in the working directory. A malformed
-// layer file or an invalid resolved value is a hard error, surfaced to the
-// caller for exit-code mapping. cliLevel is the raw --thinking-level flag ("" =
-// unset, so lower layers show through).
-func resolveThinkingLevel(cliLevel string) (agentcore.ThinkingLevel, error) {
-	def := runtime.DefaultConfigLayer()
-	layers := []*runtime.ConfigLayer{&def}
-
-	if dir := configDir(); dir != "" {
-		global, err := runtime.LoadConfigLayer(filepath.Join(dir, "config.json"))
-		if err != nil {
-			return "", err
-		}
-		layers = append(layers, global)
-	}
-	project, err := runtime.LoadConfigLayer(filepath.Join(".pigo", "config.json"))
-	if err != nil {
-		return "", err
-	}
-	layers = append(layers, project)
-
-	env := runtime.EnvConfigLayer(os.Getenv)
-	layers = append(layers, &env)
-
-	if v := strings.TrimSpace(cliLevel); v != "" {
-		cli := runtime.ConfigLayer{ThinkingLevel: &v}
-		layers = append(layers, &cli)
-	}
-
-	cfg, err := runtime.ResolveConfig(layers...)
-	if err != nil {
-		return "", err
-	}
-	return cfg.ThinkingLevel, nil
-}
-
-// newRunConfig builds the loop configuration shared by every driver: the
-// provider stream, the dynamic API-key resolver, and the tool registry. It is
-// the single definition of "how a run is wired", so the REPL (streamRun) and the
-// headless driver cannot drift apart.
-func newRunConfig(model, providerName string, thinking agentcore.ThinkingLevel, prov provider.Provider, creds *provider.CredentialStore, reg *agenttool.ToolRegistry, reminders *runtime.ReminderRegistry) runtime.RunConfig {
-	return runtime.RunConfig{
-		LoopConfig: runtime.LoopConfig{
-			Model:         model,
-			Provider:      providerName,
-			ThinkingLevel: thinking,
-			Stream:        provider.StreamFnFromProvider(prov),
-			GetAPIKey:     creds.GetAPIKey,
-		},
-		Batch: agenttool.BatchConfig{
-			ToolExecutorConfig: agenttool.ToolExecutorConfig{Registry: reg},
-		},
-		Reminders: reminders,
-	}
-}
 
 // cliOptions is the parsed command line, produced by main() and consumed by
 // dispatch. Separating parse from dispatch makes the dispatch logic testable
@@ -340,33 +125,33 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			fmt.Fprintln(errOut, "pigo: no prompt (use -p \"...\" or positional args)")
 			return 2
 		}
-		env, err := setupAgentEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.noTools, opts.noSkills, opts.systemPrompt, opts.appendSystemPrompt)
+		env, err := run.SetupEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.noTools, opts.noSkills, opts.systemPrompt, opts.appendSystemPrompt)
 		if err != nil {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
 			return 1
 		}
-		if env.plugins != nil {
-			defer env.plugins.Close()
+		if env.Plugins != nil {
+			defer env.Plugins.Close()
 		}
-		thinking, err := resolveThinkingLevel(opts.thinkingLevel)
+		thinking, err := run.ResolveThinkingLevel(opts.thinkingLevel)
 		if err != nil {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
 			return 2
 		}
 		if err := runInteractive(interactiveOptions{
 			model:             opts.model,
-			providerName:      env.providerName,
-			provider:          env.provider,
+			providerName:      env.ProviderName,
+			provider:          env.Provider,
 			baseURL:           opts.baseURL,
 			apiKey:            opts.apiKey,
 			protocol:          opts.protocol,
 			thinkingLevel:     thinking,
-			tools:             env.tools,
-			sysPrompt:         env.sysPrompt,
+			tools:             env.Tools,
+			sysPrompt:         env.SysPrompt,
 			resumeID:          resumeID,
 			approve:           opts.approve,
-			skills:            env.skills,
-			plugins:           env.plugins,
+			skills:            env.Skills,
+			plugins:           env.Plugins,
 			configPrompts:     opts.configPrompts,
 			cliPrompts:        opts.promptTemplates,
 			noPromptTemplates: opts.noPromptTemplates,
@@ -383,13 +168,13 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		return 2
 	}
 
-	env, err := setupAgentEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.noTools, opts.noSkills, opts.systemPrompt, opts.appendSystemPrompt)
+	env, err := run.SetupEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.noTools, opts.noSkills, opts.systemPrompt, opts.appendSystemPrompt)
 	if err != nil {
 		fmt.Fprintf(errOut, "pigo: %v\n", err)
 		return 1
 	}
-	if env.plugins != nil {
-		defer env.plugins.Close()
+	if env.Plugins != nil {
+		defer env.Plugins.Close()
 	}
 	// Best-effort plugin slash-command support in headless mode: if the prompt is
 	// a "/cmd ..." naming a plugin command, invoke it, print its notifications to
@@ -397,7 +182,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 	// the command produced no prompt). Headless has no turn injection, so
 	// appending the returned prompt is the accepted behavior. A non-plugin prompt
 	// or unknown command is left untouched.
-	headlessPrompt := resolveHeadlessPluginCommand(opts.prompt, env.plugins, errOut)
+	headlessPrompt := resolveHeadlessPluginCommand(opts.prompt, env.Plugins, errOut)
 	promptContent, err := ui.BuildUserContent(headlessPrompt)
 	if err != nil {
 		fmt.Fprintf(errOut, "pigo: %v\n", err)
@@ -408,7 +193,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 	// stream-json event and the run can be resumed with --resume/--continue,
 	// matching the interactive REPL and pi/Claude Code. A resumed session seeds
 	// its prior messages ahead of the new prompt.
-	priorMsgs, hs, err := openHeadlessSession(resumeID, opts.model, env.providerName, env.sysPrompt)
+	priorMsgs, hs, err := openHeadlessSession(resumeID, opts.model, env.ProviderName, env.SysPrompt)
 	if err != nil {
 		fmt.Fprintf(errOut, "pigo: %v\n", err)
 		return 1
@@ -417,12 +202,12 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 	agentCtx := &agentcore.AgentContext{
 		SystemPrompt: hs.header.SystemPrompt,
 		Messages:     messages,
-		Tools:        env.tools,
+		Tools:        env.Tools,
 	}
 
 	// Resolve the effective reasoning-effort level through the layered config
 	// chain (default < global < project < env < --thinking-level flag).
-	thinking, err := resolveThinkingLevel(opts.thinkingLevel)
+	thinking, err := run.ResolveThinkingLevel(opts.thinkingLevel)
 	if err != nil {
 		fmt.Fprintf(errOut, "pigo: %v\n", err)
 		return 2
@@ -431,8 +216,8 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 	// Resolve the API key by provider name from the environment (never logged).
 	// An explicit --api-key overrides env/config for the resolved provider.
 	creds := provider.NewCredentialStore(nil)
-	creds.SetOverride(env.providerName, opts.apiKey)
-	runCfg := newRunConfig(opts.model, env.providerName, thinking, env.provider, creds, toolRegistry(env.tools), todoReminders(env.tools))
+	creds.SetOverride(env.ProviderName, opts.apiKey)
+	runCfg := run.NewConfig(opts.model, env.ProviderName, thinking, env.Provider, creds, run.ToolRegistry(env.Tools), run.TodoReminders(env.Tools))
 	runCfg.SessionID = hs.header.ID
 	cfg := runtime.HeadlessConfig{
 		Mode: mode,
@@ -442,7 +227,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 	// Deliver agent lifecycle events to any subscribed plugin (US-017, #133).
 	// NewEventNotifier returns nil when no plugin subscribes, so the OnEvent hook
 	// stays unset in the common no-plugin case.
-	if n := plugin.NewEventNotifier(env.plugins, errOut); n != nil {
+	if n := plugin.NewEventNotifier(env.Plugins, errOut); n != nil {
 		cfg.OnEvent = n.Handle
 	}
 	runErr := runtime.RunHeadless(ctx, agentCtx, cfg)

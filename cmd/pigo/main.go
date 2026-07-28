@@ -18,11 +18,8 @@ import (
 
 	flag "github.com/spf13/pflag"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/cli/config"
-	"github.com/smallnest/pigo/internal/runtime"
 )
 
 // Build metadata, injected at release time via -ldflags by goreleaser
@@ -96,61 +93,4 @@ func main() {
 	}
 
 	os.Exit(dispatch(context.Background(), opts, os.Stdout, os.Stderr))
-}
-
-// builtinTools returns the default file/shell tool set rooted at cwd, or nil
-// when tools are disabled. The todo tool is stateful: a single TodoStore is
-// created here and held by the one TodoTool instance, so the task list persists
-// across calls within a run (a later write replaces the plan).
-func builtinTools(cwd string, disabled bool) []agentcore.AgentTool {
-	if disabled {
-		return nil
-	}
-	return []agentcore.AgentTool{
-		&agenttool.ReadTool{Root: cwd, ExtraRoots: readableExtraRoots()},
-		&agenttool.WriteTool{Root: cwd, ExtraRoots: readableExtraRoots()},
-		&agenttool.EditTool{Root: cwd, ExtraRoots: readableExtraRoots()},
-		&agenttool.GrepTool{Root: cwd},
-		&agenttool.FindTool{Root: cwd},
-		&agenttool.BashTool{Dir: cwd},
-		&agenttool.TodoTool{Store: agenttool.NewTodoStore()},
-		&agenttool.WebFetchTool{},
-	}
-}
-
-// readableExtraRoots returns trusted directories the file tools may reach beyond
-// the workspace root. The skills directory is included so the model can load the
-// absolute SKILL.md paths pigo advertises in the system prompt, and author or
-// update skills there (they otherwise resolve outside the workspace and are
-// rejected). An empty skills dir is dropped, so this stays a no-op when the home
-// directory cannot be resolved.
-func readableExtraRoots() []string {
-	if dir := skillsDir(); dir != "" {
-		return []string{dir}
-	}
-	return nil
-}
-
-// toolRegistry builds a registry from the given tools (skipping any that fail
-// to register, e.g. a bad schema, which should not happen for built-ins).
-func toolRegistry(tools []agentcore.AgentTool) *agenttool.ToolRegistry {
-	reg := agenttool.NewToolRegistry()
-	for _, t := range tools {
-		_ = reg.Register(t)
-	}
-	return reg
-}
-
-// todoReminders builds the per-turn system-reminder registry for a tool set
-// (US-002): it locates the stateful TodoTool and registers a TodoReminderProvider
-// over its shared store, so the model is reminded of unfinished tasks each turn.
-// Returns nil when no todo tool is present (e.g. --no-tools), leaving injection
-// disabled.
-func todoReminders(tools []agentcore.AgentTool) *runtime.ReminderRegistry {
-	for _, t := range tools {
-		if tt, ok := t.(*agenttool.TodoTool); ok && tt.Store != nil {
-			return runtime.NewReminderRegistry(&runtime.TodoReminderProvider{Store: tt.Store})
-		}
-	}
-	return nil
 }

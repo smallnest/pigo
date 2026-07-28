@@ -21,6 +21,7 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/cli/run"
 	"github.com/smallnest/pigo/internal/jsonrpc"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
@@ -93,8 +94,8 @@ func handleSubAgentRequest(ctx context.Context, enc *json.Encoder, req *jsonrpc.
 		return
 	}
 	cwd, _ := os.Getwd()
-	tools := filterBuiltinTools(builtinTools(cwd, false), params.Tools)
-	reg := toolRegistry(tools)
+	tools := filterBuiltinTools(run.BuiltinTools(cwd, false), params.Tools)
+	reg := run.ToolRegistry(tools)
 	creds := provider.NewCredentialStore(nil) // env-resolved
 	runCfg := runtime.RunConfig{
 		LoopConfig: runtime.LoopConfig{

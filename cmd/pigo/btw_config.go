@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/cli/run"
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/provider"
 )
@@ -47,7 +48,7 @@ type btwRunSettings struct {
 // btwConfigPath returns the path to the /btw override config, or "" when the
 // config directory cannot be resolved (then the config is treated as absent).
 func btwConfigPath() string {
-	dir := configDir()
+	dir := run.ConfigDir()
 	if dir == "" {
 		return ""
 	}

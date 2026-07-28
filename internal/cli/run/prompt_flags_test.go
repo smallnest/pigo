@@ -1,4 +1,4 @@
-package main
+package run
 
 // Tests for --append-system-prompt value resolution (对标 pi): each value is
 // either a path to an existing file whose contents are appended, or literal

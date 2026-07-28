@@ -19,8 +19,8 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
-	"github.com/smallnest/pigo/internal/builtinskills"
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/run"
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
@@ -94,7 +94,7 @@ type interactiveOptions struct {
 func runInteractive(opts interactiveOptions) error {
 	creds := provider.NewCredentialStore(nil)
 	creds.SetOverride(opts.providerName, opts.apiKey)
-	reg := toolRegistry(opts.tools)
+	reg := run.ToolRegistry(opts.tools)
 
 	store, err := sessionStore()
 	if err != nil {
@@ -213,7 +213,7 @@ func runInteractive(opts interactiveOptions) error {
 		agentCtx:  agentCtx,
 		live:      live,
 		reg:       reg,
-		reminders: todoReminders(opts.tools),
+		reminders: run.TodoReminders(opts.tools),
 		slash:     slash,
 		creds:     creds,
 		trust:     mgr,
@@ -394,45 +394,6 @@ func buildSlashRegistry(live *cli.LiveConfig, skills []*runtime.Skill, mgr *plug
 		fmt.Fprintf(os.Stderr, "pigo: commands shadowed by higher-priority source (rename to use): %v\n", parts)
 	}
 	return reg, nil
-}
-
-// skillsDir returns the directory skills are loaded from. It defaults to
-// ~/.agents/skills and can be overridden with PIGO_SKILLS_DIR (useful for tests
-// and non-standard layouts). An empty string is returned when the home
-// directory cannot be resolved and no override is set.
-func skillsDir() string {
-	if dir := os.Getenv("PIGO_SKILLS_DIR"); dir != "" {
-		return dir
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".agents", "skills")
-}
-
-// loadSkills discovers skills from skillsDir() once, for both prompt injection
-// (setupAgentEnv) and /skill-name registration (buildSlashRegistry), so the
-// directory is read a single time. It first bootstraps the built-in skill
-// collections into the skills dir (best-effort, first-run) so freshly installed
-// skills are picked up this launch, then loads every skill. --no-skills disables
-// discovery entirely: no bootstrap, no load, nil result. A partial parse error
-// is returned alongside the skills that DID load, so one malformed file cannot
-// hide the rest; callers treat it as a non-fatal warning.
-func loadSkills(noSkills bool) ([]*runtime.Skill, error) {
-	if noSkills {
-		return nil, nil
-	}
-	var blog io.Writer
-	if os.Getenv("PIGO_DEBUG") != "" {
-		blog = os.Stderr
-	}
-	builtinskills.Bootstrap(configDir(), skillsDir(), blog)
-	dir := skillsDir()
-	if dir == "" {
-		return nil, nil
-	}
-	return runtime.LoadSkillsDir(dir)
 }
 
 // registerPluginCommands installs each plugin-declared slash command

@@ -1,4 +1,4 @@
-package main
+package run
 
 // Tests for resolveThinkingLevel: the CLI end of the layered config chain
 // (US-023). It resolves the effective reasoning-effort level through
@@ -51,7 +51,7 @@ func writeConfig(t *testing.T, path, level string) {
 // when no layer sets a level.
 func TestResolveThinkingLevelDefault(t *testing.T) {
 	isolateConfig(t)
-	got, err := resolveThinkingLevel("")
+	got, err := ResolveThinkingLevel("")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestResolveThinkingLevelFlagWins(t *testing.T) {
 	writeConfig(t, filepath.Join(".pigo", "config.json"), "high")
 	t.Setenv("PIGO_THINKING_LEVEL", "minimal")
 
-	got, err := resolveThinkingLevel("xhigh")
+	got, err := ResolveThinkingLevel("xhigh")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestResolveThinkingLevelEnvOverProject(t *testing.T) {
 	writeConfig(t, filepath.Join(".pigo", "config.json"), "high")
 	t.Setenv("PIGO_THINKING_LEVEL", "off")
 
-	got, err := resolveThinkingLevel("")
+	got, err := ResolveThinkingLevel("")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestResolveThinkingLevelProjectOverGlobal(t *testing.T) {
 	writeConfig(t, filepath.Join(home, "config.json"), "low")
 	writeConfig(t, filepath.Join(".pigo", "config.json"), "high")
 
-	got, err := resolveThinkingLevel("")
+	got, err := ResolveThinkingLevel("")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestResolveThinkingLevelProjectOverGlobal(t *testing.T) {
 // (surfaced for exit-code mapping), not silently coerced.
 func TestResolveThinkingLevelInvalid(t *testing.T) {
 	isolateConfig(t)
-	if _, err := resolveThinkingLevel("turbo"); err == nil {
+	if _, err := ResolveThinkingLevel("turbo"); err == nil {
 		t.Error("expected error for invalid thinking level, got nil")
 	}
 }

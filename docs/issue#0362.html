@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0362</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/362">#362</a> &mdash; 迁移运行装配层到 internal/cli/run &mdash; 2026-07-28</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 助手函数一并迁入 run 包（超出显式列表）</h3>
+      <p><strong>Ambiguity:</strong> Issue 明确要求迁移 <code>setupAgentEnv/newRunConfig/agentEnv</code> 与 6 个工具助手，但 <code>hasReadTool</code>、<code>resolveAppendInstructions</code>、<code>pluginsDir</code>、<code>configDir</code>、<code>loadSkills</code> 是它们的私有依赖，未逐一点名。</p>
+      <p><strong>Choice:</strong> 将这些依赖一并迁入 <code>internal/cli/run/run.go</code>，其中纯内部的 <code>hasReadTool</code>/<code>resolveAppendInstructions</code> 保持非导出，被外部调用的 <code>ConfigDir</code>/<code>LoadSkills</code>/<code>PluginsDir</code> 导出。</p>
+      <p><strong>Rationale:</strong> <code>SetupEnv</code> 依赖它们，留在 cmd/pigo 会造成反向依赖或重复实现。按"是否被包外调用"决定导出与否，最小化 run 包的公开面。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> env 注入沿用 os.Getenv 直传</h3>
+      <p><strong>Ambiguity:</strong> <code>SetupEnv</code> 内部调用 <code>provider.ResolveProvider(..., env)</code> 需要一个 env 函数。</p>
+      <p><strong>Choice:</strong> 在 <code>SetupEnv</code> 内直接传 <code>os.Getenv</code>，不把 env 提升为 <code>SetupEnv</code> 的参数。</p>
+      <p><strong>Rationale:</strong> 与 <a href="https://github.com/smallnest/pigo/issues/361">#361</a> 一致——生产装配读真实进程环境是正确行为；env 注入只在 provider 解析的单元测试中需要，装配层无需为此扩签名。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> cmd/pigo/run.go 保留 dispatch 及 print/stream 驱动</h3>
+      <p><strong>Spec:</strong> "原 cmd/pigo/run.go 中装配相关代码删除（print/stream 驱动留待 #369/#7）"。</p>
+      <p><strong>Implemented:</strong> 删除了 <code>agentEnv</code>/<code>setupAgentEnv</code>/<code>newRunConfig</code> 等装配代码，但 <code>dispatch</code>、<code>resolveHeadlessPluginCommand</code>、<code>parseOutputMode</code> 及 headless 运行逻辑仍留在 run.go。</p>
+      <p><strong>Why:</strong> 与 Spec 一致——本 Issue 只搬装配层；驱动/dispatch 的进一步收敛属于 #363（headless）与 #369（薄 main）范围，提前搬动会与后续 Issue 冲突。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 测试拆分：按被测符号归属分流</h3>
+      <p><strong>Alternatives:</strong> (a) 全部相关测试整体迁入 run 包；(b) 按被测函数是否随源码迁移分流。</p>
+      <p><strong>Chosen:</strong> (b)——<code>thinking_test.go</code>、<code>prompt_flags_test.go</code>（测被迁走的 <code>ResolveThinkingLevel</code>/<code>resolveAppendInstructions</code>）随源码迁入 <code>package run</code>；<code>skills_test.go</code>/<code>subagent_rpc_test.go</code> 因仍测留在 main 的 <code>buildSlashRegistry</code>/<code>filterBuiltinTools</code>，留在 main 仅把调用改为 <code>run.LoadSkills</code>/<code>run.BuiltinTools</code>。</p>
+      <p><strong>Why:</strong> <code>resolveAppendInstructions</code> 非导出，其测试只能同包；混合测试文件按主被测对象归属，避免跨包私有访问。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 回退两个无关测试文件的 gofmt 重排</h3>
+      <p><strong>Alternatives:</strong> (a) 接受 goimports 顺带产生的 <code>autocomplete_label_test.go</code>/<code>line_editor_test.go</code> 对齐改动；(b) 回退以保持 PR 聚焦。</p>
+      <p><strong>Chosen:</strong> (b)，仅提交 #362 相关文件。</p>
+      <p><strong>Why:</strong> 这两处是既有的对齐偏差，与本 Issue 无关；混入会污染 diff、模糊 review 焦点。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> ConfigDir/PluginsDir/SkillsDir 的最终归属</h3>
+      <p><strong>Assumption:</strong> 这三个路径解析器现居 <code>internal/cli/run</code>，被 btw_config.go 等跨文件复用。</p>
+      <p><strong>Verify:</strong> 随 #365(btw)/#366(status)/#369(薄 main) 推进，是否应进一步下沉到更中性的位置（如 internal/cli 或专门的 paths 包），避免其他子包为拿路径而依赖 run 包？本 Issue 暂按最小改动放在 run。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

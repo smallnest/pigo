@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/run"
 	"github.com/smallnest/pigo/internal/runtime"
 )
 
@@ -39,9 +40,9 @@ func TestLoadSkillsFromDir(t *testing.T) {
 	t.Setenv("PIGO_HOME", t.TempDir())
 	writeSkill(t, dir, "greet.md", "---\nname: greet\ndescription: say hello\n---\nYou are a friendly greeter.")
 
-	skills, err := loadSkills(false)
+	skills, err := run.LoadSkills(false)
 	if err != nil {
-		t.Fatalf("loadSkills: %v", err)
+		t.Fatalf("run.LoadSkills: %v", err)
 	}
 	s := findSkill(skills, "greet")
 	if s == nil {
@@ -69,9 +70,9 @@ func TestLoadSkillsNoSkills(t *testing.T) {
 	t.Setenv("PIGO_SKILLS_DIR", dir)
 	t.Setenv("PIGO_HOME", t.TempDir())
 
-	skills, err := loadSkills(true)
+	skills, err := run.LoadSkills(true)
 	if err != nil {
-		t.Fatalf("loadSkills(true): %v", err)
+		t.Fatalf("run.LoadSkills(true): %v", err)
 	}
 	if len(skills) != 0 {
 		t.Errorf("got %d skills, want 0 under --no-skills", len(skills))
@@ -94,9 +95,9 @@ func TestBuildSlashRegistryIncludesSkills(t *testing.T) {
 	t.Setenv("PIGO_HOME", t.TempDir())
 	writeSkill(t, dir, "summarize.md", "---\nname: summarize\ndescription: summarize input\n---\nSummarize the following: $ARGUMENTS")
 
-	skills, err := loadSkills(false)
+	skills, err := run.LoadSkills(false)
 	if err != nil {
-		t.Fatalf("loadSkills: %v", err)
+		t.Fatalf("run.LoadSkills: %v", err)
 	}
 	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, skills, nil, promptTemplateSources{})
 	if err != nil {
@@ -142,9 +143,9 @@ func TestLoadSkillsBootstrapsBuiltinSkills(t *testing.T) {
 	t.Setenv("PIGO_SKILLS_DIR", dir)
 	t.Setenv("PIGO_HOME", t.TempDir())
 
-	skills, err := loadSkills(false)
+	skills, err := run.LoadSkills(false)
 	if err != nil {
-		t.Fatalf("loadSkills: %v", err)
+		t.Fatalf("run.LoadSkills: %v", err)
 	}
 	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, skills, nil, promptTemplateSources{})
 	if err != nil {
