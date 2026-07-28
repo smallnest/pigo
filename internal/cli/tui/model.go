@@ -6,6 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/smallnest/pigo/internal/agentcore"
 )
 
 // Model is the root Bubble Tea model for the full-screen TUI. It composes a
@@ -41,11 +43,17 @@ type Model struct {
 	runCh chan tea.Msg
 
 	// startRunFn launches an agent run for the submitted prompt, returning the
-	// bridge channel and the first waitForEvent Cmd (see bridge.startRun). It is a
-	// seam: the real binding — constructing an AgentContext + RunConfig from opts
-	// and the live session — lands with session wiring (#392). Until then it may
-	// be nil, in which case a submit records the prompt but starts no run.
+	// bridge channel and the first waitForEvent Cmd (see bridge.startRun). It is
+	// bound to runSession.startRun by withSession (#392): the real binding
+	// constructs an AgentContext + RunConfig from opts and the live session. It is
+	// nil for a session-less model (the pure constructor / tests), in which case a
+	// submit records the prompt but starts no run.
 	startRunFn func(prompt string) (chan tea.Msg, tea.Cmd)
+
+	// session is the assembled run/persistence state (store, header, growing
+	// context, live config). It is nil for a session-less model; when set, the
+	// model persists the conversation to ~/.pigo/sessions after each turn ends.
+	session *runSession
 
 	// quitting is set when a quit key (Ctrl+C / Ctrl+D) is seen, so View can be a
 	// no-op on the final frame while the program tears down and restores the
@@ -90,6 +98,18 @@ func NewModel(opts Options) Model {
 		statusBar:  newStatusBar(theme, opts, cwd),
 		toolCards:  make(map[string]*toolCard),
 	}
+}
+
+// withSession binds the assembled run session to the model: it wires the real
+// run seam (startRunFn) and, for a resumed session, replays the prior history
+// into the transcript so the user sees the conversation so far before entering
+// interactive mode. Run calls it right after NewModel; the session-less
+// constructor path (tests, pure construction) leaves startRunFn nil.
+func (m Model) withSession(s *runSession, history []agentcore.Message) Model {
+	m.session = s
+	m.startRunFn = s.startRun
+	seedTranscript(&m.transcript, history)
+	return m
 }
 
 // Init implements tea.Model. It kicks off the async git probe so the status bar
@@ -169,6 +189,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.runCh = nil
 		if msg.err != nil {
 			m.transcript.addSystem("运行结束：" + msg.err.Error())
+		}
+		// Persist the turn's new messages as a branch so the conversation survives
+		// exit and can be resumed (FR-16). This is race-free: the pump goroutine
+		// owns agentCtx.Messages during the run and only sends runEndMsg after
+		// DrainStream returns (loop done), so no goroutine is still writing the
+		// context when persist reads it here on the tea goroutine. A save failure
+		// is surfaced but non-fatal.
+		if m.session != nil {
+			if err := m.session.persist(); err != nil {
+				m.transcript.addSystem("会话保存失败：" + err.Error())
+			}
 		}
 		// A run may have changed the working tree (edits, new files); re-probe git
 		// so the status bar reflects the post-run dirty/ahead state.
