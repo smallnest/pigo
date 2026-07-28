@@ -5,6 +5,7 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/smallnest/pigo/internal/agentcore"
 )
@@ -146,12 +147,61 @@ func (t *transcript) update(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-// view renders the current visible slice of the transcript. Scrolling is driven
-// by the mouse wheel and PgUp/PgDn (see model); the transcript itself draws no
-// decorative scrollbar, so history occupies the full content width and the
-// terminal's own scroll affordance is the only one shown.
+// view renders the current visible slice of the transcript with a vertical
+// scrollbar column attached on the right (FR-10), so history is scrollable and
+// the user can see where they are in the log. The scrollbar occupies the single
+// content column relayout reserved (width-1 for the blocks, +1 for the bar).
 func (t transcript) view() string {
-	return t.vp.View()
+	body := t.vp.View()
+	bar := t.scrollbar()
+	if bar == "" {
+		return body
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, body, bar)
+}
+
+// scrollbar renders a one-column vertical scrollbar the height of the viewport.
+// When all content fits it is a blank track (keeping the column width stable);
+// otherwise a proportional thumb marks the visible window and its position marks
+// the scroll offset, so scrolling up through history moves the thumb.
+func (t transcript) scrollbar() string {
+	h := t.vp.Height()
+	if h <= 0 {
+		return ""
+	}
+	total := t.vp.TotalLineCount()
+	if total <= h {
+		lines := make([]string, h)
+		for i := range lines {
+			lines[i] = " "
+		}
+		return strings.Join(lines, "\n")
+	}
+	thumb := h * h / total
+	if thumb < 1 {
+		thumb = 1
+	}
+	maxOff := total - h
+	off := t.vp.YOffset()
+	if off > maxOff {
+		off = maxOff
+	}
+	pos := 0
+	if maxOff > 0 {
+		pos = off * (h - thumb) / maxOff
+	}
+	var b strings.Builder
+	for i := 0; i < h; i++ {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		if i >= pos && i < pos+thumb {
+			b.WriteString(t.theme.Accent.Render("█"))
+		} else {
+			b.WriteString(t.theme.System.Render("│"))
+		}
+	}
+	return b.String()
 }
 
 // reflow re-renders every block to the current width and pushes the joined
