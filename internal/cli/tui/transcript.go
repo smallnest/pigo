@@ -5,6 +5,7 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/smallnest/pigo/internal/agentcore"
 )
@@ -146,9 +147,61 @@ func (t *transcript) update(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-// view renders the current visible slice of the transcript.
+// view renders the current visible slice of the transcript with a vertical
+// scrollbar column attached on the right (FR-10), so history is scrollable and
+// the user can see where they are in the log. The scrollbar occupies the single
+// content column relayout reserved (width-1 for the blocks, +1 for the bar).
 func (t transcript) view() string {
-	return t.vp.View()
+	body := t.vp.View()
+	bar := t.scrollbar()
+	if bar == "" {
+		return body
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, body, bar)
+}
+
+// scrollbar renders a one-column vertical scrollbar the height of the viewport.
+// When all content fits it is a blank track (keeping the column width stable);
+// otherwise a proportional thumb marks the visible window and its position marks
+// the scroll offset, so scrolling up through history moves the thumb.
+func (t transcript) scrollbar() string {
+	h := t.vp.Height()
+	if h <= 0 {
+		return ""
+	}
+	total := t.vp.TotalLineCount()
+	if total <= h {
+		lines := make([]string, h)
+		for i := range lines {
+			lines[i] = " "
+		}
+		return strings.Join(lines, "\n")
+	}
+	thumb := h * h / total
+	if thumb < 1 {
+		thumb = 1
+	}
+	maxOff := total - h
+	off := t.vp.YOffset()
+	if off > maxOff {
+		off = maxOff
+	}
+	pos := 0
+	if maxOff > 0 {
+		pos = off * (h - thumb) / maxOff
+	}
+	var b strings.Builder
+	for i := 0; i < h; i++ {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		if i >= pos && i < pos+thumb {
+			b.WriteString(t.theme.Accent.Render("█"))
+		} else {
+			b.WriteString(t.theme.System.Render("│"))
+		}
+	}
+	return b.String()
 }
 
 // reflow re-renders every block to the current width and pushes the joined
@@ -164,7 +217,7 @@ func (t *transcript) reflow() {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		b.WriteString(t.renderBlock(blk))
+		b.WriteString(t.renderBlock(blk, i == t.activeAssistant))
 	}
 
 	t.vp.SetContent(b.String())
@@ -177,18 +230,23 @@ func (t *transcript) reflow() {
 // renderBlock wraps a block's text to the content width and applies the role's
 // theme style. Wrapping happens on the raw text (measured in display columns via
 // WrapToWidth) before styling so ANSI escapes never confuse the width math and
-// no double-width rune is split.
-func (t transcript) renderBlock(blk transcriptBlock) string {
+// no double-width rune is split. A finalized assistant block is rendered as
+// Markdown (fix #3, mirroring the REPL's turn-end render); the still-streaming
+// block (streaming==true) stays plain text because Markdown can only be laid out
+// once the whole block is known.
+func (t transcript) renderBlock(blk transcriptBlock, streaming bool) string {
 	if blk.role == roleTool && blk.card != nil {
 		return blk.card.render(t.theme, t.width)
 	}
-	wrapped := WrapToWidth(blk.text, t.width)
 	switch blk.role {
 	case roleUser:
-		return t.theme.User.Render(wrapped)
+		return t.theme.User.Render(WrapToWidth(blk.text, t.width))
 	case roleSystem:
-		return t.theme.System.Render(wrapped)
+		return t.theme.System.Render(WrapToWidth(blk.text, t.width))
 	default:
-		return t.theme.Assistant.Render(wrapped)
+		if streaming {
+			return t.theme.Assistant.Render(WrapToWidth(blk.text, t.width))
+		}
+		return renderMarkdown(blk.text, t.width)
 	}
 }

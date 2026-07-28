@@ -100,8 +100,12 @@ func (c toolCard) render(theme Theme, width int) string {
 	if nameBudget < 1 {
 		nameBudget = 1
 	}
-	name := TruncateToWidth(c.name, nameBudget)
-	lines = append(lines, icon+" "+theme.ToolHeader.Render(name))
+	header := c.name
+	if arg := c.primaryArg(); arg != "" {
+		header = c.name + "(" + arg + ")"
+	}
+	header = TruncateToWidth(header, nameBudget)
+	lines = append(lines, icon+" "+theme.ToolHeader.Render(header))
 
 	if len(c.input) > 0 {
 		lines = append(lines, theme.ToolBody.Render("调用输入参数"))
@@ -133,6 +137,31 @@ func (c toolCard) render(theme Theme, width int) string {
 		BorderForeground(lipgloss.Color(colorGray)).
 		Width(inner)
 	return border.Render(strings.Join(lines, "\n"))
+}
+
+// primaryArg returns the most salient call argument to inline in the card header
+// so the user can see what the tool is operating on at a glance (FR-6), e.g.
+// Bash(cd /x && git add -A). It picks the command for bash and the file path for
+// the file tools, otherwise the first argument in sorted-key order. Returns ""
+// when the call carried no arguments.
+func (c toolCard) primaryArg() string {
+	if len(c.input) == 0 {
+		return ""
+	}
+	var key string
+	switch strings.ToLower(c.name) {
+	case "bash":
+		key = "command"
+	case "read", "write", "edit", "multiedit":
+		key = "file_path"
+	}
+	if key != "" {
+		if v, ok := c.input[key]; ok {
+			return fmt.Sprintf("%v", v)
+		}
+	}
+	keys := sortedKeys(c.input)
+	return fmt.Sprintf("%v", c.input[keys[0]])
 }
 
 // sortedKeys returns the map keys in a stable (sorted) order so the input

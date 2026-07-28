@@ -16,12 +16,16 @@ import (
 // class of bug the old REPL input had — it keyed on byte length (len==1) and
 // silently dropped the trailing bytes of every multi-byte rune. We deliberately
 // delegate all character handling to textarea and never touch bytes ourselves.
+//
+// Shift+Enter inserts a newline so the editor is a true multi-line composer;
+// plain Enter submits (intercepted by the model, never reaching textarea). The
+// default InsertNewline binding (Enter) is therefore rebound to Shift+Enter. See
+// model.handleKey.
 
-// newlineKey is the key chord that inserts a literal newline into the buffer.
-// Enter is reserved by the model for submitting the prompt, so a hard line break
-// is entered with Alt+Enter (ctrl+j is kept as a fallback for terminals that
-// cannot emit alt+enter).
-const newlineKey = "alt+enter"
+// maxInputRows caps how tall the editor grows as the user adds lines. Past this
+// the buffer keeps growing but textarea scrolls its own viewport, so the shell's
+// row accounting stays bounded and the transcript never collapses to nothing.
+const maxInputRows = 6
 
 // input is the prompt editor. It embeds a textarea.Model and exposes just the
 // surface the root model needs: value/clear, focus/blur (input is blurred while
@@ -31,22 +35,23 @@ type input struct {
 	ta textarea.Model
 }
 
-// newInput builds a focused single-visible-row editor. The visible height stays
-// at one row so the model's View row accounting (transcript + status + input)
-// is unchanged; the buffer itself is unbounded and grows across newlines, and
-// textarea scrolls its own viewport when the content exceeds the visible row.
+// newInput builds a focused editor. It starts one row tall and grows with the
+// buffer (up to maxInputRows) as the user inserts newlines with Enter. The
+// buffer itself is unbounded; beyond maxInputRows textarea scrolls internally.
 func newInput() input {
 	ta := textarea.New()
 	ta.Prompt = "> "
+	ta.Placeholder = "输入消息…（Enter 发送，Shift+Enter 换行）"
 	ta.ShowLineNumbers = false
 	ta.CharLimit = 0
+	ta.MaxHeight = maxInputRows
 	ta.SetHeight(1)
-	// Enter must NOT insert a newline: the model intercepts it as submit. Rebind
-	// the newline action to Alt+Enter (see newlineKey) so multi-line input still
-	// works while Enter stays free for submission.
+	// Rebind InsertNewline from its default (Enter) to Shift+Enter: plain Enter is
+	// the model's submit key (handleKey intercepts it before textarea sees it), so
+	// only Shift+Enter breaks a line in the multi-line composer.
 	ta.KeyMap.InsertNewline = key.NewBinding(
-		key.WithKeys(newlineKey, "ctrl+j"),
-		key.WithHelp(newlineKey, "insert newline"),
+		key.WithKeys("shift+enter"),
+		key.WithHelp("shift+enter", "insert newline"),
 	)
 	// Draw the cursor into the rendered string: the model composes View as a
 	// plain string rather than driving textarea's real cursor reporting.
@@ -57,23 +62,50 @@ func newInput() input {
 
 // Update forwards a message (typically a key press) to the underlying textarea
 // and returns the updated component. The model calls this only for keys it does
-// not intercept itself (submit / newline / interrupt / quit), so textarea sees
-// ordinary editing keys — including CJK and emoji runes, which it inserts whole.
+// not intercept itself (submit / interrupt / quit), so textarea sees ordinary
+// editing keys — including Enter (newline) and CJK / emoji runes, which it
+// inserts whole. The visible height is re-synced to the line count afterwards so
+// the editor grows and shrinks with the content.
 func (in input) Update(msg tea.Msg) (input, tea.Cmd) {
 	var cmd tea.Cmd
 	in.ta, cmd = in.ta.Update(msg)
+	in.syncHeight()
 	return in, cmd
 }
+
+// syncHeight resizes the visible editor to the buffer's line count, clamped to
+// [1, maxInputRows]. It is called after every edit and after programmatic value
+// changes so the shell reserves exactly as many rows as the input needs.
+func (in *input) syncHeight() {
+	n := in.ta.LineCount()
+	if n < 1 {
+		n = 1
+	}
+	if n > maxInputRows {
+		n = maxInputRows
+	}
+	in.ta.SetHeight(n)
+}
+
+// Height reports the current visible row count of the editor so the model can
+// reserve that many rows in its View layout.
+func (in input) Height() int { return in.ta.Height() }
 
 // Value returns the current buffer contents, including any embedded newlines.
 func (in input) Value() string { return in.ta.Value() }
 
 // SetValue replaces the buffer contents and moves the cursor to the end. It is
 // used by slash autocomplete (Tab) to complete the buffer to the chosen command.
-func (in *input) SetValue(s string) { in.ta.SetValue(s) }
+func (in *input) SetValue(s string) {
+	in.ta.SetValue(s)
+	in.syncHeight()
+}
 
 // Clear empties the buffer and resets the cursor to the start.
-func (in *input) Clear() { in.ta.Reset() }
+func (in *input) Clear() {
+	in.ta.Reset()
+	in.syncHeight()
+}
 
 // Focus enables editing and returns the cursor-blink Cmd.
 func (in *input) Focus() tea.Cmd { return in.ta.Focus() }

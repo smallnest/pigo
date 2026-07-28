@@ -54,12 +54,12 @@ func TestInputEmojiByRune(t *testing.T) {
 	}
 }
 
-// TestInputAltEnterNewline verifies Alt+Enter inserts a newline into the buffer
-// (the documented multi-line key) while plain runes fill each line.
-func TestInputAltEnterNewline(t *testing.T) {
+// TestInputShiftEnterNewline verifies Shift+Enter inserts a newline into the
+// buffer (the multi-line key) while plain runes fill each line.
+func TestInputShiftEnterNewline(t *testing.T) {
 	in := newInput()
 	in, _ = in.Update(runeKey('你'))
-	in, _ = in.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt})
+	in, _ = in.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift})
 	in, _ = in.Update(runeKey('好'))
 
 	if got := in.Value(); got != "你\n好" {
@@ -69,7 +69,7 @@ func TestInputAltEnterNewline(t *testing.T) {
 
 // TestInputEnterIsNotNewline confirms plain Enter does NOT insert a newline in
 // the editor: the model intercepts it as submit, so the editor must leave it
-// alone (only Alt+Enter breaks a line).
+// alone (only Shift+Enter breaks a line).
 func TestInputEnterIsNotNewline(t *testing.T) {
 	in := newInput()
 	in, _ = in.Update(runeKey('a'))
@@ -101,10 +101,11 @@ func TestInputClearBlurFocus(t *testing.T) {
 	}
 }
 
-// TestModelEnterSubmits feeds a typed line and Enter to the model and asserts the
-// prompt is submitted: the user turn lands in the transcript and the editor is
-// cleared (Enter yields a submit, not a newline). With no startRunFn wired the
-// model stays idle and records the pre-#392 system note.
+// TestModelEnterSubmits feeds a typed line and Enter to the model and asserts
+// the prompt is submitted: the user turn lands in the transcript and the editor
+// is cleared. Enter submits; Shift+Enter is the newline key in the multi-line
+// composer. With no startRunFn wired the model stays idle and records the
+// pre-#392 system note.
 func TestModelEnterSubmits(t *testing.T) {
 	m := NewModel(Options{})
 	var model tea.Model = m

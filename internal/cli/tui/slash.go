@@ -102,6 +102,20 @@ func (mn *slashMenu) refresh(buffer string, reg *runtime.SlashRegistry) {
 	}
 }
 
+// rows reports how many terminal rows the popup occupies when rendered, so the
+// model can reserve that space above the input line during relayout. It is zero
+// while inactive and otherwise the visible window height (min of the candidate
+// count and maxMenuRows).
+func (mn slashMenu) rows() int {
+	if !mn.active || len(mn.filtered) == 0 {
+		return 0
+	}
+	if len(mn.filtered) > maxMenuRows {
+		return maxMenuRows
+	}
+	return len(mn.filtered)
+}
+
 // close deactivates the menu and drops its candidates.
 func (mn *slashMenu) close() {
 	mn.active = false

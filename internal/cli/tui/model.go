@@ -174,8 +174,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.transcript.setSize(msg.Width, transcriptHeight(msg.Height))
-		m.input.SetWidth(msg.Width)
+		m.relayout()
 		return m, nil
 
 	case gitInfoMsg:
@@ -276,9 +275,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.menu.moveDown()
 			return m, nil
 		case "tab":
-			return m.completeSlash(), nil
+			m = m.completeSlash()
+			m.relayout()
+			return m, nil
 		case "esc":
 			m.menu.close()
+			m.relayout()
 			return m, nil
 		case "enter":
 			return m.submitSlashSelected()
@@ -316,6 +318,10 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "enter":
+		// Enter submits the composed buffer (FR-13). Shift+Enter inserts a newline
+		// (rebound in newInput) so the editor is a true multi-line composer; when
+		// the slash menu is open, Enter runs the highlighted command (handled
+		// above), so this branch is only reached with the menu closed.
 		if !m.running {
 			return m.submit()
 		}
@@ -337,6 +343,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		m.menu.refresh(m.input.Value(), m.slash)
+		m.relayout()
 		return m, cmd
 	}
 	return m, nil
@@ -361,6 +368,7 @@ func (m Model) submit() (tea.Model, tea.Cmd) {
 	m.transcript.addUser(prompt)
 	m.input.Clear()
 	m.menu.close()
+	m.relayout()
 	return m.startPrompt(prompt)
 }
 
@@ -397,6 +405,7 @@ func (m Model) runSlash(line string) (tea.Model, tea.Cmd) {
 	m.transcript.addUser(line)
 	m.input.Clear()
 	m.menu.close()
+	m.relayout()
 	if m.slash == nil {
 		m.transcript.addSystem("斜杠命令不可用")
 		return m, nil
@@ -444,8 +453,9 @@ func (m Model) pumpNext() tea.Cmd {
 }
 
 // View implements tea.Model. It renders the shell on the alt-screen: the
-// scrolling transcript filling the top rows, the persistent status bar (#386) on
-// the second-to-last row, and the minimal input line at the bottom. Setting
+// scrolling transcript filling the top rows, then the autocomplete popup (when
+// open) and the multi-line input editor, and finally the persistent status bar
+// (#386) on the very bottom row — below the input, per the layout fix. Setting
 // AltScreen on the returned View is how Bubble Tea v2 enters/leaves the alternate
 // screen buffer, so the user's scrollback is restored on quit.
 func (m Model) View() tea.View {
@@ -464,19 +474,18 @@ func (m Model) View() tea.View {
 
 	status := m.statusBar.Render(width)
 
-	// The input editor renders its own prompt column and cursor; keep it to the
-	// single visible row the View row math reserves.
+	// The input editor renders its own prompt column and cursor across as many
+	// rows as the buffer currently spans (up to maxInputRows).
 	input := m.input.View()
 
-	// Reserve one row for the status bar and one for the input line; the rest is
-	// the transcript area. Guard against tiny terminals so the region never goes
-	// negative.
+	// Fallback transcript rows before the first size message; once sized the
+	// viewport is pre-sized by relayout and pads its own content.
 	rows := transcriptHeight(height)
 	sized := m.width > 0 && m.height > 0
 
 	var b strings.Builder
 	if sized {
-		// The viewport pads its content to exactly `rows` lines.
+		// The viewport pads its content to exactly the rows relayout reserved.
 		b.WriteString(m.transcript.view())
 		b.WriteByte('\n')
 	} else {
@@ -484,8 +493,6 @@ func (m Model) View() tea.View {
 			b.WriteByte('\n')
 		}
 	}
-	b.WriteString(status)
-	b.WriteByte('\n')
 	// The autocomplete popup, when open, renders just above the input line as an
 	// overlay (it contributes no rows while idle, so the empty-shell layout is
 	// unchanged).
@@ -494,13 +501,39 @@ func (m Model) View() tea.View {
 		b.WriteByte('\n')
 	}
 	b.WriteString(input)
+	b.WriteByte('\n')
+	// The status bar is the final line, pinned to the very bottom of the shell
+	// below the input editor.
+	b.WriteString(status)
 
 	return tea.View{Content: b.String(), AltScreen: true}
 }
 
-// transcriptHeight returns the number of rows available to the transcript for a
-// given total terminal height: the total minus the status bar and input rows,
-// floored at zero so tiny terminals never produce a negative extent.
+// relayout re-sizes the transcript to the rows left after reserving the status
+// bar (1 row), the current input editor height, and any open autocomplete popup,
+// and reserves one content column for the transcript scrollbar. It is called on
+// every resize and after any edit that changes the input height or menu row
+// count, so the transcript region always fills exactly the space above the
+// input/status chrome.
+func (m *Model) relayout() {
+	if m.width <= 0 || m.height <= 0 {
+		return
+	}
+	rows := m.height - 1 - m.input.Height() - m.menu.rows()
+	if rows < 0 {
+		rows = 0
+	}
+	content := m.width - 1 // reserve a column for the scrollbar
+	if content < 0 {
+		content = 0
+	}
+	m.transcript.setSize(content, rows)
+	m.input.SetWidth(m.width)
+}
+
+// transcriptHeight returns the fallback number of rows for the transcript before
+// the first size message arrives: the total minus the status bar and a single
+// input row, floored at zero so tiny terminals never produce a negative extent.
 func transcriptHeight(total int) int {
 	h := total - 2
 	if h < 0 {
