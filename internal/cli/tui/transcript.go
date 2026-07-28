@@ -1,0 +1,178 @@
+package tui
+
+import (
+	"strings"
+
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/smallnest/pigo/internal/agentcore"
+)
+
+// This file implements the scrolling transcript region of the full-screen TUI
+// (US-005, SPEC 5.1 transcript, FR-5/FR-10). The transcript owns a
+// viewport.Model and an ordered list of rendered blocks (user / assistant /
+// system turns). Streaming assistant text arrives as textDeltaMsg values that
+// append to the current assistant block; turnEndMsg finalizes it. Content is
+// re-flowed through the viewport with theme.WrapToWidth at the live width so CJK
+// and emoji never split mid-rune. Tool cards are a later node (#389); this file
+// leaves a clean seam (system lines) without building cards.
+
+// blockRole distinguishes the three transcript block kinds so each renders with
+// its own theme style.
+type blockRole int
+
+const (
+	roleUser blockRole = iota
+	roleAssistant
+	roleSystem
+)
+
+// transcriptBlock is one rendered turn in the transcript. text is the raw
+// (unstyled, unwrapped) message body; the role selects the theme style and any
+// prefix applied at render time.
+type transcriptBlock struct {
+	role blockRole
+	text string
+}
+
+// transcript is the scrolling message log. It wraps a viewport.Model and keeps
+// the source blocks so it can re-flow on width changes. activeAssistant indexes
+// the assistant block currently receiving streaming deltas, or -1 when no turn
+// is streaming.
+type transcript struct {
+	vp    viewport.Model
+	theme Theme
+
+	// width is the content width (terminal columns) the blocks wrap to. It is
+	// separate from the viewport's own width so reflow measurements stay stable
+	// even before the first size message.
+	width int
+
+	blocks          []transcriptBlock
+	activeAssistant int
+}
+
+// newTranscript builds an empty transcript with the given theme. The viewport
+// starts zero-sized; the model drives setSize from the first tea.WindowSizeMsg.
+func newTranscript(theme Theme) transcript {
+	vp := viewport.New()
+	return transcript{
+		vp:              vp,
+		theme:           theme,
+		activeAssistant: -1,
+	}
+}
+
+// setSize resizes the transcript's viewport and re-flows the blocks to the new
+// width. A non-positive dimension is clamped to zero so the viewport never sees
+// a negative extent.
+func (t *transcript) setSize(width, height int) {
+	if width < 0 {
+		width = 0
+	}
+	if height < 0 {
+		height = 0
+	}
+	t.width = width
+	t.vp.SetWidth(width)
+	t.vp.SetHeight(height)
+	t.reflow()
+}
+
+// addUser appends a user turn and closes any streaming assistant block, then
+// re-flows (sticking to the bottom when already there).
+func (t *transcript) addUser(text string) {
+	t.blocks = append(t.blocks, transcriptBlock{role: roleUser, text: text})
+	t.activeAssistant = -1
+	t.reflow()
+}
+
+// addSystem appends a system / meta notice (used for tool activity and run
+// lifecycle until tool cards land in #389).
+func (t *transcript) addSystem(text string) {
+	t.blocks = append(t.blocks, transcriptBlock{role: roleSystem, text: text})
+	t.reflow()
+}
+
+// appendDelta grows the current assistant block by delta, creating the block on
+// the first delta of a turn. The re-flow auto-sticks to the bottom when the user
+// has not scrolled up.
+func (t *transcript) appendDelta(delta string) {
+	if t.activeAssistant < 0 {
+		t.blocks = append(t.blocks, transcriptBlock{role: roleAssistant})
+		t.activeAssistant = len(t.blocks) - 1
+	}
+	t.blocks[t.activeAssistant].text += delta
+	t.reflow()
+}
+
+// finalizeTurn closes the streaming assistant block. When the final message
+// carries text it becomes the block's authoritative body (covering turns that
+// arrive without incremental deltas); otherwise the accumulated deltas stand.
+func (t *transcript) finalizeTurn(msg agentcore.AssistantMessage) {
+	text := agentcore.ContentToText(msg.Content)
+	if t.activeAssistant >= 0 {
+		if text != "" {
+			t.blocks[t.activeAssistant].text = text
+		}
+	} else if text != "" {
+		t.blocks = append(t.blocks, transcriptBlock{role: roleAssistant, text: text})
+	}
+	t.activeAssistant = -1
+	t.reflow()
+}
+
+// update forwards a message (typically a key press or scroll) to the viewport so
+// PgUp/PgDn/arrow scrolling works. Auto-stick is decided per content change in
+// reflow, so a user scroll-up here naturally pauses it until they return to the
+// bottom.
+func (t *transcript) update(msg tea.Msg) tea.Cmd {
+	var cmd tea.Cmd
+	t.vp, cmd = t.vp.Update(msg)
+	return cmd
+}
+
+// view renders the current visible slice of the transcript.
+func (t transcript) view() string {
+	return t.vp.View()
+}
+
+// reflow re-renders every block to the current width and pushes the joined
+// content into the viewport. It captures the bottom-stick state before mutating
+// content: if the viewport was at the bottom, new content auto-scrolls
+// (GotoBottom); if the user had scrolled up, the offset is preserved so reading
+// history is not interrupted.
+func (t *transcript) reflow() {
+	stick := t.vp.AtBottom()
+
+	var b strings.Builder
+	for i, blk := range t.blocks {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(t.renderBlock(blk))
+	}
+
+	t.vp.SetContent(b.String())
+
+	if stick {
+		t.vp.GotoBottom()
+	}
+}
+
+// renderBlock wraps a block's text to the content width and applies the role's
+// theme style. Wrapping happens on the raw text (measured in display columns via
+// WrapToWidth) before styling so ANSI escapes never confuse the width math and
+// no double-width rune is split.
+func (t transcript) renderBlock(blk transcriptBlock) string {
+	wrapped := WrapToWidth(blk.text, t.width)
+	switch blk.role {
+	case roleUser:
+		return t.theme.User.Render(wrapped)
+	case roleSystem:
+		return t.theme.System.Render(wrapped)
+	default:
+		return t.theme.Assistant.Render(wrapped)
+	}
+}
