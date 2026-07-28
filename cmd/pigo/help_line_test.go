@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/runtime"
 )
 
@@ -35,7 +36,7 @@ func TestFormatHelpLine(t *testing.T) {
 // prompt template with its argument-hint, description, and source tier.
 func TestHelpActionIncludesTemplateLabelAndTier(t *testing.T) {
 	reg := runtime.NewSlashRegistry()
-	registerLiveCommands(reg, &liveRunConfig{model: "test", providerName: "test"})
+	registerLiveCommands(reg, &cli.LiveConfig{Model: "test", ProviderName: "test"})
 	reg.AddUser(runtime.SlashCommand{
 		Name:         "review",
 		ArgumentHint: "<PR-URL>",

@@ -26,6 +26,7 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/clipboard"
 	"github.com/smallnest/pigo/internal/compaction"
 	"github.com/smallnest/pigo/internal/plugin"
@@ -41,7 +42,7 @@ type replDeps struct {
 	store    *session.Store
 	header   session.SessionHeader
 	agentCtx *agentcore.AgentContext
-	live     *liveRunConfig
+	live     *cli.LiveConfig
 	reg      *agenttool.ToolRegistry
 	// reminders holds the per-turn system-reminder providers (US-002). It is nil
 	// when no todo tool is present; when set, streamRun wires it so ephemeral
@@ -110,7 +111,7 @@ type replDeps struct {
 	// the cumulative accumulator that sums metrics across all runs in the session.
 	// It is reset to "no telemetry yet" on any session switch (/fork, /clone,
 	// /import).
-	telemetry *TelemetryHolder
+	telemetry *cli.TelemetryHolder
 }
 
 // replScanBufInit is the initial size of the shared input reader. A REPL user
@@ -157,7 +158,7 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 		}
 	}
 	editor := newREPLLineEditor(in, deps.in, out, deps.slash, priorInputs)
-	editor.models = append([]string{deps.live.model}, editor.models...)
+	editor.models = append([]string{deps.live.Model}, editor.models...)
 
 	// A SIGINT during a run cancels only that run; the handler is installed for
 	// the whole REPL and targets whichever run is active via runCancel. runCancel
@@ -188,7 +189,7 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 
 	for {
 		fmt.Fprintln(out)
-		raw, err := editor.readLine(fmt.Sprintf("pigo(%s)> ", deps.live.model))
+		raw, err := editor.readLine(fmt.Sprintf("pigo(%s)> ", deps.live.Model))
 		if errors.Is(err, errLineInterrupted) {
 			continue
 		}
@@ -348,8 +349,8 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 		// Persist the turn as a branch descending from the active leaf, so a
 		// prior /tree leaf-switch produces a real sibling branch on disk rather
 		// than a truncated linear rewrite.
-		deps.header.Model = deps.live.model
-		deps.header.Provider = deps.live.providerName
+		deps.header.Model = deps.live.Model
+		deps.header.Provider = deps.live.ProviderName
 		persistTurn(out, &deps)
 	}
 }
@@ -396,12 +397,12 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 	})
 	cfg := runtime.RunConfig{
 		LoopConfig: runtime.LoopConfig{
-			Model:         deps.live.model,
-			Provider:      deps.live.providerName,
-			ThinkingLevel: deps.live.thinkingLevel,
-			Stream:        provider.StreamFnFromProvider(deps.live.provider),
+			Model:         deps.live.Model,
+			Provider:      deps.live.ProviderName,
+			ThinkingLevel: deps.live.ThinkingLevel,
+			Stream:        provider.StreamFnFromProvider(deps.live.Provider),
 			GetAPIKey:     deps.creds.GetAPIKey,
-			ContextWindow: deps.live.contextWindow,
+			ContextWindow: deps.live.ContextWindow,
 			Compaction:    compaction.DefaultCompactionSettings,
 		},
 		Batch: agenttool.BatchConfig{
@@ -763,8 +764,8 @@ func runSession(out io.Writer, deps *replDeps) {
 	fmt.Fprintf(out, "session:      %s\n", deps.header.ID)
 	fmt.Fprintf(out, "messages:     %d\n", len(msgs))
 	fmt.Fprintf(out, "tokens (est): %d\n", tokens)
-	model := deps.live.model
-	providerName := deps.live.providerName
+	model := deps.live.Model
+	providerName := deps.live.ProviderName
 	if model == "" {
 		model = deps.header.Model
 	}
@@ -788,15 +789,15 @@ func runManualCompact(out io.Writer, deps replDeps) {
 	settings := compaction.DefaultCompactionSettings
 	before := compaction.EstimateContextTokens(msgs).Tokens
 
-	stream := provider.StreamFnFromProvider(deps.live.provider)
-	model := provider.Model{Provider: deps.live.providerName, ID: deps.live.model, ContextWindow: deps.live.contextWindow}
+	stream := provider.StreamFnFromProvider(deps.live.Provider)
+	model := provider.Model{Provider: deps.live.ProviderName, ID: deps.live.Model, ContextWindow: deps.live.ContextWindow}
 
 	// Resolve the API key like a normal turn so summarization authenticates
 	// against auth-requiring providers (otherwise Compact fails with
 	// "missing API key" and /compact would always report a non-fatal failure).
 	scfg := provider.StreamConfig{}
 	if deps.creds != nil {
-		scfg.APIKey = deps.creds.GetAPIKey(context.Background(), deps.live.providerName)
+		scfg.APIKey = deps.creds.GetAPIKey(context.Background(), deps.live.ProviderName)
 	}
 	res, err := compaction.Compact(context.Background(), stream, model, msgs, settings, -1, nil, "", scfg)
 	if err != nil {

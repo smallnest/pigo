@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/testutil"
 	"github.com/smallnest/pigo/internal/runtime"
 )
 
@@ -86,7 +88,7 @@ func TestBuildSlashRegistryLoadsSettingsPrompts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, nil, nil,
+	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
 		promptTemplateSources{settings: []string{settingsDir}})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
@@ -104,7 +106,7 @@ func TestBuildSlashRegistryGlobalOverridesSettings(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PIGO_HOME", home)
 	// global prompt (TierGlobal) under ~/.pigo/prompts.
-	writePrompt(t, home, "prompts", "dup.md", "FROM GLOBAL")
+	testutil.WritePrompt(t, home, "prompts", "dup.md", "FROM GLOBAL")
 	// settings-tier prompt (file) of the same name, placed at the home root
 	// (not under prompts/, so the global loop does not also load it).
 	settingsFile := filepath.Join(home, "dup.md")
@@ -112,7 +114,7 @@ func TestBuildSlashRegistryGlobalOverridesSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, nil, nil,
+	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
 		promptTemplateSources{settings: []string{settingsFile}})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)

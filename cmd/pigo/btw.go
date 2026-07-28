@@ -206,7 +206,7 @@ func askSide(setCancel func(context.CancelFunc), out io.Writer, deps *replDeps, 
 			ThinkingLevel: settings.thinkingLevel,
 			Stream:        provider.StreamFnFromProvider(settings.provider),
 			GetAPIKey:     deps.creds.GetAPIKey,
-			ContextWindow: deps.live.contextWindow,
+			ContextWindow: deps.live.ContextWindow,
 			Compaction:    compaction.DefaultCompactionSettings,
 		},
 		Batch: agenttool.BatchConfig{

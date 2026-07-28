@@ -87,10 +87,10 @@ func loadBtwConfig(path string) (btwConfig, error) {
 // mutates deps.live, so the override is confined to the side thread (FR-8).
 func resolveBtwSettings(out io.Writer, deps *replDeps) btwRunSettings {
 	s := btwRunSettings{
-		model:         deps.live.model,
-		providerName:  deps.live.providerName,
-		provider:      deps.live.provider,
-		thinkingLevel: deps.live.thinkingLevel,
+		model:         deps.live.Model,
+		providerName:  deps.live.ProviderName,
+		provider:      deps.live.Provider,
+		thinkingLevel: deps.live.ThinkingLevel,
 	}
 
 	cfg, err := loadBtwConfig(btwConfigPath())
@@ -108,7 +108,7 @@ func resolveBtwSettings(out io.Writer, deps *replDeps) btwRunSettings {
 	}
 
 	if model := strings.TrimSpace(cfg.Model); model != "" && model != s.model {
-		prov, providerName, perr := resolveProvider(model, deps.live.baseURL, deps.live.protocol, "")
+		prov, providerName, perr := resolveProvider(model, deps.live.BaseURL, deps.live.Protocol, "")
 		if perr != nil {
 			fmt.Fprintf(out, "%s\n", colorize(colorEnabled(), ansiDim, fmt.Sprintf("btw: cannot use model %q (%v), falling back to %q", model, perr, s.model)))
 		} else {

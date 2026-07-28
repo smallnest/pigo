@@ -35,12 +35,12 @@ func runStatus(out io.Writer, deps *replDeps) {
 
 // printRuntimeConfig prints the runtime model configuration section.
 func printRuntimeConfig(out io.Writer, color bool, deps *replDeps) {
-	model := deps.live.model
-	providerName := deps.live.providerName
-	baseURL := deps.live.baseURL
-	protocol := deps.live.protocol
-	thinkingLevel := string(deps.live.thinkingLevel)
-	contextWindow := deps.live.contextWindow
+	model := deps.live.Model
+	providerName := deps.live.ProviderName
+	baseURL := deps.live.BaseURL
+	protocol := deps.live.Protocol
+	thinkingLevel := string(deps.live.ThinkingLevel)
+	contextWindow := deps.live.ContextWindow
 
 	if model == "" {
 		model = deps.header.Model
@@ -75,7 +75,7 @@ func printRuntimeConfig(out io.Writer, color bool, deps *replDeps) {
 func printContextStatus(out io.Writer, color bool, deps *replDeps) {
 	msgs := deps.agentCtx.Messages
 	tokens := compaction.EstimateContextTokens(msgs).Tokens
-	contextWindow := deps.live.contextWindow
+	contextWindow := deps.live.ContextWindow
 
 	compactions := 0
 	for _, m := range msgs {
@@ -195,7 +195,7 @@ func namesSuffix(names []string) string {
 // presence (masked, never plaintext) and the provider endpoint URL.
 func printCredentialsStatus(out io.Writer, color bool, deps *replDeps) {
 	fmt.Fprintf(out, "%s\n", colorize(color, ansiBold, "credentials & connectivity:"))
-	provider := deps.live.providerName
+	provider := deps.live.ProviderName
 	if deps.creds != nil && deps.creds.HasCredential(context.Background(), provider) {
 		key := deps.creds.GetAPIKey(context.Background(), provider)
 		fmt.Fprintf(out, "  %s %s %s\n",
@@ -207,7 +207,7 @@ func printCredentialsStatus(out io.Writer, color bool, deps *replDeps) {
 			colorize(color, ansiDim, "api key:"),
 			colorize(color, ansiYellow, "not set"))
 	}
-	endpoint := deps.live.baseURL
+	endpoint := deps.live.BaseURL
 	if endpoint == "" {
 		endpoint = "(default)"
 	}

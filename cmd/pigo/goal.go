@@ -202,12 +202,12 @@ func runGoalLoop(setCancel func(context.CancelFunc), out io.Writer, deps *replDe
 
 	cfg := runtime.RunConfig{
 		LoopConfig: runtime.LoopConfig{
-			Model:         deps.live.model,
-			Provider:      deps.live.providerName,
-			ThinkingLevel: deps.live.thinkingLevel,
-			Stream:        provider.StreamFnFromProvider(deps.live.provider),
+			Model:         deps.live.Model,
+			Provider:      deps.live.ProviderName,
+			ThinkingLevel: deps.live.ThinkingLevel,
+			Stream:        provider.StreamFnFromProvider(deps.live.Provider),
 			GetAPIKey:     deps.creds.GetAPIKey,
-			ContextWindow: deps.live.contextWindow,
+			ContextWindow: deps.live.ContextWindow,
 			Compaction:    compaction.DefaultCompactionSettings,
 		},
 		Batch: agenttool.BatchConfig{

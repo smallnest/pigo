@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/testutil"
 	"github.com/smallnest/pigo/internal/runtime"
 )
 
@@ -30,7 +32,7 @@ func TestBuildSlashRegistryLoadsCLIPrompts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, nil, nil,
+	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
 		promptTemplateSources{cli: []string{filePath, dirPath}})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
@@ -55,14 +57,14 @@ func TestBuildSlashRegistryNoPromptTemplatesDisables(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PIGO_HOME", home)
 	// A global prompt that should NOT load under --no-prompt-templates.
-	writePrompt(t, home, "prompts", "review.md", "Review: $ARGUMENTS")
+	testutil.WritePrompt(t, home, "prompts", "review.md", "Review: $ARGUMENTS")
 	// A CLI path that should also be ignored under --no-prompt-templates.
 	cliFile := filepath.Join(home, "cli.md")
 	if err := os.WriteFile(cliFile, []byte("CLI: $ARGUMENTS"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, nil, nil,
+	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
 		promptTemplateSources{disable: true, cli: []string{cliFile}})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
@@ -83,14 +85,14 @@ func TestBuildSlashRegistryGlobalOverridesCLI(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PIGO_HOME", home)
 	// global prompt (TierGlobal) under ~/.pigo/prompts.
-	writePrompt(t, home, "prompts", "dup.md", "FROM GLOBAL")
+	testutil.WritePrompt(t, home, "prompts", "dup.md", "FROM GLOBAL")
 	// CLI-tier file of the same name at the home root (not under prompts/).
 	cliFile := filepath.Join(home, "dup.md")
 	if err := os.WriteFile(cliFile, []byte("FROM CLI"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, nil, nil,
+	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
 		promptTemplateSources{cli: []string{cliFile}})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)

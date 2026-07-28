@@ -19,6 +19,7 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	rt "github.com/smallnest/pigo/internal/runtime"
@@ -146,7 +147,7 @@ func TestBuildSlashRegistryRegistersPluginCommand(t *testing.T) {
 	mgr := loadTestManager(t)
 	defer mgr.Close()
 
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "faux", providerName: "faux"}, nil, mgr, promptTemplateSources{})
+	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "faux", ProviderName: "faux"}, nil, mgr, promptTemplateSources{})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}
@@ -207,7 +208,7 @@ func TestREPLPluginCommandInjectsPrompt(t *testing.T) {
 	mgr := loadTestManager(t)
 	defer mgr.Close()
 
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "faux", providerName: "faux"}, nil, mgr, promptTemplateSources{})
+	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "faux", ProviderName: "faux"}, nil, mgr, promptTemplateSources{})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}
@@ -217,7 +218,7 @@ func TestREPLPluginCommandInjectsPrompt(t *testing.T) {
 		t.Fatalf("new store: %v", err)
 	}
 	p := &replProvider{reply: "hi there"}
-	live := &liveRunConfig{model: "faux", providerName: "faux", provider: p}
+	live := &cli.LiveConfig{Model: "faux", ProviderName: "faux", Provider: p}
 	deps := replDeps{
 		store:    store,
 		header:   session.SessionHeader{ID: session.NewID(time.Now().UTC()), Model: "faux", Provider: "faux"},

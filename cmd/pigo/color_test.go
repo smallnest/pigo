@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/runtime"
 )
 
@@ -13,10 +14,9 @@ import (
 func runtimeHelpRegistry(t *testing.T) *runtime.SlashRegistry {
 	t.Helper()
 	reg := runtime.NewSlashRegistry()
-	registerLiveCommands(reg, &liveRunConfig{model: "faux", providerName: "faux"})
+	registerLiveCommands(reg, &cli.LiveConfig{Model: "faux", ProviderName: "faux"})
 	return reg
 }
-
 
 // TestColorizeGating verifies colorize wraps text in SGR codes only when
 // enabled, returns text unchanged when disabled, and treats an empty code as a

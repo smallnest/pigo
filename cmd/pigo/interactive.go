@@ -20,6 +20,7 @@ import (
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/builtinskills"
+	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
@@ -144,14 +145,14 @@ func runInteractive(opts interactiveOptions) error {
 	// mutate mid-session. streamRun reads it on each prompt so a model switch
 	// takes effect on the next turn; header is updated so the switch is persisted
 	// with the session.
-	live := &liveRunConfig{
-		model:         opts.model,
-		providerName:  opts.providerName,
-		provider:      opts.provider,
-		baseURL:       opts.baseURL,
-		protocol:      opts.protocol,
-		thinkingLevel: opts.thinkingLevel,
-		contextWindow: defaultContextWindow,
+	live := &cli.LiveConfig{
+		Model:         opts.model,
+		ProviderName:  opts.providerName,
+		Provider:      opts.provider,
+		BaseURL:       opts.baseURL,
+		Protocol:      opts.protocol,
+		ThinkingLevel: opts.thinkingLevel,
+		ContextWindow: cli.DefaultContextWindow,
 	}
 
 	// Project trust (US-018, #134): load the persisted trust store for the
@@ -222,7 +223,7 @@ func runInteractive(opts interactiveOptions) error {
 		persisted: len(history),
 		notifier:  plugin.NewEventNotifier(opts.plugins, os.Stderr),
 		goal:      agenttool.NewGoalState(),
-		telemetry: NewTelemetryHolder(),
+		telemetry: cli.NewTelemetryHolder(),
 	})
 }
 
@@ -334,7 +335,7 @@ func loadPromptPaths(paths []string) []runtime.SlashCommand {
 // reported on stderr. The skills slice is loaded once by setupAgentEnv (empty
 // under --no-skills), so no /skill-name commands are registered when it is
 // empty. mgr may be nil (no plugins loaded).
-func buildSlashRegistry(live *liveRunConfig, skills []*runtime.Skill, mgr *plugin.Manager, srcs promptTemplateSources) (*runtime.SlashRegistry, error) {
+func buildSlashRegistry(live *cli.LiveConfig, skills []*runtime.Skill, mgr *plugin.Manager, srcs promptTemplateSources) (*runtime.SlashRegistry, error) {
 	reg := runtime.NewSlashRegistry()
 	registerLiveCommands(reg, live)
 	registerPluginCommands(reg, mgr)
@@ -443,33 +444,6 @@ func loadSkills(noSkills bool) ([]*runtime.Skill, error) {
 	return runtime.LoadSkillsDir(dir)
 }
 
-// liveRunConfig is the mutable run configuration a control command may change
-// mid-session. The run closure reads it on every prompt, so a /model switch
-// takes effect on the next turn. It carries no lock: it is read and written
-// only on the REPL's single main goroutine (slash actions and the run are both
-// invoked synchronously from runREPL's loop, never concurrently).
-type liveRunConfig struct {
-	model        string
-	providerName string
-	provider     provider.Provider
-	baseURL      string
-	protocol     string
-	// thinkingLevel is the reasoning-effort level applied to each turn. It is
-	// seeded from the resolved config chain and read by streamRun on every prompt.
-	thinkingLevel agentcore.ThinkingLevel
-	// contextWindow is the model's total context-token budget, used to gate
-	// automatic compaction. When 0 the window is unknown and auto-compaction is
-	// disabled; the REPL seeds it with a conservative default so long sessions
-	// still compact rather than overflow.
-	contextWindow int
-}
-
-// defaultContextWindow is the fallback context-token budget used when a model's
-// true window is unknown. It is deliberately large so auto-compaction only fires
-// on genuinely long sessions (threshold = window - ReserveTokens), never on
-// ordinary short exchanges.
-const defaultContextWindow = 128000
-
 // registerPluginCommands installs each plugin-declared slash command
 // (Manager.Commands()) into the registry as a hybrid (Run) command. Invoking it
 // RPCs the owning plugin (Plugin.CallCommand), returns the plugin's
@@ -551,22 +525,22 @@ func formatHelpLine(c runtime.SlashCommand) string {
 // available commands. These are instance built-ins (AddBuiltin) because their
 // closures must capture live and the registry — state unreachable from an
 // init()-time global registration.
-func registerLiveCommands(reg *runtime.SlashRegistry, live *liveRunConfig) {
+func registerLiveCommands(reg *runtime.SlashRegistry, live *cli.LiveConfig) {
 	reg.AddBuiltin(runtime.SlashCommand{
 		Name:        "model",
 		Description: "view or switch the active model: /model [model-id] (see /models for presets)",
 		Action: func(args string) string {
 			id := strings.TrimSpace(args)
 			if id == "" {
-				return fmt.Sprintf("model: %s (provider: %s)\nrun /models to see presets, or /model <id> to switch", live.model, live.providerName)
+				return fmt.Sprintf("model: %s (provider: %s)\nrun /models to see presets, or /model <id> to switch", live.Model, live.ProviderName)
 			}
-			prov, providerName, err := resolveProvider(id, live.baseURL, live.protocol, "")
+			prov, providerName, err := resolveProvider(id, live.BaseURL, live.Protocol, "")
 			if err != nil {
 				return fmt.Sprintf("model: cannot switch to %q: %v", id, err)
 			}
-			live.model = id
-			live.providerName = providerName
-			live.provider = prov
+			live.Model = id
+			live.ProviderName = providerName
+			live.Provider = prov
 			return fmt.Sprintf("model switched to %s (provider: %s)", id, providerName)
 		},
 	})

@@ -6,31 +6,20 @@ package main
 // the one in commands/ (last-write-wins within the global tier).
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
-)
 
-// writePrompt writes a prompt-template .md at home/<sub>/<name>.
-func writePrompt(t *testing.T, home, sub, name, body string) {
-	t.Helper()
-	d := filepath.Join(home, sub)
-	if err := os.MkdirAll(d, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(d, name), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
+	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/testutil"
+)
 
 // TestBuildSlashRegistryLoadsLegacyCommandsDir verifies the legacy
 // ~/.pigo/commands directory still loads templates (regression).
 func TestBuildSlashRegistryLoadsLegacyCommandsDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PIGO_HOME", home)
-	writePrompt(t, home, "commands", "legacy.md", "Legacy: $ARGUMENTS")
+	testutil.WritePrompt(t, home, "commands", "legacy.md", "Legacy: $ARGUMENTS")
 
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, nil, nil, promptTemplateSources{})
+	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, promptTemplateSources{})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}
@@ -48,9 +37,9 @@ func TestBuildSlashRegistryLoadsLegacyCommandsDir(t *testing.T) {
 func TestBuildSlashRegistryLoadsPromptsDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PIGO_HOME", home)
-	writePrompt(t, home, "prompts", "review.md", "Review: $ARGUMENTS")
+	testutil.WritePrompt(t, home, "prompts", "review.md", "Review: $ARGUMENTS")
 
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, nil, nil, promptTemplateSources{})
+	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, promptTemplateSources{})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}
@@ -69,10 +58,10 @@ func TestBuildSlashRegistryLoadsPromptsDir(t *testing.T) {
 func TestBuildSlashRegistryPromptsOverridesCommands(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("PIGO_HOME", home)
-	writePrompt(t, home, "commands", "dup.md", "FROM COMMANDS")
-	writePrompt(t, home, "prompts", "dup.md", "FROM PROMPTS")
+	testutil.WritePrompt(t, home, "commands", "dup.md", "FROM COMMANDS")
+	testutil.WritePrompt(t, home, "prompts", "dup.md", "FROM PROMPTS")
 
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, nil, nil, promptTemplateSources{})
+	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, promptTemplateSources{})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}
@@ -92,7 +81,7 @@ func TestBuildSlashRegistryPromptsOverridesCommands(t *testing.T) {
 // nor prompts/ present, buildSlashRegistry returns no error (built-ins only).
 func TestBuildSlashRegistryMissingDirsNoError(t *testing.T) {
 	t.Setenv("PIGO_HOME", t.TempDir())
-	reg, err := buildSlashRegistry(&liveRunConfig{model: "test", providerName: "test"}, nil, nil, promptTemplateSources{})
+	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, promptTemplateSources{})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry with no prompt dirs: %v", err)
 	}

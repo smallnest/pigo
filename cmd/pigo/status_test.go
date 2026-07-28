@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/compaction"
 	"github.com/smallnest/pigo/internal/runtime"
 )
@@ -16,11 +17,11 @@ func TestRunStatus(t *testing.T) {
 	deps, _ := newTestDeps(t, p)
 
 	// Customize the live config for clearer test expectations
-	deps.live.model = "test-model"
-	deps.live.providerName = "test-provider"
-	deps.live.baseURL = "https://api.example.com"
-	deps.live.protocol = "anthropic"
-	deps.live.contextWindow = 128000
+	deps.live.Model = "test-model"
+	deps.live.ProviderName = "test-provider"
+	deps.live.BaseURL = "https://api.example.com"
+	deps.live.Protocol = "anthropic"
+	deps.live.ContextWindow = 128000
 
 	// Add a message to the context
 	deps.agentCtx.Messages = append(deps.agentCtx.Messages,
@@ -73,7 +74,7 @@ func TestRunStatus(t *testing.T) {
 func TestRunStatusWithCompaction(t *testing.T) {
 	p := &replProvider{reply: "unused"}
 	deps, _ := newTestDeps(t, p)
-	deps.live.contextWindow = 128000
+	deps.live.ContextWindow = 128000
 
 	// Add messages including a compaction message
 	deps.agentCtx.Messages = append(deps.agentCtx.Messages,
@@ -94,7 +95,7 @@ func TestRunStatusWithCompaction(t *testing.T) {
 func TestRunStatusUnknownContextWindow(t *testing.T) {
 	p := &replProvider{reply: "unused"}
 	deps, _ := newTestDeps(t, p)
-	deps.live.contextWindow = 0 // unknown
+	deps.live.ContextWindow = 0 // unknown
 
 	var buf bytes.Buffer
 	runStatus(&buf, &deps)
@@ -202,8 +203,8 @@ func TestRunStatusEnvAndCreds(t *testing.T) {
 	p := &replProvider{reply: "unused"}
 	deps, _ := newTestDeps(t, p)
 	deps.cwd = "/tmp/test-cwd"
-	deps.live.providerName = "test-provider"
-	deps.live.baseURL = "https://api.example.com"
+	deps.live.ProviderName = "test-provider"
+	deps.live.BaseURL = "https://api.example.com"
 
 	// Register a skill and a plugin command so /status can count them separately.
 	deps.slash.AddSkill(runtime.SlashCommand{Name: "my-skill", Expand: func(string) string { return "" }})
@@ -272,9 +273,9 @@ func TestRunStatusTelemetryNoData(t *testing.T) {
 func TestRunStatusTelemetryPopulated(t *testing.T) {
 	p := &replProvider{reply: "unused"}
 	deps, _ := newTestDeps(t, p)
-	deps.live.contextWindow = 128000
+	deps.live.ContextWindow = 128000
 
-	holder := NewTelemetryHolder()
+	holder := cli.NewTelemetryHolder()
 	holder.Fold(agentcore.TelemetryEvent{
 		Turns:              3,
 		TruncationCount:    1,

@@ -33,11 +33,11 @@ func withBtwConfig(t *testing.T, contents string) {
 func TestBtwConfigAbsentInherits(t *testing.T) {
 	withBtwConfig(t, "") // no file
 	deps, _ := newTestDeps(t, &replProvider{reply: "x"})
-	deps.live.thinkingLevel = agentcore.ThinkingMedium
+	deps.live.ThinkingLevel = agentcore.ThinkingMedium
 
 	var warn bytes.Buffer
 	s := resolveBtwSettings(&warn, &deps)
-	if s.model != deps.live.model || s.providerName != deps.live.providerName {
+	if s.model != deps.live.Model || s.providerName != deps.live.ProviderName {
 		t.Errorf("absent config must inherit model/provider, got %q/%q", s.model, s.providerName)
 	}
 	if s.thinkingLevel != agentcore.ThinkingMedium {
@@ -53,11 +53,11 @@ func TestBtwConfigAbsentInherits(t *testing.T) {
 func TestBtwConfigEmptyObjectInherits(t *testing.T) {
 	withBtwConfig(t, "{}")
 	deps, _ := newTestDeps(t, &replProvider{reply: "x"})
-	deps.live.thinkingLevel = agentcore.ThinkingLow
+	deps.live.ThinkingLevel = agentcore.ThinkingLow
 
 	var warn bytes.Buffer
 	s := resolveBtwSettings(&warn, &deps)
-	if s.model != deps.live.model || s.thinkingLevel != agentcore.ThinkingLow {
+	if s.model != deps.live.Model || s.thinkingLevel != agentcore.ThinkingLow {
 		t.Errorf("empty object must inherit, got model=%q thinking=%q", s.model, s.thinkingLevel)
 	}
 	if warn.Len() != 0 {
@@ -70,14 +70,14 @@ func TestBtwConfigEmptyObjectInherits(t *testing.T) {
 func TestBtwConfigThinkingOverride(t *testing.T) {
 	withBtwConfig(t, `{"thinkingLevel":"high"}`)
 	deps, _ := newTestDeps(t, &replProvider{reply: "x"})
-	deps.live.thinkingLevel = agentcore.ThinkingLow
+	deps.live.ThinkingLevel = agentcore.ThinkingLow
 
 	var warn bytes.Buffer
 	s := resolveBtwSettings(&warn, &deps)
 	if s.thinkingLevel != agentcore.ThinkingHigh {
 		t.Errorf("expected thinkingLevel override 'high', got %q", s.thinkingLevel)
 	}
-	if s.model != deps.live.model {
+	if s.model != deps.live.Model {
 		t.Errorf("model must still inherit when only thinkingLevel is set, got %q", s.model)
 	}
 	if warn.Len() != 0 {
@@ -90,7 +90,7 @@ func TestBtwConfigThinkingOverride(t *testing.T) {
 func TestBtwConfigInvalidThinkingWarnsAndFallsBack(t *testing.T) {
 	withBtwConfig(t, `{"thinkingLevel":"bogus"}`)
 	deps, _ := newTestDeps(t, &replProvider{reply: "x"})
-	deps.live.thinkingLevel = agentcore.ThinkingMedium
+	deps.live.ThinkingLevel = agentcore.ThinkingMedium
 
 	var warn bytes.Buffer
 	s := resolveBtwSettings(&warn, &deps)
@@ -107,11 +107,11 @@ func TestBtwConfigInvalidThinkingWarnsAndFallsBack(t *testing.T) {
 func TestBtwConfigMalformedWarnsAndInherits(t *testing.T) {
 	withBtwConfig(t, `{not json`)
 	deps, _ := newTestDeps(t, &replProvider{reply: "x"})
-	deps.live.thinkingLevel = agentcore.ThinkingLow
+	deps.live.ThinkingLevel = agentcore.ThinkingLow
 
 	var warn bytes.Buffer
 	s := resolveBtwSettings(&warn, &deps)
-	if s.model != deps.live.model || s.thinkingLevel != agentcore.ThinkingLow {
+	if s.model != deps.live.Model || s.thinkingLevel != agentcore.ThinkingLow {
 		t.Errorf("malformed config must inherit, got model=%q thinking=%q", s.model, s.thinkingLevel)
 	}
 	if !strings.Contains(warn.String(), "invalid btw.json") {
@@ -124,10 +124,10 @@ func TestBtwConfigMalformedWarnsAndInherits(t *testing.T) {
 func TestBtwConfigDoesNotMutateSession(t *testing.T) {
 	withBtwConfig(t, `{"thinkingLevel":"xhigh"}`)
 	deps, _ := newTestDeps(t, &replProvider{reply: "x"})
-	deps.live.thinkingLevel = agentcore.ThinkingLow
+	deps.live.ThinkingLevel = agentcore.ThinkingLow
 
 	_ = resolveBtwSettings(&bytes.Buffer{}, &deps)
-	if deps.live.thinkingLevel != agentcore.ThinkingLow {
-		t.Errorf("session thinkingLevel must be unchanged by /btw config, got %q", deps.live.thinkingLevel)
+	if deps.live.ThinkingLevel != agentcore.ThinkingLow {
+		t.Errorf("session thinkingLevel must be unchanged by /btw config, got %q", deps.live.ThinkingLevel)
 	}
 }

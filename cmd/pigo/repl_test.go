@@ -18,6 +18,7 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
 	"github.com/smallnest/pigo/internal/session"
@@ -63,7 +64,7 @@ func newTestDeps(t *testing.T, p *replProvider) (replDeps, *session.Store) {
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}
-	live := &liveRunConfig{model: "faux", providerName: "faux", provider: p}
+	live := &cli.LiveConfig{Model: "faux", ProviderName: "faux", Provider: p}
 	reg := runtime.NewSlashRegistry()
 	reg.AddBuiltin(runtime.SlashCommand{
 		Name:   "ping",
@@ -231,8 +232,8 @@ func TestREPLModelSwitchTakesEffect(t *testing.T) {
 	if p.calls != 0 {
 		t.Errorf("/model actions must not launch a run, got %d calls", p.calls)
 	}
-	if deps.live.model != "ollama/llama3.3" || deps.live.providerName != "ollama" {
-		t.Errorf("live not switched: model=%q provider=%q", deps.live.model, deps.live.providerName)
+	if deps.live.Model != "ollama/llama3.3" || deps.live.ProviderName != "ollama" {
+		t.Errorf("live not switched: model=%q provider=%q", deps.live.Model, deps.live.ProviderName)
 	}
 	s := out.String()
 	if !strings.Contains(s, "faux") {

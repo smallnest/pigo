@@ -12,6 +12,7 @@ import (
 	flag "github.com/spf13/pflag"
 
 	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/cli"
 )
 
 // TestStatusFreshSessionAllSections verifies /status renders every section on a
@@ -41,13 +42,13 @@ func TestStatusFreshSessionAllSections(t *testing.T) {
 }
 
 // TestStatusReflectsModelSwitch verifies /status reads the live run config each
-// invocation, so a /model switch (which mutates live.model/providerName) is
+// invocation, so a /model switch (which mutates live.Model/providerName) is
 // reflected on the next /status without a restart.
 func TestStatusReflectsModelSwitch(t *testing.T) {
 	p := &replProvider{reply: "unused"}
 	deps, _ := newTestDeps(t, p)
-	deps.live.model = "model-a"
-	deps.live.providerName = "prov-a"
+	deps.live.Model = "model-a"
+	deps.live.ProviderName = "prov-a"
 
 	var buf bytes.Buffer
 	runStatus(&buf, &deps)
@@ -56,8 +57,8 @@ func TestStatusReflectsModelSwitch(t *testing.T) {
 	}
 
 	// Simulate a /model switch mutating the live config.
-	deps.live.model = "model-b"
-	deps.live.providerName = "prov-b"
+	deps.live.Model = "model-b"
+	deps.live.ProviderName = "prov-b"
 	buf.Reset()
 	runStatus(&buf, &deps)
 	out := buf.String()
@@ -77,7 +78,7 @@ func TestStatusTelemetryResetOnFork(t *testing.T) {
 	p := &replProvider{reply: "unused"}
 	deps, _ := newTestDeps(t, p)
 
-	holder := NewTelemetryHolder()
+	holder := cli.NewTelemetryHolder()
 	holder.Fold(agentcore.TelemetryEvent{
 		Turns:              3,
 		TruncationCount:    1,
@@ -125,11 +126,11 @@ func TestStatusTiming(t *testing.T) {
 	p := &replProvider{reply: "unused"}
 	deps, _ := newTestDeps(t, p)
 	deps.cwd = "/tmp/e2e-timing"
-	deps.live.contextWindow = 128000
+	deps.live.ContextWindow = 128000
 	deps.agentCtx.Messages = append(deps.agentCtx.Messages,
 		agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("hello")}},
 	)
-	holder := NewTelemetryHolder()
+	holder := cli.NewTelemetryHolder()
 	holder.Fold(agentcore.TelemetryEvent{
 		Turns:              5,
 		ContextUtilization: 0.5,
@@ -158,9 +159,9 @@ func TestStatusE2EViaREPL(t *testing.T) {
 	p := &replProvider{reply: "should not be called"}
 	deps, _ := newTestDeps(t, p)
 	deps.cwd = "/tmp/e2e-repl"
-	deps.live.model = "e2e-model"
-	deps.live.providerName = "e2e-prov"
-	deps.live.contextWindow = 128000
+	deps.live.Model = "e2e-model"
+	deps.live.ProviderName = "e2e-prov"
+	deps.live.ContextWindow = 128000
 
 	var out bytes.Buffer
 	in := strings.NewReader("/status\n/exit\n")

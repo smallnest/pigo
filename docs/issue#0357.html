@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0357</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/357">#357</a> &mdash; 建立 internal/cli 骨架与 Host 契约 &mdash; 2026-07-28</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Host 接口方法集从实际字段访问面反推</h3>
+      <p><strong>Ambiguity:</strong> Spec 未给出 Host 契约的确切方法列表。</p>
+      <p><strong>Choice:</strong> 扫描 goal/btw/status 对 replDeps 的字段访问（agentCtx、confirmMu、creds、cwd、goal、in、live、notifierHandle、reg、trust、curLeaf、header、lastBtw、lastBtwBase、persisted、reminders、slash、telemetry、store），据此定义 getter；对会被 mid-session 修改的字段（curLeaf、persisted、lastBtw、lastBtwBase）配对 setter。</p>
+      <p><strong>Rationale:</strong> 契约恰好覆盖真实使用面，避免过度暴露内部字段；后续 issue 迁移消费者时接口即为稳定 seam。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> replDeps 用指针接收者实现 Host</h3>
+      <p><strong>Ambiguity:</strong> 值接收者还是指针接收者未指定。</p>
+      <p><strong>Choice:</strong> 指针接收者 <code>*replDeps</code>，断言 <code>var _ cli.Host = (*replDeps)(nil)</code>。</p>
+      <p><strong>Rationale:</strong> setter 需要修改聚合体字段，值接收者无法生效。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> testutil 仅收纳可复用且不依赖 main 内部类型的 helper</h3>
+      <p><strong>Ambiguity:</strong> 哪些测试 helper 应迁到共享 testutil 包。</p>
+      <p><strong>Choice:</strong> 仅将 <code>writePrompt</code> → <code>testutil.WritePrompt</code> 上移。</p>
+      <p><strong>Rationale:</strong> 它不引用 package-main 类型，可被多个测试文件复用；构建 replDeps 的 helper 必须留在拥有该类型的包内。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> newTestDeps 未上移到 testutil</h3>
+      <p><strong>Spec:</strong> 隐含期望测试 helper 集中到共享 testutil。</p>
+      <p><strong>Implemented:</strong> <code>newTestDeps</code> 保留在 cmd/pigo 包内。</p>
+      <p><strong>Why:</strong> 它返回 package-main 的 <code>replDeps</code> 类型，无法从外部包导入构造；强行上移会造成循环导入或类型泄露。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> telemetry 测试重定位为 package cli</h3>
+      <p><strong>Spec:</strong> 未明确测试文件归属。</p>
+      <p><strong>Implemented:</strong> telemetry_state_test.go 随实现迁到 <code>internal/cli/telemetry_test.go</code>，改为 <code>package cli</code> 并去掉 cli. 前缀。</p>
+      <p><strong>Why:</strong> 测试须与被测类型同包，实现已移入 internal/cli。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 骨架阶段引入接口但暂不迁移消费者</h3>
+      <p><strong>Alternatives:</strong> (A) 本 PR 一并迁移 goal/btw/status；(B) 仅立骨架 + 编译期断言，消费者留待后续 issue。</p>
+      <p><strong>Pros/Cons:</strong> A 一次到位但 diff 巨大、审查困难、易夹带回归；B 每个 PR 聚焦、可增量验证，但接口暂时"无消费者"。</p>
+      <p><strong>Chosen:</strong> B。#357 定位即"骨架"，编译期断言保证 replDeps 持续符合契约，后续 #358+ 逐个迁移。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Header() 返回值拷贝是否需要可变访问</h3>
+      <p><strong>Assumption:</strong> 消费者只读 header。</p>
+      <p><strong>Verify:</strong> repl.go 目前直接在 replDeps 上写 <code>header.Model/Provider</code>；若后续 status/run 需经 Host 修改 header，需补 SetHeader 或返回指针。当前无消费者，暂不加。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 无 PRD/SPEC 文件</h3>
+      <p><strong>Assumption:</strong> 接口契约由代码实际使用面推导，正确性由 build/vet/test + golden 输出把关。</p>
+      <p><strong>Verify:</strong> tasks/prd-*.md 缺失（用户已授权 "Infer from code, proceed"）；如有正式 spec 请对照复核方法集完整性。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
