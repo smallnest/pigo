@@ -20,6 +20,7 @@ import (
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/prompts"
 	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	rt "github.com/smallnest/pigo/internal/runtime"
@@ -147,7 +148,7 @@ func TestBuildSlashRegistryRegistersPluginCommand(t *testing.T) {
 	mgr := loadTestManager(t)
 	defer mgr.Close()
 
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "faux", ProviderName: "faux"}, nil, mgr, promptTemplateSources{})
+	reg, err := prompts.BuildSlashRegistry(&cli.LiveConfig{Model: "faux", ProviderName: "faux"}, nil, mgr, prompts.PromptTemplateSources{})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}
@@ -185,7 +186,7 @@ func TestBuiltinWinsOverPluginCommand(t *testing.T) {
 		Name:   "hello",
 		Action: func(string) string { return "builtin hello" },
 	})
-	registerPluginCommands(reg, mgr)
+	prompts.RegisterPluginCommands(reg, mgr)
 
 	if names := reg.Shadowed(); len(names) != 1 || names[0].Name != "hello" {
 		t.Fatalf("plugin command should be shadowed by built-in, shadowed=%v", names)
@@ -208,7 +209,7 @@ func TestREPLPluginCommandInjectsPrompt(t *testing.T) {
 	mgr := loadTestManager(t)
 	defer mgr.Close()
 
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "faux", ProviderName: "faux"}, nil, mgr, promptTemplateSources{})
+	reg, err := prompts.BuildSlashRegistry(&cli.LiveConfig{Model: "faux", ProviderName: "faux"}, nil, mgr, prompts.PromptTemplateSources{})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}

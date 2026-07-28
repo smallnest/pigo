@@ -1,7 +1,7 @@
-package repl
+package prompts
 
-// Tests for settings-tier prompt templates (US-007, #338): loadPromptPaths
-// loads file/dir entries (warning on missing), and buildSlashRegistry
+// Tests for settings-tier prompt templates (US-007, #338): LoadPromptPaths
+// loads file/dir entries (warning on missing), and BuildSlashRegistry
 // registers them at the settings tier (overridden by global same-name
 // templates). The applyFileConfig parse test stays in package main
 // (cmd/pigo/prompts_config_test.go) since it drives cliOptions.
@@ -37,7 +37,7 @@ func TestLoadSettingsPromptsFileDirMissing(t *testing.T) {
 	// missing entry -> 0 cmds (warned, not fatal).
 	missing := filepath.Join(home, "nope")
 
-	cmds := loadPromptPaths([]string{filePath, dirPath, missing})
+	cmds := LoadPromptPaths([]string{filePath, dirPath, missing})
 	if len(cmds) != 3 {
 		t.Fatalf("got %d cmds, want 3 (file=1 + dir=2 + missing=0)", len(cmds))
 	}
@@ -64,10 +64,10 @@ func TestBuildSlashRegistryLoadsSettingsPrompts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
-		promptTemplateSources{settings: []string{settingsDir}})
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+		PromptTemplateSources{Settings: []string{settingsDir}})
 	if err != nil {
-		t.Fatalf("buildSlashRegistry: %v", err)
+		t.Fatalf("BuildSlashRegistry: %v", err)
 	}
 	cmd, ok := reg.Lookup("review")
 	if !ok {
@@ -90,10 +90,10 @@ func TestBuildSlashRegistryGlobalOverridesSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
-		promptTemplateSources{settings: []string{settingsFile}})
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+		PromptTemplateSources{Settings: []string{settingsFile}})
 	if err != nil {
-		t.Fatalf("buildSlashRegistry: %v", err)
+		t.Fatalf("BuildSlashRegistry: %v", err)
 	}
 	cmd, ok := reg.Lookup("dup")
 	if !ok {

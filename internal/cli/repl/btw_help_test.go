@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/prompts"
 	"github.com/smallnest/pigo/internal/runtime"
 )
 
@@ -17,7 +18,7 @@ import (
 // any consumer of reg.List()) surfaces it with a usage description.
 func TestBtwListedInHelp(t *testing.T) {
 	reg := runtime.NewSlashRegistry()
-	registerLiveCommands(reg, &cli.LiveConfig{})
+	prompts.RegisterLiveCommands(reg, &cli.LiveConfig{})
 
 	var btw *runtime.SlashCommand
 	for _, c := range reg.List() {
@@ -40,7 +41,7 @@ func TestBtwListedInHelp(t *testing.T) {
 // completion, so registration is all that's needed.
 func TestBtwSlashCompletion(t *testing.T) {
 	reg := runtime.NewSlashRegistry()
-	registerLiveCommands(reg, &cli.LiveConfig{})
+	prompts.RegisterLiveCommands(reg, &cli.LiveConfig{})
 	e := newREPLLineEditor(nil, nil, nil, reg, nil)
 
 	cands := e.suggestions("/bt")

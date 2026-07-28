@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/prompts"
 	"github.com/smallnest/pigo/internal/runtime"
 )
 
@@ -14,7 +15,7 @@ import (
 func runtimeHelpRegistry(t *testing.T) *runtime.SlashRegistry {
 	t.Helper()
 	reg := runtime.NewSlashRegistry()
-	registerLiveCommands(reg, &cli.LiveConfig{Model: "faux", ProviderName: "faux"})
+	prompts.RegisterLiveCommands(reg, &cli.LiveConfig{Model: "faux", ProviderName: "faux"})
 	return reg
 }
 

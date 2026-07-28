@@ -1,4 +1,4 @@
-package repl
+package prompts
 
 // Tests for --prompt-template (CLI tier) and --no-prompt-templates (US-008,
 // #339): CLI paths load at the CLI tier, --no-prompt-templates suppresses all
@@ -32,10 +32,10 @@ func TestBuildSlashRegistryLoadsCLIPrompts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
-		promptTemplateSources{cli: []string{filePath, dirPath}})
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+		PromptTemplateSources{CLI: []string{filePath, dirPath}})
 	if err != nil {
-		t.Fatalf("buildSlashRegistry: %v", err)
+		t.Fatalf("BuildSlashRegistry: %v", err)
 	}
 	out, err := reg.ResolveOutcome("/single hi")
 	if err != nil {
@@ -64,10 +64,10 @@ func TestBuildSlashRegistryNoPromptTemplatesDisables(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
-		promptTemplateSources{disable: true, cli: []string{cliFile}})
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+		PromptTemplateSources{Disable: true, CLI: []string{cliFile}})
 	if err != nil {
-		t.Fatalf("buildSlashRegistry: %v", err)
+		t.Fatalf("BuildSlashRegistry: %v", err)
 	}
 	if _, ok := reg.Lookup("review"); ok {
 		t.Error("/review should NOT be registered under --no-prompt-templates")
@@ -92,10 +92,10 @@ func TestBuildSlashRegistryGlobalOverridesCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
-		promptTemplateSources{cli: []string{cliFile}})
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+		PromptTemplateSources{CLI: []string{cliFile}})
 	if err != nil {
-		t.Fatalf("buildSlashRegistry: %v", err)
+		t.Fatalf("BuildSlashRegistry: %v", err)
 	}
 	cmd, ok := reg.Lookup("dup")
 	if !ok {

@@ -1,4 +1,4 @@
-package repl
+package prompts
 
 // Tests for project-level .pigo/prompts (US-006, #337): loaded at the project
 // tier only when the project is trusted, overrides global same-name templates,
@@ -21,13 +21,13 @@ func TestBuildSlashRegistryLoadsProjectPromptsTrusted(t *testing.T) {
 	cwdTmp := t.TempDir()
 	testutil.WritePrompt(t, cwdTmp, filepath.Join(".pigo", "prompts"), "review.md", "Review: $ARGUMENTS")
 
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
-		promptTemplateSources{
-			projectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
-			projectTrusted: true,
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+		PromptTemplateSources{
+			ProjectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
+			ProjectTrusted: true,
 		})
 	if err != nil {
-		t.Fatalf("buildSlashRegistry: %v", err)
+		t.Fatalf("BuildSlashRegistry: %v", err)
 	}
 	out, err := reg.ResolveOutcome("/review diff")
 	if err != nil {
@@ -46,13 +46,13 @@ func TestBuildSlashRegistryProjectPromptsUntrustedSkipped(t *testing.T) {
 	cwdTmp := t.TempDir()
 	testutil.WritePrompt(t, cwdTmp, filepath.Join(".pigo", "prompts"), "review.md", "Review: $ARGUMENTS")
 
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
-		promptTemplateSources{
-			projectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
-			projectTrusted: false,
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+		PromptTemplateSources{
+			ProjectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
+			ProjectTrusted: false,
 		})
 	if err != nil {
-		t.Fatalf("buildSlashRegistry: %v", err)
+		t.Fatalf("BuildSlashRegistry: %v", err)
 	}
 	if _, ok := reg.Lookup("review"); ok {
 		t.Error("/review should NOT load from an untrusted project")
@@ -66,10 +66,10 @@ func TestBuildSlashRegistryProjectMissingDirNoError(t *testing.T) {
 	t.Setenv("PIGO_HOME", home)
 	cwdTmp := t.TempDir() // no .pigo/prompts created
 
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
-		promptTemplateSources{
-			projectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
-			projectTrusted: true,
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+		PromptTemplateSources{
+			ProjectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
+			ProjectTrusted: true,
 		})
 	if err != nil {
 		t.Fatalf("missing .pigo/prompts should not error, got %v", err)
@@ -90,13 +90,13 @@ func TestBuildSlashRegistryProjectOverridesGlobal(t *testing.T) {
 	cwdTmp := t.TempDir()
 	testutil.WritePrompt(t, cwdTmp, filepath.Join(".pigo", "prompts"), "dup.md", "FROM PROJECT")
 
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
-		promptTemplateSources{
-			projectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
-			projectTrusted: true,
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+		PromptTemplateSources{
+			ProjectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
+			ProjectTrusted: true,
 		})
 	if err != nil {
-		t.Fatalf("buildSlashRegistry: %v", err)
+		t.Fatalf("BuildSlashRegistry: %v", err)
 	}
 	cmd, ok := reg.Lookup("dup")
 	if !ok {
@@ -124,14 +124,14 @@ func TestBuildSlashRegistryNoPromptTemplatesDisablesProject(t *testing.T) {
 	cwdTmp := t.TempDir()
 	testutil.WritePrompt(t, cwdTmp, filepath.Join(".pigo", "prompts"), "review.md", "Review: $ARGUMENTS")
 
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
-		promptTemplateSources{
-			disable:        true,
-			projectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
-			projectTrusted: true,
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+		PromptTemplateSources{
+			Disable:        true,
+			ProjectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
+			ProjectTrusted: true,
 		})
 	if err != nil {
-		t.Fatalf("buildSlashRegistry: %v", err)
+		t.Fatalf("BuildSlashRegistry: %v", err)
 	}
 	if _, ok := reg.Lookup("review"); ok {
 		t.Error("/review should NOT load under --no-prompt-templates")

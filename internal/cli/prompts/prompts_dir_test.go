@@ -1,6 +1,6 @@
-package repl
+package prompts
 
-// Tests for global prompt-template discovery (US-005, #336): buildSlashRegistry
+// Tests for global prompt-template discovery (US-005, #336): BuildSlashRegistry
 // loads both the legacy ~/.pigo/commands and the pi-aligned ~/.pigo/prompts
 // (non-recursive, global tier), and a same-named template in prompts/ overrides
 // the one in commands/ (last-write-wins within the global tier).
@@ -19,9 +19,9 @@ func TestBuildSlashRegistryLoadsLegacyCommandsDir(t *testing.T) {
 	t.Setenv("PIGO_HOME", home)
 	testutil.WritePrompt(t, home, "commands", "legacy.md", "Legacy: $ARGUMENTS")
 
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, promptTemplateSources{})
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, PromptTemplateSources{})
 	if err != nil {
-		t.Fatalf("buildSlashRegistry: %v", err)
+		t.Fatalf("BuildSlashRegistry: %v", err)
 	}
 	out, err := reg.ResolveOutcome("/legacy hi")
 	if err != nil {
@@ -39,9 +39,9 @@ func TestBuildSlashRegistryLoadsPromptsDir(t *testing.T) {
 	t.Setenv("PIGO_HOME", home)
 	testutil.WritePrompt(t, home, "prompts", "review.md", "Review: $ARGUMENTS")
 
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, promptTemplateSources{})
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, PromptTemplateSources{})
 	if err != nil {
-		t.Fatalf("buildSlashRegistry: %v", err)
+		t.Fatalf("BuildSlashRegistry: %v", err)
 	}
 	out, err := reg.ResolveOutcome("/review diff")
 	if err != nil {
@@ -61,9 +61,9 @@ func TestBuildSlashRegistryPromptsOverridesCommands(t *testing.T) {
 	testutil.WritePrompt(t, home, "commands", "dup.md", "FROM COMMANDS")
 	testutil.WritePrompt(t, home, "prompts", "dup.md", "FROM PROMPTS")
 
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, promptTemplateSources{})
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, PromptTemplateSources{})
 	if err != nil {
-		t.Fatalf("buildSlashRegistry: %v", err)
+		t.Fatalf("BuildSlashRegistry: %v", err)
 	}
 	cmd, ok := reg.Lookup("dup")
 	if !ok {
@@ -78,12 +78,12 @@ func TestBuildSlashRegistryPromptsOverridesCommands(t *testing.T) {
 }
 
 // TestBuildSlashRegistryMissingDirsNoError verifies that with neither commands/
-// nor prompts/ present, buildSlashRegistry returns no error (built-ins only).
+// nor prompts/ present, BuildSlashRegistry returns no error (built-ins only).
 func TestBuildSlashRegistryMissingDirsNoError(t *testing.T) {
 	t.Setenv("PIGO_HOME", t.TempDir())
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, promptTemplateSources{})
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, PromptTemplateSources{})
 	if err != nil {
-		t.Fatalf("buildSlashRegistry with no prompt dirs: %v", err)
+		t.Fatalf("BuildSlashRegistry with no prompt dirs: %v", err)
 	}
 	if reg == nil {
 		t.Fatal("registry is nil")

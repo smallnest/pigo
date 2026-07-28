@@ -1,4 +1,4 @@
-package repl
+package prompts
 
 // Tests for the /models preset listing. presetListing renders the curated
 // catalog for the REPL /models command. Provider-resolution tests moved to

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/prompts"
 	"github.com/smallnest/pigo/internal/cli/run"
 	"github.com/smallnest/pigo/internal/runtime"
 )
@@ -99,7 +100,7 @@ func TestBuildSlashRegistryIncludesSkills(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run.LoadSkills: %v", err)
 	}
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, skills, nil, promptTemplateSources{})
+	reg, err := prompts.BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, skills, nil, prompts.PromptTemplateSources{})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}
@@ -124,7 +125,7 @@ func TestBuildSlashRegistryIncludesSkills(t *testing.T) {
 func TestBuildSlashRegistryNoSkills(t *testing.T) {
 	t.Setenv("PIGO_HOME", t.TempDir())
 
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, promptTemplateSources{})
+	reg, err := prompts.BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, prompts.PromptTemplateSources{})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}
@@ -147,7 +148,7 @@ func TestLoadSkillsBootstrapsBuiltinSkills(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run.LoadSkills: %v", err)
 	}
-	reg, err := buildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, skills, nil, promptTemplateSources{})
+	reg, err := prompts.BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, skills, nil, prompts.PromptTemplateSources{})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}

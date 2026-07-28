@@ -19,6 +19,7 @@ import (
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/prompts"
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
@@ -221,7 +222,7 @@ func TestREPLModelSwitchTakesEffect(t *testing.T) {
 	deps, _ := newTestDeps(t, p)
 	// Register the real live action commands (/model, /models, /help) against the
 	// same live config the REPL runs on, so /model mutates it.
-	registerLiveCommands(deps.slash, deps.live)
+	prompts.RegisterLiveCommands(deps.slash, deps.live)
 
 	var out bytes.Buffer
 	// /model with no arg reports the current model; /model <id> switches to an
