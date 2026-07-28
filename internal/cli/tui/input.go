@@ -47,16 +47,23 @@ type input struct {
 func newInput() input {
 	ta := textarea.New()
 	ta.Prompt = "> "
-	ta.Placeholder = "输入消息…（Enter 发送，Shift+Enter 换行）"
+	ta.Placeholder = "输入消息…（Enter 发送，Shift+Enter / Ctrl+J 换行）"
 	ta.ShowLineNumbers = false
 	ta.CharLimit = 0
 	ta.MaxHeight = maxInputRows
 	ta.SetHeight(1)
-	// Rebind InsertNewline from its default (Enter) to Shift+Enter: plain Enter is
-	// the model's submit key (handleKey intercepts it before textarea sees it), so
-	// only Shift+Enter breaks a line in the multi-line composer.
+	// Rebind InsertNewline from its default (Enter) to keys that break a line in
+	// the multi-line composer, since plain Enter is the model's submit key
+	// (handleKey intercepts it before textarea sees it). Shift+Enter is the
+	// primary binding, but it is only distinguishable from Enter on terminals
+	// that speak the Kitty keyboard protocol (kitty, ghostty, wezterm, recent
+	// iTerm2). On terminals without it (macOS Terminal.app, tmux by default)
+	// Shift+Enter arrives byte-identical to Enter and would submit — dropping the
+	// line the user meant to continue. Ctrl+J (a literal LF, always distinct from
+	// Enter's CR) and Alt+Enter are reliable fallbacks so a newline works
+	// everywhere; all three split the line at the cursor and keep typed text.
 	ta.KeyMap.InsertNewline = key.NewBinding(
-		key.WithKeys("shift+enter"),
+		key.WithKeys("shift+enter", "ctrl+j", "alt+enter"),
 		key.WithHelp("shift+enter", "insert newline"),
 	)
 	// Draw the cursor into the rendered string: the model composes View as a

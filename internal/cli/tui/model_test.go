@@ -45,6 +45,33 @@ func TestModelViewShell(t *testing.T) {
 	}
 }
 
+// TestModelNewlineKeys verifies that the newline keys (Shift+Enter and its
+// terminal-independent fallbacks Ctrl+J / Alt+Enter) insert a line break at the
+// cursor and preserve the already-typed text, rather than submitting. Plain
+// Enter still submits, so the buffer is cleared. This guards the multi-line
+// composer against terminals that can't disambiguate Shift+Enter from Enter.
+func TestModelNewlineKeys(t *testing.T) {
+	newlineKeys := []tea.KeyPressMsg{
+		{Code: tea.KeyEnter, Mod: tea.ModShift},
+		{Code: tea.KeyEnter, Mod: tea.ModAlt},
+		{Code: 'j', Mod: tea.ModCtrl},
+	}
+	for _, nl := range newlineKeys {
+		var mm tea.Model = NewModel(Options{})
+		mm, _ = mm.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
+		for _, r := range "abc" {
+			mm, _ = mm.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		}
+		mm, _ = mm.Update(nl)
+		for _, r := range "def" {
+			mm, _ = mm.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		}
+		if got := mm.(Model).input.Value(); got != "abc\ndef" {
+			t.Errorf("%s: input = %q, want %q", nl.String(), got, "abc\ndef")
+		}
+	}
+}
+
 // keyPress builds a KeyPressMsg matching String()==s for the simple keys used
 // in these tests (ctrl+<letter>).
 func keyPress(s string) tea.KeyPressMsg {
