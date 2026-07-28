@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/smallnest/pigo/internal/cli/ui"
 )
@@ -72,5 +73,16 @@ func renderMarkdown(src string, width int) string {
 	if err != nil {
 		return src
 	}
-	return strings.Trim(out, "\n")
+	// Glamour word-wraps prose to width, but its document margin and
+	// non-wrapping elements (code blocks, tables) can still emit lines wider than
+	// the content column. The transcript viewport does not clip horizontally, so
+	// an over-wide line would spill into (and visually erase) the persistent
+	// scrollbar column on its right. Hard-wrap the rendered output — ANSI- and
+	// wide-char-aware — so every line fits within width and the scrollbar stays
+	// put. Prose already within width is untouched.
+	trimmed := strings.Trim(out, "\n")
+	if width > 0 {
+		trimmed = ansi.Hardwrap(trimmed, width, false)
+	}
+	return trimmed
 }
