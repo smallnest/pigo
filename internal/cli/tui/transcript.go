@@ -171,8 +171,10 @@ func (t transcript) view() string {
 // scrollbar renders the one-column vertical thumb the height of the viewport. It
 // is only called while the transcript overflows: a proportional thumb marks the
 // visible window and its position marks the scroll offset, so scrolling up
-// through history moves the thumb. Non-thumb rows are blank spaces (no track
-// line) that hold the column width stable so the body does not shift.
+// through history moves the thumb. Non-thumb rows draw a dim shaded track (░) so
+// the scrollbar is always visible as a column when scrolling is possible; the
+// solid thumb (█) contrasts against it on any terminal background. This is not
+// the thin │ rule that was removed — it is a full-width shaded gutter.
 func (t transcript) scrollbar() string {
 	h := t.vp.Height()
 	if h <= 0 {
@@ -203,7 +205,7 @@ func (t transcript) scrollbar() string {
 		if i >= pos && i < pos+thumb {
 			b.WriteString(t.theme.ScrollThumb.Render("█"))
 		} else {
-			b.WriteByte(' ')
+			b.WriteString(t.theme.ScrollTrack.Render("░"))
 		}
 	}
 	return b.String()

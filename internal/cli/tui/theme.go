@@ -35,8 +35,10 @@ type Theme struct {
 	Warn lipgloss.Style
 	// Success styles successful outcomes (green).
 	Success lipgloss.Style
-	// ScrollThumb styles the transcript scrollbar thumb (light gray).
+	// ScrollThumb styles the transcript scrollbar thumb (medium gray block).
 	ScrollThumb lipgloss.Style
+	// ScrollTrack styles the transcript scrollbar track (dim shaded column).
+	ScrollTrack lipgloss.Style
 }
 
 // Palette color numbers use the ANSI 256-color cube so the theme renders
@@ -47,7 +49,8 @@ const (
 	colorWarn    = "214" // yellow/amber
 	colorAccent  = "39"  // blue (file names, highlights)
 	colorGray    = "245" // secondary / muted text
-	colorScroll  = "250" // light gray (scrollbar thumb)
+	colorScroll  = "245" // scrollbar thumb (medium gray, visible on light+dark)
+	colorTrack   = "238" // scrollbar track (dim gray)
 	colorUser    = "15"  // bright white
 	colorAssist  = "252" // near-white
 	colorStatus  = "62"  // status bar background (violet)
@@ -86,6 +89,8 @@ func DefaultTheme() Theme {
 			Foreground(lipgloss.Color(colorSuccess)),
 		ScrollThumb: lipgloss.NewStyle().
 			Foreground(lipgloss.Color(colorScroll)),
+		ScrollTrack: lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorTrack)),
 	}
 }
 
