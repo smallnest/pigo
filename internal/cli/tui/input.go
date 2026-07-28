@@ -4,6 +4,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // This file implements the prompt input field of the full-screen TUI (US-007,
@@ -33,6 +34,11 @@ const maxInputRows = 6
 // setter driven by tea.WindowSizeMsg, and a render string for View.
 type input struct {
 	ta textarea.Model
+	// width is the full editor width (terminal columns) last set via SetWidth. It
+	// is the span of the top/bottom rules drawn around the editor (Claude-Code
+	// style), kept separately because textarea's own Width() reports only the
+	// inner text area (prompt column excluded).
+	width int
 }
 
 // newInput builds a focused editor. It starts one row tall and grows with the
@@ -56,6 +62,12 @@ func newInput() input {
 	// Draw the cursor into the rendered string: the model composes View as a
 	// plain string rather than driving textarea's real cursor reporting.
 	ta.SetVirtualCursor(true)
+	// Drop the default cursor-line background highlight so the composer is framed
+	// only by the top/bottom rules (see View), matching Claude Code — no fill.
+	styles := ta.Styles()
+	styles.Focused.CursorLine = lipgloss.NewStyle()
+	styles.Blurred.CursorLine = lipgloss.NewStyle()
+	ta.SetStyles(styles)
 	ta.Focus()
 	return input{ta: ta}
 }
@@ -88,8 +100,9 @@ func (in *input) syncHeight() {
 }
 
 // Height reports the current visible row count of the editor so the model can
-// reserve that many rows in its View layout.
-func (in input) Height() int { return in.ta.Height() }
+// reserve that many rows in its View layout. It includes the two rule rows (top
+// and bottom) drawn around the textarea.
+func (in input) Height() int { return in.ta.Height() + 2 }
 
 // Value returns the current buffer contents, including any embedded newlines.
 func (in input) Value() string { return in.ta.Value() }
@@ -122,8 +135,20 @@ func (in *input) SetWidth(w int) {
 	if w < 0 {
 		w = 0
 	}
+	in.width = w
 	in.ta.SetWidth(w)
 }
 
-// View renders the editor to a string for embedding in the model's View.
-func (in input) View() string { return in.ta.View() }
+// View renders the editor to a string for embedding in the model's View. The
+// textarea is framed with a top and bottom rule (no side borders) in the muted
+// gray, mirroring Claude Code's composer — a pair of horizontal lines rather
+// than a background fill. The rules span the full editor width.
+func (in input) View() string {
+	style := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), true, false, true, false).
+		BorderForeground(lipgloss.Color(colorGray))
+	if in.width > 0 {
+		style = style.Width(in.width)
+	}
+	return style.Render(in.ta.View())
+}
