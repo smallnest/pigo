@@ -20,6 +20,7 @@ import (
 
 	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/cli/config"
+	"github.com/smallnest/pigo/internal/cli/pkgcmd"
 )
 
 // Build metadata, injected at release time via -ldflags by goreleaser
@@ -35,8 +36,8 @@ func main() {
 	// Package-management subcommands (pigo install|list|uninstall|update ...) are
 	// positional and distinct from the flag-driven agent modes, so peel them off
 	// before pflag parsing — the agent flags don't apply to them.
-	if len(os.Args) > 1 && packageSubcommands[os.Args[1]] {
-		os.Exit(runPackageCommand(os.Args[1], os.Args[2:], os.Stdout, os.Stderr))
+	if len(os.Args) > 1 && pkgcmd.Subcommands[os.Args[1]] {
+		os.Exit(pkgcmd.Run(os.Args[1], os.Args[2:], os.Stdout, os.Stderr))
 	}
 
 	var opts cliOptions

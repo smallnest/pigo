@@ -1,12 +1,12 @@
-// This file wires pigo's package-management subcommands (#162, #163, #164) into
-// the CLI: `pigo install|list|uninstall|update ...`. These are positional
+// Package pkgcmd wires pigo's package-management subcommands (#162, #163, #164)
+// into the CLI: `pigo install|list|uninstall|update ...`. These are positional
 // subcommands, distinct from the flag-driven agent modes, so main() peels them
 // off before pflag parsing (the agent flags don't apply to package management).
 //
 // Each subcommand is a thin shell over internal/pkgmgr, which owns all the real
 // work (fetch, classify, distribute, lockfile). This file only parses argv,
 // resolves the lockfile path, calls pkgmgr, and prints human-readable results.
-package main
+package pkgcmd
 
 import (
 	"fmt"
@@ -15,18 +15,18 @@ import (
 	"github.com/smallnest/pigo/internal/pkgmgr"
 )
 
-// packageSubcommands are the argv[1] values routed to runPackageCommand.
-var packageSubcommands = map[string]bool{
+// Subcommands are the argv[1] values routed to Run.
+var Subcommands = map[string]bool{
 	"install":   true,
 	"list":      true,
 	"uninstall": true,
 	"update":    true,
 }
 
-// runPackageCommand executes a package-management subcommand (cmd) with its
-// arguments (args), writing output to out and errors to errOut. It returns a
-// process exit code. install is #162; list/uninstall are #163; update is #164.
-func runPackageCommand(cmd string, args []string, out, errOut io.Writer) int {
+// Run executes a package-management subcommand (cmd) with its arguments (args),
+// writing output to out and errors to errOut. It returns a process exit code.
+// install is #162; list/uninstall are #163; update is #164.
+func Run(cmd string, args []string, out, errOut io.Writer) int {
 	lockPath := pkgmgr.DefaultLockfilePath()
 	switch cmd {
 	case "install":
