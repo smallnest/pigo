@@ -469,7 +469,7 @@ func (m Model) pumpNext() tea.Cmd {
 // screen buffer, so the user's scrollback is restored on quit.
 func (m Model) View() tea.View {
 	if m.quitting {
-		return tea.View{AltScreen: true}
+		return tea.View{AltScreen: true, KeyboardEnhancements: keyboardEnhancements}
 	}
 
 	width := m.width
@@ -518,8 +518,27 @@ func (m Model) View() tea.View {
 	// MouseModeCellMotion enables click/release/wheel events. Without it the
 	// alt-screen swallows the wheel (no native scrollback), so history could only
 	// be reached via PgUp/PgDn; enabling it lets the wheel scroll the transcript.
-	return tea.View{Content: b.String(), AltScreen: true, MouseMode: tea.MouseModeCellMotion}
+	//
+	// keyboardEnhancements requests Kitty flag 8 (report all keys as escape
+	// codes), which forces Kitty-protocol terminals (ghostty, kitty, wezterm) to
+	// report Shift+Enter as a distinct CSI-u sequence instead of a bare CR — so
+	// the primary Shift+Enter newline binding works natively there. Terminals
+	// without the protocol ignore the request and fall back to Ctrl+J / Alt+Enter.
+	return tea.View{
+		Content:              b.String(),
+		AltScreen:            true,
+		MouseMode:            tea.MouseModeCellMotion,
+		KeyboardEnhancements: keyboardEnhancements,
+	}
 }
+
+// keyboardEnhancements is the Kitty keyboard progressive-enhancement level the
+// TUI requests on every rendered View. ReportAllKeysAsEscapeCodes (Kitty flag 8)
+// makes capable terminals report every key — including Shift+Enter, which they
+// otherwise collapse to a bare CR indistinguishable from plain Enter — as a
+// distinct escape code, so the Shift+Enter newline binding works without any
+// terminal config. See internal/cli/tui/input.go for the newline key bindings.
+var keyboardEnhancements = tea.KeyboardEnhancements{ReportAllKeysAsEscapeCodes: true}
 
 // relayout re-sizes the transcript to the rows left after reserving the status
 // bar (1 row), the current input editor height, and any open autocomplete popup.
