@@ -31,6 +31,7 @@ import (
 	"github.com/smallnest/pigo/internal/cli/pkgcmd"
 	"github.com/smallnest/pigo/internal/cli/repl"
 	"github.com/smallnest/pigo/internal/cli/run"
+	"github.com/smallnest/pigo/internal/cli/tui"
 	"github.com/smallnest/pigo/internal/cli/ui"
 )
 
@@ -100,6 +101,10 @@ type cliOptions struct {
 	// showVersion prints build metadata (version/commit/date, injected at release
 	// time by goreleaser) and exits, without running the agent.
 	showVersion bool
+	// noTUI forces the line-based REPL instead of the full-screen TUI (US-001).
+	// When set — or when stdout is not a TTY — the no-prompt path falls back to
+	// repl.Run rather than launching tui.Run.
+	noTUI bool
 }
 
 func main() {
@@ -130,6 +135,7 @@ func main() {
 	flag.StringArrayVar(&opts.promptTemplates, "prompt-template", nil, "load a prompt template from a file or directory (non-recursive); repeatable (对标 pi --prompt-template)")
 	flag.StringVar(&opts.thinkingLevel, "thinking-level", "", "reasoning effort: off|minimal|low|medium|high|xhigh (overrides PIGO_THINKING_LEVEL and config; default medium)")
 	flag.BoolVar(&opts.subagentRPC, "subagent-rpc", false, "internal: run as a process-isolated sub-agent JSON-RPC server over stdio (US-019)")
+	flag.BoolVar(&opts.noTUI, "no-tui", false, "使用行式 REPL 而非全屏 TUI")
 	flag.BoolVarP(&opts.showVersion, "version", "v", false, "print version information and exit")
 	// Extend the default pflag usage with a "Supported providers" block so
 	// `--help` documents the values accepted by --provider (name → env var →
@@ -247,12 +253,15 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		resumeID = id
 	}
 
-	// No prompt + an interactive terminal → start the line-based REPL (US-003). A
-	// --resume id also enters the REPL to continue an existing session. No prompt
-	// with a non-terminal stdout (pipe/CI) and no resume is an error, since there
-	// is nothing to run and nothing to interact with.
+	// No prompt + an interactive terminal → start the interactive UI. By default
+	// this is the full-screen TUI (US-001); --no-tui (or a non-terminal stdout)
+	// forces the line-based REPL (US-003). A --resume id also enters the
+	// interactive UI to continue an existing session. No prompt with a
+	// non-terminal stdout (pipe/CI) and no resume is an error, since there is
+	// nothing to run and nothing to interact with.
 	if opts.prompt == "" {
-		if resumeID == "" && !ui.StdoutIsTerminal() {
+		isTTY := ui.StdoutIsTerminal()
+		if resumeID == "" && !isTTY {
 			fmt.Fprintln(errOut, "pigo: no prompt (use -p \"...\" or positional args)")
 			return 2
 		}
@@ -268,6 +277,30 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		if err != nil {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
 			return 2
+		}
+		if shouldUseTUI(opts, isTTY) {
+			if err := tui.Run(tui.Options{
+				Model:             opts.model,
+				ProviderName:      env.ProviderName,
+				Provider:          env.Provider,
+				BaseURL:           opts.baseURL,
+				APIKey:            opts.apiKey,
+				Protocol:          opts.protocol,
+				ThinkingLevel:     thinking,
+				Tools:             env.Tools,
+				SysPrompt:         env.SysPrompt,
+				ResumeID:          resumeID,
+				Approve:           opts.approve,
+				Skills:            env.Skills,
+				Plugins:           env.Plugins,
+				ConfigPrompts:     opts.configPrompts,
+				CliPrompts:        opts.promptTemplates,
+				NoPromptTemplates: opts.noPromptTemplates,
+			}); err != nil {
+				fmt.Fprintf(errOut, "pigo: %v\n", err)
+				return 1
+			}
+			return 0
 		}
 		if err := repl.Run(repl.Options{
 			Model:             opts.model,
@@ -316,4 +349,15 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		ThinkingLevel: opts.thinkingLevel,
 		ResumeID:      resumeID,
 	}, out, errOut)
+}
+
+// shouldUseTUI is the pure entry-gating predicate for the no-prompt path
+// (US-001, SPEC 4.2/5.2): the full-screen TUI is used only when stdout is a TTY
+// and --no-tui was not set. --no-tui or a non-terminal stdout always forces the
+// line-based REPL. Keeping the decision in a side-effect-free function lets the
+// gating be unit-tested without a real terminal or spawning Bubble Tea (see
+// TestDispatchTUIGating); dispatch handles the non-TTY/no-resume usage error
+// before calling this, so it only decides TUI-vs-REPL for the interactive case.
+func shouldUseTUI(opts cliOptions, isTTY bool) bool {
+	return isTTY && !opts.noTUI
 }

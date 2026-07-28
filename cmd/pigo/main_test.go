@@ -75,6 +75,32 @@ func TestDispatchBadOutputFormat(t *testing.T) {
 	}
 }
 
+// TestDispatchTUIGating verifies the pure entry-gating predicate shouldUseTUI
+// (US-001, SPEC 4.2/5.2) that dispatch uses to choose the full-screen TUI vs the
+// line-based REPL on the no-prompt path. The decision is tested directly so it
+// needs no real TTY and never spawns Bubble Tea: TUI only when stdout is a TTY
+// and --no-tui is unset; --no-tui or a non-terminal stdout always forces REPL.
+func TestDispatchTUIGating(t *testing.T) {
+	tests := []struct {
+		name  string
+		opts  cliOptions
+		isTTY bool
+		want  bool
+	}{
+		{name: "TTY and no flag uses TUI", opts: cliOptions{}, isTTY: true, want: true},
+		{name: "--no-tui forces REPL on a TTY", opts: cliOptions{noTUI: true}, isTTY: true, want: false},
+		{name: "non-TTY never uses TUI", opts: cliOptions{}, isTTY: false, want: false},
+		{name: "non-TTY with --no-tui stays REPL", opts: cliOptions{noTUI: true}, isTTY: false, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldUseTUI(tt.opts, tt.isTTY); got != tt.want {
+				t.Errorf("shouldUseTUI(%+v, %v) = %v, want %v", tt.opts, tt.isTTY, got, tt.want)
+			}
+		})
+	}
+}
+
 // --- config.toml overlay ---
 
 // changedSet turns a set of flag names into a lookup func for applyFileConfig.
