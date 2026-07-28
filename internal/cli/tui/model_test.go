@@ -45,30 +45,24 @@ func TestModelViewShell(t *testing.T) {
 	}
 }
 
-// TestModelNewlineKeys verifies that the newline keys (Shift+Enter and its
-// terminal-independent fallbacks Ctrl+J / Alt+Enter) insert a line break at the
-// cursor and preserve the already-typed text, rather than submitting. Plain
-// Enter still submits, so the buffer is cleared. This guards the multi-line
-// composer against terminals that can't disambiguate Shift+Enter from Enter.
+// TestModelNewlineKeys verifies that Alt+Enter inserts a line break at the
+// cursor and preserves the already-typed text, rather than submitting. Plain
+// Enter still submits, so it does not leave a newline in the buffer. Alt+Enter
+// is the sole newline key: it arrives ESC-prefixed and distinct from Enter in
+// every terminal, without needing any keyboard-protocol enhancement (which broke
+// CJK / IME input).
 func TestModelNewlineKeys(t *testing.T) {
-	newlineKeys := []tea.KeyPressMsg{
-		{Code: tea.KeyEnter, Mod: tea.ModShift},
-		{Code: tea.KeyEnter, Mod: tea.ModAlt},
-		{Code: 'j', Mod: tea.ModCtrl},
+	var mm tea.Model = NewModel(Options{})
+	mm, _ = mm.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
+	for _, r := range "abc" {
+		mm, _ = mm.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
-	for _, nl := range newlineKeys {
-		var mm tea.Model = NewModel(Options{})
-		mm, _ = mm.Update(tea.WindowSizeMsg{Width: 60, Height: 10})
-		for _, r := range "abc" {
-			mm, _ = mm.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
-		}
-		mm, _ = mm.Update(nl)
-		for _, r := range "def" {
-			mm, _ = mm.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
-		}
-		if got := mm.(Model).input.Value(); got != "abc\ndef" {
-			t.Errorf("%s: input = %q, want %q", nl.String(), got, "abc\ndef")
-		}
+	mm, _ = mm.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt})
+	for _, r := range "def" {
+		mm, _ = mm.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	if got := mm.(Model).input.Value(); got != "abc\ndef" {
+		t.Errorf("input = %q, want %q", got, "abc\ndef")
 	}
 }
 

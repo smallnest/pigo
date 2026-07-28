@@ -54,12 +54,12 @@ func TestInputEmojiByRune(t *testing.T) {
 	}
 }
 
-// TestInputShiftEnterNewline verifies Shift+Enter inserts a newline into the
-// buffer (the multi-line key) while plain runes fill each line.
-func TestInputShiftEnterNewline(t *testing.T) {
+// TestInputAltEnterNewline verifies Alt+Enter inserts a newline into the buffer
+// (the sole multi-line key) while plain runes fill each line.
+func TestInputAltEnterNewline(t *testing.T) {
 	in := newInput()
 	in, _ = in.Update(runeKey('你'))
-	in, _ = in.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift})
+	in, _ = in.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt})
 	in, _ = in.Update(runeKey('好'))
 
 	if got := in.Value(); got != "你\n好" {
