@@ -25,11 +25,41 @@ import (
 var (
 	mdMu    sync.Mutex
 	mdCache = map[int]*glamour.TermRenderer{}
+	// mdDark selects the glamour style: a dark palette when true (the default,
+	// matching most terminals), a light palette when false. It is set once from
+	// the terminal's real background via SetMarkdownDark and never queried at
+	// render time — see the comment there.
+	mdDark = true
 )
+
+// SetMarkdownDark records whether the terminal has a dark background and drops
+// the renderer cache so the next render rebuilds with the matching style.
+//
+// This is the fix for the escape-sequence leak into the input box: glamour's
+// WithAutoStyle() detects the palette by issuing its OWN synchronous OSC 11
+// background-color query and reading the reply straight from the tty. Under the
+// alt-screen, bubbletea already owns the input reader, so that reply
+// (\x1b]11;rgb:…\x07) races with — and is swallowed by — bubbletea's parser,
+// which then leaks the unparsed tail (e.g. "1;rgb:0000/0000/0000" plus a stray
+// SGR mouse report) into the textarea as literal text. We instead let bubbletea
+// detect the background the parser-safe way (RequestBackgroundColor →
+// BackgroundColorMsg) and feed the result here, then build glamour with a fixed
+// WithStandardStyle so it never touches the terminal.
+func SetMarkdownDark(dark bool) {
+	mdMu.Lock()
+	defer mdMu.Unlock()
+	if dark == mdDark {
+		return
+	}
+	mdDark = dark
+	mdCache = map[int]*glamour.TermRenderer{}
+}
 
 // rendererFor returns a glamour renderer that word-wraps to width columns,
 // building and caching one per distinct width. A build failure caches nothing
-// and returns nil so callers fall back to the raw source.
+// and returns nil so callers fall back to the raw source. The style is fixed
+// (WithStandardStyle) rather than auto-detected, so building a renderer never
+// queries the terminal.
 func rendererFor(width int) *glamour.TermRenderer {
 	mdMu.Lock()
 	defer mdMu.Unlock()
@@ -40,8 +70,12 @@ func rendererFor(width int) *glamour.TermRenderer {
 	if wrap < 0 {
 		wrap = 0
 	}
+	style := "dark"
+	if !mdDark {
+		style = "light"
+	}
 	r, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
+		glamour.WithStandardStyle(style),
 		glamour.WithWordWrap(wrap),
 	)
 	if err != nil {

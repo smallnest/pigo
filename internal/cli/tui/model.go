@@ -162,7 +162,9 @@ func (m Model) withSession(s *runSession, history []agentcore.Message) Model {
 // can show the branch/dirty state as soon as it resolves; the alt-screen is
 // requested declaratively via the AltScreen field on the View returned by View.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(fetchGitCmd(m.cwd), m.input.Focus())
+	return tea.Batch(fetchGitCmd(m.cwd), m.input.Focus(), func() tea.Msg {
+		return tea.RequestBackgroundColor()
+	})
 }
 
 // Update implements tea.Model. It tracks the terminal size, drives the minimal
@@ -179,6 +181,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case gitInfoMsg:
 		m.statusBar.SetGit(msg)
+		return m, nil
+
+	case tea.BackgroundColorMsg:
+		// Feed the terminal's real background to the Markdown renderer so glamour
+		// picks a matching light/dark palette WITHOUT issuing its own terminal
+		// query (which would leak its reply into the input — see SetMarkdownDark).
+		// Re-flow so any already-finalized assistant block re-renders in the right
+		// palette.
+		SetMarkdownDark(msg.IsDark())
+		m.transcript.reflow()
 		return m, nil
 
 	case tea.MouseWheelMsg:
