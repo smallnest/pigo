@@ -55,6 +55,11 @@ func InstallHooks(cfg *runtime.RunConfig, set hooks.HookSet, deps HookDeps) *hoo
 	tec := &cfg.Batch.ToolExecutorConfig
 	tec.BeforeToolCall = chainBeforeToolCall(tec.BeforeToolCall, preToolCallHook(d, deps))
 	tec.AfterToolCall = chainAfterToolCall(tec.AfterToolCall, postToolCallHook(d, deps))
+	// Stop hook: chained onto the loop's natural-end seam so a hook may block the
+	// run from ending and force a continuation (FR-10), bounded by the decorator's
+	// consecutive-block counter (FR-12). The sub-agent assembly wires the
+	// SubagentStop variant via installStopHook with the "SubagentStop" event.
+	installStopHook(cfg, d, deps, "Stop")
 	return d
 }
 

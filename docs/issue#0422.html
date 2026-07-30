@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0422</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/422">#422</a> &mdash; hooks: Stop + SubagentStop 接线 (阻止结束 + 死循环上限) &mdash; 2026-07-30</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> New OnStop seam instead of overloading ShouldStopAfterTurn</h3>
+      <p><strong>Ambiguity:</strong> The loop already has <code>ShouldStopAfterTurn</code>, but its semantics are "return true to END". A Stop hook needs the opposite — PREVENT ending and force a continuation.</p>
+      <p><strong>Choice:</strong> Added a dedicated <code>OnStop func(...) *StopDecision</code> seam consulted at the loop's natural-end point (inner loop settled, no follow-up messages). <code>Block=true</code> appends <code>Guidance</code> and continues the outer loop.</p>
+      <p><strong>Rationale:</strong> Keeps the two concerns distinct — <code>ShouldStopAfterTurn</code> adds stop conditions (OR), <code>OnStop</code> vetoes a stop. Overloading one seam with both polarities would be error-prone.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Consecutive-block counter lives in the cli-layer decorator, not the loop</h3>
+      <p><strong>Ambiguity:</strong> Where does the FR-12 force-stop limit (default 5) live?</p>
+      <p><strong>Choice:</strong> <code>stopHook</code> in <code>internal/cli/run</code> closes over a per-run <code>consecutive</code> counter; past <code>maxBlocks</code> it warns and returns nil (force stop). The runtime <code>OnStop</code> seam stays a pure "block or not" question.</p>
+      <p><strong>Rationale:</strong> The issue explicitly asks for "装饰器闭包持有 per-run 计数". Keeping the ceiling out of the loop means runtime carries no hook policy, matching the layer boundary set in #419.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> SubagentStop reuses the same loop seam, differing only by event name</h3>
+      <p><strong>Ambiguity:</strong> Sub-agents run through the same <code>StartRun</code> loop; how does SubagentStop differ from Stop?</p>
+      <p><strong>Choice:</strong> Identical mechanism; the sub-agent's <code>RunConfig.OnStop</code> is wired via <code>InstallSubagentStop</code>, which dispatches the <code>"SubagentStop"</code> event with its own independent block counter.</p>
+      <p><strong>Rationale:</strong> Avoids duplicating loop logic. The only real distinction is the event name and the (child) session context, both set at assembly time.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Sub-agent call site not yet invoked; helper exported for #425</h3>
+      <p><strong>Spec said:</strong> "SubagentStop 在 subagent.go 结束路径触发".</p>
+      <p><strong>Implemented instead:</strong> <code>RunSubAgentOnce</code> runs the shared loop, which already consults <code>cfg.OnStop</code>. #422 exports <code>InstallSubagentStop</code> for the sub-agent assembly to call; the actual call is wired during driver convergence in #425 (same staging as #420/#421).</p>
+      <p><strong>Why:</strong> The trigger point (loop natural-end) is live now for any RunConfig with OnStop set; only the assembly-time wiring is deferred so all call sites converge once.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> stop_reason payload is a fixed "end_turn" string</h3>
+      <p><strong>Alternatives:</strong> (a) thread the real terminal StopReason from the loop into OnStop, (b) send a constant.</p>
+      <p><strong>Chosen (b):</strong> The natural-end seam only fires on an ordinary end-of-turn, so "end_turn" is accurate for the v1 event. Error/aborted terminals bypass OnStop entirely (they <code>finish()</code> directly).</p>
+      <p><strong>Con:</strong> A hook can't distinguish nuanced stop reasons yet. Revisit if a consumer needs the loop to pass the concrete StopReason through the seam.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should the block counter reset across follow-up message rounds?</h3>
+      <p><strong>Assumption:</strong> The counter resets only on a non-blocking stop. A run driven by external follow-up messages between blocks still accrues toward the limit.</p>
+      <p><strong>Verify:</strong> Confirm with real Stop-hook usage in #425 whether the intended budget is "consecutive blocks" (current) or "blocks since last user turn".</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

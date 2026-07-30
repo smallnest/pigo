@@ -45,6 +45,15 @@ type TurnUpdate struct {
 	ThinkingLevel *agentcore.ThinkingLevel
 }
 
+// StopDecision is the result of the OnStop seam. Block=true prevents the run
+// from ending; Guidance, when non-empty, is appended as a user-role message to
+// steer the forced continuation (the Stop / SubagentStop hook's reason). The
+// zero value (Block=false) lets the run end.
+type StopDecision struct {
+	Block    bool
+	Guidance string
+}
+
 // RunConfig is the full configuration for a loop run: the per-turn streaming
 // config (embedded LoopConfig), the batch tool-execution config, and the four
 // loop-level hooks. Every hook is optional (nil = default behavior).
@@ -67,6 +76,15 @@ type RunConfig struct {
 	// ShouldStopAfterTurn runs after each turn_end; true ends the run with an
 	// agent_end event (FR-7).
 	ShouldStopAfterTurn func(ctx context.Context, agentCtx *agentcore.AgentContext) bool
+
+	// OnStop, when set, is consulted right before the run would end naturally (no
+	// tool calls and no follow-up messages). Returning a decision with Block=true
+	// keeps the loop running: any Guidance is appended as a user-role message to
+	// steer the continued run (Stop / SubagentStop hooks, US-008/009, FR-10). The
+	// seam carries no loop-protection itself — the caller's decorator owns the
+	// consecutive-block counter and the FR-12 force-stop limit, so an ill-behaved
+	// hook cannot loop forever. nil or a non-blocking decision lets the run end.
+	OnStop func(ctx context.Context, agentCtx *agentcore.AgentContext) *StopDecision
 
 	// Reminders holds the per-turn system-reminder providers (US-002, FR-1/FR-2).
 	// When non-empty, ephemeral <system-reminder> messages are injected into each
@@ -233,6 +251,21 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 			if follow := cfg.GetFollowUpMessages(ctx, agentCtx); len(follow) > 0 {
 				agentCtx.Messages = append(agentCtx.Messages, follow...)
 				continue // outer loop with the follow-ups as new input
+			}
+		}
+		// Stop hook: the run is about to end naturally. A hook may block the end
+		// and force a continuation, feeding its guidance back as the next input
+		// (US-008/009, FR-10). The consecutive-block counter and force-stop limit
+		// (FR-12) live in the decorator behind OnStop, so this seam stays simple.
+		if cfg.OnStop != nil {
+			if dec := cfg.OnStop(ctx, agentCtx); dec != nil && dec.Block {
+				if dec.Guidance != "" {
+					agentCtx.Messages = append(agentCtx.Messages, agentcore.UserMessage{
+						RoleField: agentcore.RoleUser,
+						Content:   agentcore.ContentList{agentcore.NewTextContent(dec.Guidance)},
+					})
+				}
+				continue // outer loop: keep the run alive
 			}
 		}
 		break
