@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0419</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/419">#419</a> &mdash; hooks: Dispatcher 接线骨架 + 单一 InstallHooks 装配 helper &mdash; 2026-07-30</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Helper lives in cli/run, not runtime</h3>
+      <p><strong>Ambiguity:</strong> Where does hook→seam assembly belong?</p>
+      <p><strong>Choice:</strong> <code>internal/cli/run/hooks_install.go</code>. runtime exposes only generic seams and never imports hooks; cli knows both <code>Config.Hooks</code> and the seams.</p>
+      <p><strong>Rationale:</strong> Prevents a <code>runtime→hooks→runtime</code> import cycle and keeps runtime hook-agnostic, exactly as the issue and SPEC §2.2/§2.3 require.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Combinator semantics per seam</h3>
+      <p><strong>Ambiguity:</strong> "generic combinators" — how should two seams merge?</p>
+      <p><strong>Choice:</strong> BeforeToolCall: prev-first, block short-circuits (earlier gate authoritative). AfterToolCall: next's non-nil result wins (last-writer). ShouldStop: OR, prev short-circuits.</p>
+      <p><strong>Rationale:</strong> Matches the trust→hook chain design (trust blocks authoritatively) and the last-writer-wins merge already used inside the Dispatcher (§5.4).</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> InstallHooks wires no seam yet</h3>
+      <p><strong>Spec said:</strong> InstallHooks composes hook dispatch into RunConfig's seams.</p>
+      <p><strong>Implemented instead:</strong> It builds (or nil-short-circuits) the Dispatcher and accepts <code>*runtime.RunConfig</code> for a stable signature, but attaches nothing. The <code>chain*</code> combinators are provided for #420–#424 to do the actual attaching.</p>
+      <p><strong>Why:</strong> The issue explicitly scopes this to "骨架与空短路"; wiring concrete events here would be dead code until the event payloads (#420–#424) exist.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> AfterToolCall combinator: sequential vs field-merge</h3>
+      <p><strong>Alternatives:</strong> (a) last-writer-wins on the whole result, (b) field-by-field merge of two <code>AfterToolCallResult</code>s.</p>
+      <p><strong>Chosen (a):</strong> Simpler and predictable; the executor already applies a single result field-by-field over the tool output.</p>
+      <p><strong>Con:</strong> Two After seams both wanting to override different fields can't co-exist — acceptable now since only PostToolUse uses this seam; revisit if a second consumer appears.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should InstallHooks also thread SessionID into HookInput now?</h3>
+      <p><strong>Assumption:</strong> <code>HookDeps.SessionID</code> is captured but unused until an event is wired.</p>
+      <p><strong>Verify:</strong> Whether #420 will read SessionID from HookDeps or from the RunConfig.SessionID field directly — the two must not diverge.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
