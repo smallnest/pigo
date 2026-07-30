@@ -25,6 +25,7 @@ package runtime
 import (
 	"context"
 	"strings"
+	"sync"
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
@@ -188,6 +189,48 @@ func (p *TodoReminderProvider) Reminder(ctx context.Context, _ agentcore.Message
 	}
 	return "Your todo list has unfinished items. Keep it up to date with the todo tool.\n\n" +
 		agenttool.RenderTodoList(items), true
+}
+
+// OneShotReminderProvider injects a fixed body on the NEXT turn only, then stays
+// silent forever. Unlike the always-on providers (todo/goal) it does not depend
+// on live state — it carries a snapshot of text captured at registration time.
+// It exists for events that produce a single ephemeral injection, such as a
+// UserPromptSubmit hook's additionalContext (US-007, FR-9): the hook's context
+// must reach the model on the turn the prompt is sent, but must not persist into
+// history or re-fire on later turns. sync.Once makes the single-fire transition
+// safe even if the loop consults providers concurrently.
+type OneShotReminderProvider struct {
+	name string
+	body string
+	once sync.Once
+}
+
+// NewOneShotReminder builds a one-shot provider that will inject body exactly
+// once. An empty body yields a provider that never fires.
+func NewOneShotReminder(name, body string) *OneShotReminderProvider {
+	return &OneShotReminderProvider{name: name, body: body}
+}
+
+// Name implements ReminderProvider.
+func (p *OneShotReminderProvider) Name() string {
+	if p.name == "" {
+		return "one-shot"
+	}
+	return p.name
+}
+
+// Reminder implements ReminderProvider. It returns its body and true on the very
+// first consultation, then ("", false) on every subsequent turn.
+func (p *OneShotReminderProvider) Reminder(ctx context.Context, _ agentcore.MessageList) (string, bool) {
+	if strings.TrimSpace(p.body) == "" {
+		return "", false
+	}
+	var body string
+	p.once.Do(func() { body = p.body })
+	if body == "" {
+		return "", false
+	}
+	return body, true
 }
 
 // GoalReminderProvider surfaces the active goal as background context each turn

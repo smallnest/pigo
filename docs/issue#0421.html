@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0421</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/421">#421</a> &mdash; hooks: UserPromptSubmit 接线 (注入 + 阻断) &mdash; 2026-07-30</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> additionalContext injected via a one-shot reminder, not a persisted message</h3>
+      <p><strong>Ambiguity:</strong> The spec requires the hook's <code>additionalContext</code> to reach the model on this turn but NOT enter persisted history. <code>ReminderRegistry</code> providers fire every turn.</p>
+      <p><strong>Choice:</strong> Added <code>OneShotReminderProvider</code> (<code>sync.Once</code>) that emits its body on the first consultation, then stays silent. <code>DispatchUserPromptSubmit</code> registers one onto <code>cfg.Reminders</code>.</p>
+      <p><strong>Rationale:</strong> Reminders are already ephemeral (injected into the per-turn request copy via <code>TransformContext</code>, never written back to <code>AgentContext.Messages</code>), so a one-shot provider gives exactly "this turn only, not persisted" — matching SPEC §11.3's explicit assumption.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Block takes strict priority over injection</h3>
+      <p><strong>Ambiguity:</strong> What if a hook both blocks and returns additionalContext?</p>
+      <p><strong>Choice:</strong> On <code>dec.Block</code>, return <code>(true, reason)</code> immediately and register no reminder.</p>
+      <p><strong>Rationale:</strong> A blocked prompt is never submitted, so there is no turn to inject into. Injecting would leak orphaned context into the next unrelated prompt.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Helper reports (block, reason); callers own the abort</h3>
+      <p><strong>Ambiguity:</strong> Block behavior differs per driver (REPL returns to input + shows reason; headless exits non-zero).</p>
+      <p><strong>Choice:</strong> <code>DispatchUserPromptSubmit</code> only reports the decision; it does not abort. The two drivers map (block, reason) to their own control flow.</p>
+      <p><strong>Rationale:</strong> Keeps the cli-layer helper driver-agnostic and testable in isolation, consistent with the #419/#420 seam-helper pattern.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Per-driver call sites deferred to #425</h3>
+      <p><strong>Spec said:</strong> "REPL 与 headless 提示词入口均在提交前同步分发 UserPromptSubmit".</p>
+      <p><strong>Implemented instead:</strong> #421 delivers the reusable mechanism (<code>DispatchUserPromptSubmit</code> + <code>OneShotReminderProvider</code>) and integration tests; the actual REPL/headless call-site wiring lands in #425 (全 driver 收敛), which converges every driver's InstallHooks + prompt gate at once.</p>
+      <p><strong>Why:</strong> Same staging as #420 — wiring one driver in isolation would be undone by #425's convergence. The mechanism is complete and independently tested now.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> One-shot state lives in the provider, not the registry</h3>
+      <p><strong>Alternatives:</strong> (a) fire-once flag inside the provider, (b) a registry that removes a provider after it fires.</p>
+      <p><strong>Chosen (a):</strong> <code>sync.Once</code> in the provider keeps the registry a dumb append-only list and needs no mutation/removal API.</p>
+      <p><strong>Con:</strong> A spent provider stays in the slice and is consulted (cheaply) every turn. Acceptable — a handful of prompt-submit reminders per session, each an O(1) no-op after firing.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should the one-shot reminder survive a compaction boundary?</h3>
+      <p><strong>Assumption:</strong> If the prompt turn triggers compaction before the model consults reminders, the one-shot may fire against the post-compaction turn instead. In practice injection happens on the immediate next request, so this is not observed.</p>
+      <p><strong>Verify:</strong> When #425 wires the real call sites, confirm the reminder is registered right before the loop's next request so the "next turn" is always the intended one.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
