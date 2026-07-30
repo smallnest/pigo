@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0417</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/417">#417</a> &mdash; hooks: internal/hooks 基础设施 (config/matcher/protocol/runner/dispatch) &mdash; 2026-07-30</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> "|"-split alternatives treated as exact names unless they contain regex metacharacters</h3>
+      <p><strong>Ambiguity:</strong> The SPEC lists matcher forms as empty/<code>*</code>, exact name, <code>a|b</code> multi-value, and regex — but <code>write|edit</code> is also valid Go regex, so which engine handles it is unclear.</p>
+      <p><strong>Choice:</strong> Split on <code>|</code>; if every alternative is a "plain" token (no <code>. * + ? ( ) [ ] { } ^ $ \</code>), treat it as exact/multi-value matching and never fall through to regexp. Only patterns containing metacharacters (e.g. <code>Edit.*</code>) compile as regexp.</p>
+      <p><strong>Rationale:</strong> Gives predictable exact-match semantics for the common <code>write|edit</code> case while still supporting real regexes, and avoids surprising partial-substring matches from an accidental regexp interpretation.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>continue:false</code> mapped to a block</h3>
+      <p><strong>Ambiguity:</strong> The protocol lists a <code>continue</code> bool (from Claude Code) but the SPEC's HookDecision only models Block/Reason/AdditionalContext/UpdatedInput.</p>
+      <p><strong>Choice:</strong> <code>HookOutput.blocks()</code> returns true for either <code>decision:"block"</code> or an explicit <code>continue:false</code>.</p>
+      <p><strong>Rationale:</strong> Keeps v1 decision surface small (one "stop" concept) while honoring both spellings a hook author might use. A distinct "hard stop entire loop" semantic can be added later if needed.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Non-positive per-hook timeout override is ignored</h3>
+      <p><strong>Ambiguity:</strong> SPEC says default 60s, overridable per hook, but does not say what a <code>timeout:0</code> or negative means.</p>
+      <p><strong>Choice:</strong> <code>TimeoutSeconds()</code> falls back to the 60s default unless the override is strictly positive.</p>
+      <p><strong>Rationale:</strong> Prevents a misconfigured <code>0</code> from disabling the timeout guard entirely, which would let a hung hook freeze the agent — the exact failure mode the timeout exists to prevent.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None — the package implements the SPEC's §3.1/§3.3/§5.2/§5.3/§6 contracts as written. No wiring into existing seams was done in this issue (deferred to #419+ per the SPEC phase plan).</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Regexp compiled per Dispatch call rather than cached</h3>
+      <p><strong>Alternatives:</strong> (a) compile matcher regexps once at config-resolve time and cache; (b) compile lazily on each match.</p>
+      <p><strong>Chosen:</strong> (b) — compile on each <code>MatchHooks</code> call.</p>
+      <p><strong>Why:</strong> Keeps <code>internal/hooks</code> a pure leaf with no per-run state or lifecycle. Hook counts are tiny (typically 0–3 matchers per event) and only metacharacter matchers pay the cost, so the allocation is negligible against the shell-fork cost that follows. Caching can be introduced later behind the same API if profiling ever shows it matters.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Output cap keeps a truncated prefix instead of discarding on overflow</h3>
+      <p><strong>Alternatives:</strong> (a) drop all output once the 1MB cap is hit; (b) keep the first 1MB and count the dropped bytes.</p>
+      <p><strong>Chosen:</strong> (b) via <code>cappedBuffer</code>.</p>
+      <p><strong>Why:</strong> A hook that prints a small JSON decision followed by noise still has its decision parsed. The dropped-byte count drives a single truncation warning without unbounded memory growth.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should invalid-hook / invalid-regexp warnings dedupe across repeated events?</h3>
+      <p>Currently a malformed matcher warns on every event dispatch that touches it. For a hot event (PreToolUse fires per tool call) this could be noisy. Acceptable for v1? Or dedupe at resolve time once #418 adds config validation?</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Windows shell support</h3>
+      <p>The runner hardcodes <code>sh -c</code> (field-overridable). Per SPEC §11.1 v1 targets darwin/linux only. Confirm Windows is out of scope for this batch.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
