@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0420</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/420">#420</a> &mdash; hooks: PreToolUse + PostToolUse 接线 &mdash; 2026-07-30</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> PreToolUse chains after the trust gate, never replaces it</h3>
+      <p><strong>Ambiguity:</strong> The <code>BeforeToolCall</code> seam is already occupied by <code>trust.BeforeToolCall</code>. How to add a hook without losing the trust gate?</p>
+      <p><strong>Choice:</strong> <code>InstallHooks</code> wraps the existing seam via <code>chainBeforeToolCall(existingTrust, preToolCallHook)</code>. Trust runs first; a trust block short-circuits before the user hook runs.</p>
+      <p><strong>Rationale:</strong> Keeps the trust gate authoritative (issue's key constraint) while layering user hooks on top. Matches the block-short-circuit combinator semantics defined in #419.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> updatedInput is re-validated against the tool schema</h3>
+      <p><strong>Ambiguity:</strong> Spec says a PreToolUse hook may rewrite tool args; it does not say whether the rewrite is trusted.</p>
+      <p><strong>Choice:</strong> The executor replaces <code>args</code> with <code>UpdatedInput</code> and re-runs <code>Registry.Validate</code>; a schema-invalid rewrite becomes a validation error result.</p>
+      <p><strong>Rationale:</strong> A hook must not be able to smuggle malformed arguments past the tool's own schema contract.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> PostToolUse feedback is appended, block is advisory</h3>
+      <p><strong>Ambiguity:</strong> What does a PostToolUse block mean for an already-executed tool?</p>
+      <p><strong>Choice:</strong> Post cannot undo execution. <code>reason</code> + <code>additionalContext</code> are joined and appended as a new text block onto a clone of the result content via <code>AfterToolCallResult.Content</code>.</p>
+      <p><strong>Rationale:</strong> The tool already ran and had side effects; the only honest action is to surface the hook's feedback to the model, not pretend the call didn't happen.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Added an optional field to BeforeToolCallDecision</h3>
+      <p><strong>Spec said:</strong> Reuse <code>BeforeToolCallDecision{Block, Content}</code> for PreToolUse.</p>
+      <p><strong>Implemented instead:</strong> Added an additive optional <code>UpdatedInput json.RawMessage</code> field, since the original struct could only block, not rewrite args.</p>
+      <p><strong>Why:</strong> The <code>updatedInput</code> acceptance criterion cannot be expressed by the block-only struct. SPEC §4.5 sanctions additive optional fields as non-breaking.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> tool_response payload = marshaled result content, not a typed shape</h3>
+      <p><strong>Alternatives:</strong> (a) marshal the whole <code>AgentToolResult</code>, (b) marshal only <code>result.Content</code>, (c) define a dedicated wire type.</p>
+      <p><strong>Chosen (b):</strong> Passes the content the model would see, which is what a Post hook wants to inspect. Marshal failure degrades to an empty (omitted) field.</p>
+      <p><strong>Con:</strong> Post hooks don't see IsError / Terminate flags. Acceptable for v1 observation/feedback; revisit if a consumer needs the full result.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should InstallHooks be idempotent across repeated calls?</h3>
+      <p><strong>Assumption:</strong> <code>InstallHooks</code> is called once per run. Calling it twice would double-wrap the seams (hooks fire twice).</p>
+      <p><strong>Verify:</strong> When #425 converges all drivers, confirm each driver calls <code>InstallHooks</code> exactly once per run config.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

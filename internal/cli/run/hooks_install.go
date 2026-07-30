@@ -12,6 +12,7 @@ package run
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 
@@ -31,19 +32,104 @@ type HookDeps struct {
 }
 
 // InstallHooks builds the Dispatcher for a run from the resolved hook set and
-// returns it for later per-event wiring. It short-circuits when no hooks are
-// configured: NewDispatcher returns nil for an empty set, so the hot path pays
-// nothing (FR-18) and callers can hold the possibly-nil dispatcher safely.
+// wires the tool-execution hook points into cfg. It short-circuits when no hooks
+// are configured: NewDispatcher returns nil for an empty set, so the hot path
+// pays nothing (FR-18) and nothing is wrapped. The returned dispatcher is used
+// by later per-event wiring (#421–#424).
 //
-// This skeleton does not yet attach the dispatcher to any RunConfig seam; the
-// cfg parameter is accepted now so the signature is stable for #420–#424, which
-// will wrap cfg's seams via the chain* combinators below.
+// PreToolUse is CHAINED onto the existing BeforeToolCall seam (occupied by the
+// trust gate) rather than replacing it: trust runs first and stays authoritative
+// (a trust block short-circuits before the user hook runs). PostToolUse is
+// chained onto AfterToolCall as a last-writer so it can append feedback to an
+// already-executed tool's result without undoing it.
 func InstallHooks(cfg *runtime.RunConfig, set hooks.HookSet, deps HookDeps) *hooks.Dispatcher {
 	warn := deps.WarnLog
 	if warn == nil {
 		warn = os.Stderr
 	}
-	return hooks.NewDispatcher(set, deps.ProjectDir, warn)
+	d := hooks.NewDispatcher(set, deps.ProjectDir, warn)
+	if d == nil {
+		return nil
+	}
+
+	tec := &cfg.Batch.ToolExecutorConfig
+	tec.BeforeToolCall = chainBeforeToolCall(tec.BeforeToolCall, preToolCallHook(d, deps))
+	tec.AfterToolCall = chainAfterToolCall(tec.AfterToolCall, postToolCallHook(d, deps))
+	return d
+}
+
+// preToolCallHook adapts the dispatcher's PreToolUse event to the BeforeToolCall
+// seam. It dispatches with the tool name and raw arguments; a block becomes a
+// blocking decision whose reason is surfaced as the tool's error result, and an
+// updatedInput becomes an argument rewrite (re-validated by the executor).
+func preToolCallHook(d *hooks.Dispatcher, deps HookDeps) agentcore.BeforeToolCallFunc {
+	return func(ctx context.Context, call agentcore.AgentToolCall) *agentcore.BeforeToolCallDecision {
+		dec := d.Dispatch(ctx, hooks.EventPreToolUse, call.Name, hooks.HookInput{
+			EventType:  hooks.EventPreToolUse,
+			SessionID:  deps.SessionID,
+			ProjectDir: deps.ProjectDir,
+			ToolName:   call.Name,
+			ToolInput:  call.Arguments,
+		})
+		if dec.Block {
+			content := agentcore.ContentList{agentcore.NewTextContent(hookReason(dec.Reason, call.Name))}
+			return &agentcore.BeforeToolCallDecision{Block: true, Content: &content}
+		}
+		if len(dec.UpdatedInput) > 0 {
+			return &agentcore.BeforeToolCallDecision{UpdatedInput: dec.UpdatedInput}
+		}
+		return nil
+	}
+}
+
+// postToolCallHook adapts the dispatcher's PostToolUse event to the AfterToolCall
+// seam. It dispatches with the tool name, raw arguments, and the tool's response,
+// then appends any reason/additionalContext to the result content as a new text
+// block (the executed tool is never undone). A block on Post is treated as
+// feedback only: it cannot retract an already-run tool, so we surface the reason.
+func postToolCallHook(d *hooks.Dispatcher, deps HookDeps) agentcore.AfterToolCallFunc {
+	return func(ctx context.Context, call agentcore.AgentToolCall, result agentcore.AgentToolResult, isError bool) *agentcore.AfterToolCallResult {
+		var resp json.RawMessage
+		if b, err := json.Marshal(result.Content); err == nil {
+			resp = b
+		}
+		dec := d.Dispatch(ctx, "PostToolUse", call.Name, hooks.HookInput{
+			EventType:    "PostToolUse",
+			SessionID:    deps.SessionID,
+			ProjectDir:   deps.ProjectDir,
+			ToolName:     call.Name,
+			ToolInput:    call.Arguments,
+			ToolResponse: resp,
+		})
+		feedback := joinHookText(dec.Reason, dec.AdditionalContext)
+		if feedback == "" {
+			return nil
+		}
+		content := append(agentcore.ContentList{}, result.Content...)
+		content = append(content, agentcore.NewTextContent(feedback))
+		return &agentcore.AfterToolCallResult{Content: &content}
+	}
+}
+
+// hookReason returns the block reason, falling back to a generic message keyed on
+// the tool name when the hook gave no reason.
+func hookReason(reason, toolName string) string {
+	if reason != "" {
+		return reason
+	}
+	return "tool " + toolName + " blocked by PreToolUse hook"
+}
+
+// joinHookText joins two hook text fields with a newline, dropping empties.
+func joinHookText(a, b string) string {
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	default:
+		return a + "\n" + b
+	}
 }
 
 // chainBeforeToolCall composes two BeforeToolCall seams into one that runs prev

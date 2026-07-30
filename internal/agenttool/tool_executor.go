@@ -105,19 +105,30 @@ func prepareToolCall(ctx context.Context, cfg ToolExecutorConfig, call agentcore
 		return nil, nil, &r, true
 	}
 
-	// beforeToolCall hook (may block).
+	// beforeToolCall hook (may block or rewrite arguments).
 	if cfg.BeforeToolCall != nil {
-		if dec := cfg.BeforeToolCall(ctx, agentcore.AgentToolCall{ID: call.ID, Name: call.Name, Arguments: args}); dec != nil && dec.Block {
-			r := agentcore.AgentToolResult{}
-			if dec.Content != nil {
-				r.Content = *dec.Content
-			} else {
-				r.Content = agentcore.ContentList{agentcore.NewTextContent(fmt.Sprintf("tool %q blocked by beforeToolCall", call.Name))}
+		if dec := cfg.BeforeToolCall(ctx, agentcore.AgentToolCall{ID: call.ID, Name: call.Name, Arguments: args}); dec != nil {
+			if dec.Block {
+				r := agentcore.AgentToolResult{}
+				if dec.Content != nil {
+					r.Content = *dec.Content
+				} else {
+					r.Content = agentcore.ContentList{agentcore.NewTextContent(fmt.Sprintf("tool %q blocked by beforeToolCall", call.Name))}
+				}
+				if dec.Details != nil {
+					r.Details = *dec.Details
+				}
+				return nil, nil, &r, true
 			}
-			if dec.Details != nil {
-				r.Details = *dec.Details
+			// Argument rewrite (PreToolUse updatedInput): replace and re-validate
+			// so a hook cannot smuggle schema-invalid args past the tool.
+			if len(dec.UpdatedInput) > 0 {
+				args = dec.UpdatedInput
+				if errs := cfg.Registry.Validate(call.Name, args); len(errs) > 0 {
+					r := ValidationErrorResult(call.Name, errs)
+					return nil, nil, &r, true
+				}
 			}
-			return nil, nil, &r, true
 		}
 	}
 
