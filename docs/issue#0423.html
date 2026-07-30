@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0423</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/423">#423</a> &mdash; hooks: SessionStart 接线 (run-start 同步分发 + 注入) &mdash; 2026-07-30</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Synchronous dispatch reuses the one-shot reminder, not the async notifier</h3>
+      <p><strong>Ambiguity:</strong> The spec (§11.2) warns an async <code>OnEvent</code> dispatch could land after the first turn's request is already built, so injected context would miss turn one.</p>
+      <p><strong>Choice:</strong> <code>DispatchSessionStart</code> runs the event inline (blocking) at the run-start seam and registers any <code>additionalContext</code> as a <code>NewOneShotReminder("session-start", …)</code> on <code>cfg.Reminders</code> — the same mechanism #421 introduced for UserPromptSubmit.</p>
+      <p><strong>Rationale:</strong> Inline dispatch guarantees the reminder is present before the first <code>TransformContext</code> runs, so the injected text is in the very first turn. Reusing the one-shot reminder avoids a second injection path.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Injection only — no block semantics at session start</h3>
+      <p><strong>Ambiguity:</strong> Should SessionStart be able to block, like UserPromptSubmit / Stop?</p>
+      <p><strong>Choice:</strong> <code>DispatchSessionStart</code> returns nothing; it only threads <code>additionalContext</code>. A block decision is ignored.</p>
+      <p><strong>Rationale:</strong> There is no in-flight action to veto at session start — the run has not begun. Claude Code's SessionStart likewise only injects context. Modeling a block here would have no coherent target.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Call site deferred to #425; helper + tests delivered now</h3>
+      <p><strong>Spec said:</strong> "run 启动(agent_start 对应路径)同步分发 SessionStart".</p>
+      <p><strong>Implemented instead:</strong> The reusable <code>DispatchSessionStart</code> helper and its integration tests are delivered here; the actual REPL/TUI/headless call before <code>StartRun</code> is wired during driver convergence in #425, matching the staging used by #420/#421/#422.</p>
+      <p><strong>Why:</strong> All call sites converge once in #425 so the drivers are touched a single time; the injection path itself is fully exercised by the tests now.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> <code>source</code> is a caller-supplied string, not derived</h3>
+      <p><strong>Alternatives:</strong> (a) have the helper infer startup/resume from run state, (b) let the caller pass the source string.</p>
+      <p><strong>Chosen (b):</strong> The caller knows whether it is starting fresh or resuming; the helper stays a thin, testable adapter with no run-state coupling.</p>
+      <p><strong>Con:</strong> A caller could pass an unexpected string. Acceptable — the value is opaque to the hook contract and only meaningful to user hooks.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Which values should <code>source</code> take across the drivers?</h3>
+      <p><strong>Assumption:</strong> <code>"startup"</code> for a fresh run and <code>"resume"</code> when continuing a saved session, per the acceptance criteria.</p>
+      <p><strong>Verify:</strong> Confirm during #425 whether TUI/REPL/headless each map cleanly to these two, or whether a third source (e.g. <code>"clear"</code> after an in-session reset) is warranted.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
