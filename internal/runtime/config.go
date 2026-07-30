@@ -17,6 +17,7 @@ import (
 	"os"
 
 	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/hooks"
 )
 
 // Config is the fully resolved configuration a run operates under, after all
@@ -35,6 +36,10 @@ type Config struct {
 	ToolExecutionMode agentcore.ToolExecutionMode
 	// ThinkingLevel is the default reasoning-effort level.
 	ThinkingLevel agentcore.ThinkingLevel
+	// Hooks are the resolved, append-merged hook matchers keyed by event type.
+	// Nil when no layer defined any hooks (FR-18), so the no-hooks path costs
+	// nothing downstream.
+	Hooks hooks.HookSet
 }
 
 // ConfigLayer is one partial layer of configuration. Pointer/optional fields
@@ -46,6 +51,11 @@ type ConfigLayer struct {
 	Credentials       map[string]string `json:"credentials,omitempty"`
 	ToolExecutionMode *string           `json:"toolExecutionMode,omitempty"`
 	ThinkingLevel     *string           `json:"thinkingLevel,omitempty"`
+	// Hooks are this layer's hook matchers keyed by event type. Unlike the
+	// scalar fields, hooks are not overridden across layers: ResolveConfig
+	// appends each layer's matchers per event type (FR-2), so lower-layer hooks
+	// always still fire.
+	Hooks hooks.HookSet `json:"hooks,omitempty"`
 }
 
 // DefaultConfigLayer is the base layer applied before all others. It gives a
@@ -109,6 +119,15 @@ func ResolveConfig(layers ...*ConfigLayer) (Config, error) {
 				cfg.Credentials = make(map[string]string)
 			}
 			cfg.Credentials[provider] = key
+		}
+		for eventType, matchers := range layer.Hooks {
+			if len(matchers) == 0 {
+				continue
+			}
+			if cfg.Hooks == nil {
+				cfg.Hooks = make(hooks.HookSet)
+			}
+			cfg.Hooks[eventType] = append(cfg.Hooks[eventType], matchers...)
 		}
 	}
 	if err := cfg.validate(); err != nil {

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0418</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px;
+      padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block; font-size: 0.6875rem; font-weight: 500;
+      padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/418">#418</a> &mdash; hooks: ConfigLayer.Hooks 分层配置与合并 &mdash; 2026-07-30</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Hooks append-merge, not field-level override</h3>
+      <p><strong>Ambiguity:</strong> Every other <code>ConfigLayer</code> field uses field-level replacement (higher layer wins). The spec (§3.2, FR-2) says hooks must accumulate across layers instead.</p>
+      <p><strong>Choice:</strong> In <code>ResolveConfig</code>, hooks are appended per event type in ascending layer order (<code>cfg.Hooks[evt] = append(cfg.Hooks[evt], matchers...)</code>), while scalars keep override semantics.</p>
+      <p><strong>Rationale:</strong> A global hook (e.g. an audit log on every tool call) must still fire even when a project adds its own hooks. Override would silently drop the global hook.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Leave <code>cfg.Hooks</code> nil when no hooks defined</h3>
+      <p><strong>Ambiguity:</strong> FR-18 requires the no-hooks path to cost nothing, but does not specify the empty representation.</p>
+      <p><strong>Choice:</strong> Only allocate the map on first real matcher; a layer carrying an event key with an empty matcher slice does not allocate either.</p>
+      <p><strong>Rationale:</strong> Downstream dispatch can do a single <code>nil</code> check to skip all hook machinery, matching <code>NewDispatcher</code>'s nil-set shortcut from #417.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> run.go hook loading deferred to #419</h3>
+      <p><strong>Spec said:</strong> #418 mentions run.go should load global + project hook layers (project only if trusted).</p>
+      <p><strong>Implemented instead:</strong> Only the config plumbing (<code>ConfigLayer.Hooks</code>, <code>Config.Hooks</code>, merge in <code>ResolveConfig</code>) plus tests. The existing <code>ResolveThinkingLevel</code> helper already threads all layers through <code>ResolveConfig</code>, so hooks are merged today; the actual dispatcher wiring and trust-gated project loading belong to #419's <code>InstallHooks</code> helper.</p>
+      <p><strong>Why:</strong> The issue itself flags "final wiring may defer to #419". Adding a half-wired dispatcher now would be dead code until #419's skeleton lands.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Shared slice backing on appended matchers</h3>
+      <p><strong>Alternatives:</strong> (a) append matcher values directly (shared inner <code>Hooks</code> slice headers), or (b) deep-copy each matcher.</p>
+      <p><strong>Chosen (a):</strong> Resolved config is treated as read-only after <code>ResolveConfig</code>, so sharing the backing array is safe and avoids per-resolve allocation.</p>
+      <p><strong>Con:</strong> A future caller that mutates <code>cfg.Hooks</code> in place could alias a layer's slice — acceptable given the read-only invariant, worth revisiting if config becomes mutable.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should hook config be validated at resolve time?</h3>
+      <p><strong>Assumption:</strong> <code>HookConfig.Validate()</code> exists (#417) but is currently invoked lazily at match/dispatch time, not during <code>ResolveConfig</code>.</p>
+      <p><strong>Verify:</strong> Whether a malformed hook (bad type / empty command) in a config file should fail the whole run early, or continue to be skipped-with-warning at dispatch. Current behavior: skipped at dispatch (consistent with fail-open isolation).</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/smallnest/pigo/internal/hooks"
 )
 
 // ptr is a helper for building pointer-valued config-layer fields in tests.
@@ -154,5 +155,86 @@ func TestResolveConfigDefaultsAlone(t *testing.T) {
 	}
 	if cfg.Model == "" || cfg.ToolExecutionMode == "" || cfg.ThinkingLevel == "" {
 		t.Errorf("default config incomplete: %+v", cfg)
+	}
+}
+
+// TestResolveConfigHooksAppendMerge verifies hooks are append-merged per event
+// type across layers (FR-2) in ascending order, not overridden like scalars.
+func TestResolveConfigHooksAppendMerge(t *testing.T) {
+	def := DefaultConfigLayer()
+	global := &ConfigLayer{Hooks: hooks.HookSet{
+		"PreToolUse": {{Matcher: "*", Hooks: []hooks.HookConfig{{Command: "global-pre"}}}},
+		"Stop":       {{Matcher: "", Hooks: []hooks.HookConfig{{Command: "global-stop"}}}},
+	}}
+	project := &ConfigLayer{Hooks: hooks.HookSet{
+		"PreToolUse": {{Matcher: "bash", Hooks: []hooks.HookConfig{{Command: "project-pre"}}}},
+	}}
+
+	cfg, err := ResolveConfig(&def, global, project)
+	if err != nil {
+		t.Fatalf("ResolveConfig: %v", err)
+	}
+	pre := cfg.Hooks["PreToolUse"]
+	if len(pre) != 2 {
+		t.Fatalf("PreToolUse matchers = %d, want 2 (global+project appended)", len(pre))
+	}
+	// Ascending layer order: global before project.
+	if pre[0].Hooks[0].Command != "global-pre" || pre[1].Hooks[0].Command != "project-pre" {
+		t.Errorf("PreToolUse order wrong: %q, %q", pre[0].Hooks[0].Command, pre[1].Hooks[0].Command)
+	}
+	if len(cfg.Hooks["Stop"]) != 1 {
+		t.Errorf("Stop matchers = %d, want 1 (only global set it)", len(cfg.Hooks["Stop"]))
+	}
+}
+
+// TestResolveConfigHooksNilWhenAbsent verifies the no-hooks path leaves
+// cfg.Hooks nil (FR-18), so downstream can cheaply skip hook dispatch.
+func TestResolveConfigHooksNilWhenAbsent(t *testing.T) {
+	def := DefaultConfigLayer()
+	cfg, err := ResolveConfig(&def)
+	if err != nil {
+		t.Fatalf("ResolveConfig: %v", err)
+	}
+	if cfg.Hooks != nil {
+		t.Errorf("Hooks = %v, want nil when no layer defines hooks", cfg.Hooks)
+	}
+	// An empty (but non-nil) hook map in a layer must not allocate cfg.Hooks.
+	empty := &ConfigLayer{Hooks: hooks.HookSet{"PreToolUse": {}}}
+	cfg2, err := ResolveConfig(&def, empty)
+	if err != nil {
+		t.Fatalf("ResolveConfig: %v", err)
+	}
+	if cfg2.Hooks != nil {
+		t.Errorf("Hooks = %v, want nil when layer's event has no matchers", cfg2.Hooks)
+	}
+}
+
+// TestLoadConfigLayerHooks verifies a layer's hooks decode from JSON, including
+// per-hook timeout and matcher fields.
+func TestLoadConfigLayerHooks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	body := `{
+		"model": "x/y",
+		"hooks": {
+			"PreToolUse": [
+				{"matcher": "bash", "hooks": [{"type": "command", "command": "echo hi", "timeout": 5}]}
+			]
+		}
+	}`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	layer, err := LoadConfigLayer(path)
+	if err != nil {
+		t.Fatalf("LoadConfigLayer: %v", err)
+	}
+	pre := layer.Hooks["PreToolUse"]
+	if len(pre) != 1 || pre[0].Matcher != "bash" {
+		t.Fatalf("unexpected matchers: %+v", pre)
+	}
+	h := pre[0].Hooks[0]
+	if h.Command != "echo hi" || h.TimeoutSeconds() != 5 {
+		t.Errorf("unexpected hook: cmd=%q timeout=%d", h.Command, h.TimeoutSeconds())
 	}
 }
