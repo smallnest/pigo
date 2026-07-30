@@ -62,6 +62,13 @@ func (r *Runner) Run(ctx context.Context, h HookConfig, input HookInput) (HookOu
 	cmd.Dir = r.ProjectDir
 	cmd.Env = r.env(input)
 	cmd.Stdin = bytes.NewReader(payload)
+	// On timeout, CommandContext kills the shell, but a grandchild it spawned
+	// (e.g. `sh -c "sleep 5"` forking sleep) can inherit the stdout/stderr pipes
+	// and keep them open, blocking cmd.Run until that grandchild exits on its own
+	// — so Run would return only after the full command duration, not the timeout.
+	// WaitDelay bounds that wait: after the process is killed, Go force-closes the
+	// I/O pipes so Run returns promptly.
+	cmd.WaitDelay = time.Second
 
 	var stdout, stderr cappedBuffer
 	stdout.limit = MaxOutputBytes
