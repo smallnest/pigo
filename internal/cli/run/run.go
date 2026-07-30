@@ -16,9 +16,11 @@ import (
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/builtinskills"
+	"github.com/smallnest/pigo/internal/hooks"
 	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
+	"github.com/smallnest/pigo/internal/trust"
 )
 
 // Env is the environment every run shares: the working directory, the tool set
@@ -301,6 +303,56 @@ func ResolveThinkingLevel(cliLevel string) (agentcore.ThinkingLevel, error) {
 		return "", err
 	}
 	return cfg.ThinkingLevel, nil
+}
+
+// ResolveHookSet resolves the effective hook set through the same layered config
+// chain as ResolveThinkingLevel (default < global < project < env), with one
+// difference required by FR-14: the project layer (./.pigo/config.json under
+// cwd) is only merged when the directory is trusted. An untrusted directory
+// therefore contributes no hooks, so a checked-out repo cannot run arbitrary
+// commands until the user trusts it. A malformed layer file is a hard error,
+// surfaced to the caller. The returned set is empty (len 0) when no layer
+// defines hooks, which InstallHooks treats as "no hooks" (FR-18).
+func ResolveHookSet(cwd string, trusted bool) (hooks.HookSet, error) {
+	def := runtime.DefaultConfigLayer()
+	layers := []*runtime.ConfigLayer{&def}
+
+	if dir := ConfigDir(); dir != "" {
+		global, err := runtime.LoadConfigLayer(filepath.Join(dir, "config.json"))
+		if err != nil {
+			return nil, err
+		}
+		layers = append(layers, global)
+	}
+	if trusted {
+		project, err := runtime.LoadConfigLayer(filepath.Join(cwd, ".pigo", "config.json"))
+		if err != nil {
+			return nil, err
+		}
+		layers = append(layers, project)
+	}
+	env := runtime.EnvConfigLayer(os.Getenv)
+	layers = append(layers, &env)
+
+	cfg, err := runtime.ResolveConfig(layers...)
+	if err != nil {
+		return nil, err
+	}
+	return cfg.Hooks, nil
+}
+
+// Trusted reports whether cwd is a trusted directory per the shared trust store
+// ($PIGO_HOME/trust.json). It is the trust gate for the non-interactive drivers
+// (headless / TUI / sub-agent) that have no live trust.Manager to consult, so
+// ResolveHookSet can honor FR-14 uniformly. A missing or unreadable store is
+// treated as untrusted (fail closed): a directory only runs project-layer hooks
+// after the user has explicitly trusted it.
+func Trusted(cwd string) bool {
+	m, err := trust.NewManager(trust.DefaultPath())
+	if err != nil || m == nil {
+		return false
+	}
+	return m.IsTrusted(cwd)
 }
 
 // NewConfig builds the loop configuration shared by every driver: the provider

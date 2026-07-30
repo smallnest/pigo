@@ -29,10 +29,12 @@ import (
 	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/cli/btw"
 	"github.com/smallnest/pigo/internal/cli/goal"
+	"github.com/smallnest/pigo/internal/cli/run"
 	"github.com/smallnest/pigo/internal/cli/status"
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/clipboard"
 	"github.com/smallnest/pigo/internal/compaction"
+	"github.com/smallnest/pigo/internal/hooks"
 	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
@@ -116,6 +118,15 @@ type replDeps struct {
 	// It is reset to "no telemetry yet" on any session switch (/fork, /clone,
 	// /import).
 	telemetry *cli.TelemetryHolder
+
+	// dispatcher is the run's hook dispatcher (#425), nil when no hooks are
+	// configured (FR-18) so every hook path is skipped. It is resolved once per
+	// session (trust-gated, FR-14) at the top of runREPL, which also fires
+	// SessionStart. Each turn's streamRun installs the per-turn seams
+	// (PreToolUse/PostToolUse/Stop) and runs UserPromptSubmit through it.
+	dispatcher *hooks.Dispatcher
+	// hookDeps carries the session id / project dir stamped onto every HookInput.
+	hookDeps run.HookDeps
 }
 
 // replScanBufInit is the initial size of the shared input reader. A REPL user
@@ -154,6 +165,26 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 	// deps.in, and is ignored once deps.in is populated.
 	if deps.in == nil {
 		deps.in = bufio.NewReaderSize(in, replScanBufInit)
+	}
+
+	// Resolve the run's hooks once per session and fire SessionStart so any
+	// injected context lands in the first turn (#423/#425). The project layer is
+	// honored only when the working directory is trusted (FR-14). A malformed hook
+	// layer disables hooks with a warning rather than aborting an interactive
+	// session. deps.dispatcher stays nil when no hooks are configured (FR-18), so
+	// streamRun skips all hook work.
+	deps.hookDeps = run.HookDeps{SessionID: deps.header.ID, ProjectDir: deps.cwd, WarnLog: out}
+	trusted := deps.trust != nil && deps.trust.IsTrusted(deps.cwd)
+	if set, err := run.ResolveHookSet(deps.cwd, trusted); err != nil {
+		fmt.Fprintf(out, "pigo: hooks disabled: %v\n", err)
+	} else if d := run.BuildDispatcher(set, deps.hookDeps); d != nil {
+		deps.dispatcher = d
+		if deps.reminders == nil {
+			deps.reminders = runtime.NewReminderRegistry()
+		}
+		ssCfg := runtime.RunConfig{Reminders: deps.reminders}
+		run.DispatchSessionStart(context.Background(), d, &ssCfg, deps.hookDeps, "startup")
+		deps.reminders = ssCfg.Reminders
 	}
 	var priorInputs []string
 	for _, msg := range deps.agentCtx.Messages {
@@ -369,6 +400,17 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 		fmt.Fprintf(out, "pigo: %v\n", err)
 		return
 	}
+	// UserPromptSubmit runs before the prompt is committed to the shared context,
+	// so a block aborts the turn without leaving a dangling user message; any
+	// additionalContext is injected into this turn only (one-shot reminder).
+	if deps.dispatcher != nil {
+		pc := runtime.RunConfig{Reminders: deps.reminders}
+		if block, reason := run.DispatchUserPromptSubmit(ctx, deps.dispatcher, &pc, deps.hookDeps, prompt); block {
+			fmt.Fprintf(out, "pigo: prompt blocked by hook: %s\n", reason)
+			return
+		}
+		deps.reminders = pc.Reminders
+	}
 	deps.agentCtx.Messages = append(deps.agentCtx.Messages, agentcore.UserMessage{
 		RoleField: agentcore.RoleUser,
 		Content:   content,
@@ -391,6 +433,12 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 		},
 		Reminders: deps.reminders,
 	}
+	// Per-turn wiring of the tool-execution + Stop seams (PreToolUse/PostToolUse/
+	// Stop) onto this turn's freshly-built cfg; a nil dispatcher is a no-op so the
+	// hot path pays nothing when no hooks are configured (FR-18).
+	if deps.dispatcher != nil {
+		run.InstallSeams(&cfg, deps.dispatcher, deps.hookDeps)
+	}
 	stream := runtime.StartRun(ctx, deps.agentCtx, cfg)
 
 	// The assistant reply is Markdown, which can only be laid out once the whole
@@ -410,6 +458,12 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 		}
 		reply.Reset()
 	}
+	// The SessionEnd/PreCompact observer chains onto the existing OnEvent closure
+	// (plugin notifier + telemetry). Nil when no hooks are configured.
+	var hookEvent func(agentcore.AgentEvent)
+	if deps.dispatcher != nil {
+		hookEvent = hooks.NewHookNotifier(deps.dispatcher, deps.hookDeps.SessionID, deps.hookDeps.ProjectDir).Handle
+	}
 	_, err = runtime.DrainStream(ctx, stream, runtime.StreamHandler{
 		OnEvent: func(ev agentcore.AgentEvent) {
 			// First call the notifier if present.
@@ -419,6 +473,10 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 			// Capture TelemetryEvent and fold it into the holder.
 			if telemetry, ok := ev.(agentcore.TelemetryEvent); ok && deps.telemetry != nil {
 				deps.telemetry.Fold(telemetry)
+			}
+			// Deliver SessionEnd/PreCompact to any configured hook.
+			if hookEvent != nil {
+				hookEvent(ev)
 			}
 		},
 		OnText: func(delta string) {

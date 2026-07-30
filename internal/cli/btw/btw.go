@@ -33,8 +33,10 @@ import (
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/run"
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/compaction"
+	"github.com/smallnest/pigo/internal/hooks"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
 	"github.com/smallnest/pigo/internal/trust"
@@ -226,8 +228,33 @@ func AskSide(setCancel func(context.CancelFunc), out io.Writer, host cli.Host, s
 		},
 		Reminders: host.Reminders(),
 	}
+	// Wire the per-turn hook seams onto the side run's cfg; nil dispatcher is a
+	// no-op (FR-18).
+	if d := host.Dispatcher(); d != nil {
+		run.InstallSeams(&cfg, d, host.HookDeps())
+	}
 	stream := runtime.StartRun(runCtx, side, cfg)
 	drainSideStream(runCtx, out, host, stream)
+}
+
+// chainBtwEvent returns the OnEvent observer for a /btw side run: the plugin
+// notifier, with the SessionEnd/PreCompact hook notifier chained after it when
+// hooks are configured, mirroring the REPL's OnEvent composition.
+func chainBtwEvent(host cli.Host) func(agentcore.AgentEvent) {
+	notifier := host.NotifierHandle()
+	d := host.Dispatcher()
+	if d == nil {
+		return notifier
+	}
+	deps := host.HookDeps()
+	hookEvent := hooks.NewHookNotifier(d, deps.SessionID, deps.ProjectDir).Handle
+	if notifier == nil {
+		return hookEvent
+	}
+	return func(ev agentcore.AgentEvent) {
+		notifier(ev)
+		hookEvent(ev)
+	}
 }
 
 // drainSideStream prints the streamed assistant text and tool activity of a side
@@ -247,7 +274,7 @@ func drainSideStream(ctx context.Context, out io.Writer, host cli.Host, stream *
 		reply.Reset()
 	}
 	_, err := runtime.DrainStream(ctx, stream, runtime.StreamHandler{
-		OnEvent: host.NotifierHandle(),
+		OnEvent: chainBtwEvent(host),
 		OnText: func(delta string) {
 			reply.WriteString(delta)
 		},

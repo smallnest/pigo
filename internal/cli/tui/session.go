@@ -14,6 +14,8 @@ package tui
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -25,6 +27,8 @@ import (
 	"github.com/smallnest/pigo/internal/cli/run"
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/compaction"
+	"github.com/smallnest/pigo/internal/hooks"
+	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
 	"github.com/smallnest/pigo/internal/session"
@@ -44,6 +48,15 @@ type runSession struct {
 	reg       *agenttool.ToolRegistry
 	reminders *runtime.ReminderRegistry
 	creds     *provider.CredentialStore
+
+	// dispatcher is the session's hook dispatcher, nil when no hooks are
+	// configured (FR-18). hookDeps carries the session id / project dir stamped
+	// onto every HookInput and hook process environment.
+	dispatcher *hooks.Dispatcher
+	hookDeps   run.HookDeps
+	// onEvent is the observer chain delivered to every run: the plugin notifier
+	// (US-017) with the SessionEnd/PreCompact hook notifier chained after it.
+	onEvent func(agentcore.AgentEvent)
 
 	// curLeaf is the id of the on-disk entry the next turn descends from; persisted
 	// is the number of agentCtx.Messages already written. persist() appends only
@@ -138,7 +151,60 @@ func newRunSessionWithStore(store *session.Store, opts Options) (*runSession, []
 		curLeaf:   curLeaf,
 		persisted: len(history),
 	}
+	// Wire hooks uniformly with every other driver (#425): resolve the trust-gated
+	// hook set, build the dispatcher, dispatch SessionStart once, and compose the
+	// SessionEnd/PreCompact observer with the plugin notifier. Trust is granted by
+	// --approve (Options.Approve) or the shared trust store; project-layer hooks
+	// only apply when trusted (FR-14). A malformed hook layer disables hooks with a
+	// warning rather than failing the TUI launch.
+	cwd, _ := os.Getwd()
+	s.hookDeps = run.HookDeps{SessionID: header.ID, ProjectDir: cwd, WarnLog: os.Stderr}
+	trusted := opts.Approve || run.Trusted(cwd)
+	var baseOnEvent func(agentcore.AgentEvent)
+	if n := plugin.NewEventNotifier(opts.Plugins, os.Stderr); n != nil {
+		baseOnEvent = n.Handle
+	}
+	if set, err := run.ResolveHookSet(cwd, trusted); err != nil {
+		fmt.Fprintf(os.Stderr, "pigo: hooks disabled: %v\n", err)
+		s.onEvent = baseOnEvent
+	} else if d := run.BuildDispatcher(set, s.hookDeps); d != nil {
+		s.dispatcher = d
+		if s.reminders == nil {
+			s.reminders = runtime.NewReminderRegistry()
+		}
+		ssCfg := runtime.RunConfig{Reminders: s.reminders}
+		run.DispatchSessionStart(context.Background(), d, &ssCfg, s.hookDeps, sessionStartSource(opts))
+		s.reminders = ssCfg.Reminders
+		n := hooks.NewHookNotifier(d, s.hookDeps.SessionID, s.hookDeps.ProjectDir)
+		s.onEvent = chainTUIEvent(baseOnEvent, n.Handle)
+	} else {
+		s.onEvent = baseOnEvent
+	}
 	return s, history, nil
+}
+
+// sessionStartSource maps the resolved run options to the SessionStart source
+// tag: "resume" when continuing an existing session, "startup" otherwise.
+func sessionStartSource(opts Options) string {
+	if opts.ResumeID != "" {
+		return "resume"
+	}
+	return "startup"
+}
+
+// chainTUIEvent composes the plugin notifier with the hook notifier into one
+// observer; a nil operand is identity.
+func chainTUIEvent(prev, next func(agentcore.AgentEvent)) func(agentcore.AgentEvent) {
+	if prev == nil {
+		return next
+	}
+	if next == nil {
+		return prev
+	}
+	return func(ev agentcore.AgentEvent) {
+		prev(ev)
+		next(ev)
+	}
 }
 
 // buildConfig assembles the RunConfig for one turn from the live config and
@@ -149,7 +215,7 @@ func newRunSessionWithStore(store *session.Store, opts Options) (*runSession, []
 // per-call BeforeToolCall prompt. The stream fn is derived from the live provider
 // and the API key resolved through the credential store, exactly as the REPL does.
 func (s *runSession) buildConfig() runtime.RunConfig {
-	return runtime.RunConfig{
+	cfg := runtime.RunConfig{
 		LoopConfig: runtime.LoopConfig{
 			Model:         s.live.Model,
 			Provider:      s.live.ProviderName,
@@ -166,6 +232,12 @@ func (s *runSession) buildConfig() runtime.RunConfig {
 		},
 		Reminders: s.reminders,
 	}
+	// Per-turn wiring of the tool-execution + Stop seams; nil dispatcher is a
+	// no-op so the hot path pays nothing when no hooks are configured (FR-18).
+	if s.dispatcher != nil {
+		run.InstallSeams(&cfg, s.dispatcher, s.hookDeps)
+	}
+	return cfg
 }
 
 // startRun is the real binding for Model.startRunFn: it appends the submitted
@@ -181,6 +253,18 @@ func (s *runSession) startRun(prompt string) (chan tea.Msg, tea.Cmd) {
 		// raw prompt as plain text so the run still starts.
 		content = agentcore.ContentList{agentcore.NewTextContent(prompt)}
 	}
+	// UserPromptSubmit runs before the prompt is committed to the context: a block
+	// aborts the turn (emitting a runEndMsg carrying the reason) without leaving a
+	// dangling user message; additionalContext is injected into this turn only.
+	if s.dispatcher != nil {
+		pc := runtime.RunConfig{Reminders: s.reminders}
+		if block, reason := run.DispatchUserPromptSubmit(context.Background(), s.dispatcher, &pc, s.hookDeps, prompt); block {
+			ch := newEventChan()
+			go func() { ch <- runEndMsg{err: fmt.Errorf("prompt blocked by hook: %s", reason)} }()
+			return ch, waitForEvent(ch)
+		}
+		s.reminders = pc.Reminders
+	}
 	s.agentCtx.Messages = append(s.agentCtx.Messages, agentcore.UserMessage{
 		RoleField: agentcore.RoleUser,
 		Content:   content,
@@ -190,7 +274,7 @@ func (s *runSession) startRun(prompt string) (chan tea.Msg, tea.Cmd) {
 	// runEndMsg and the model returns to idle.
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancelRun = cancel
-	return startRun(ctx, s.agentCtx, s.buildConfig())
+	return startRun(ctx, s.agentCtx, s.buildConfig(), s.onEvent)
 }
 
 // interrupt cancels the in-flight run, if any. It is bound to Model.interruptFn

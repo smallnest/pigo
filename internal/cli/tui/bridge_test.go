@@ -31,7 +31,7 @@ func drain(ch chan tea.Msg) []tea.Msg {
 // the callback→msg conversion + channel ordering in isolation.
 func TestStreamHandlerConversion(t *testing.T) {
 	ch := newEventChan()
-	h := newStreamHandler(ch)
+	h := newStreamHandler(ch, nil)
 
 	// A representative sequence: two text deltas, a tool start/update/end, a
 	// telemetry summary, a compaction, and a turn end.
@@ -100,7 +100,7 @@ func TestStreamHandlerConversion(t *testing.T) {
 // TestToolEndError verifies the ok flag inverts IsError.
 func TestToolEndError(t *testing.T) {
 	ch := newEventChan()
-	h := newStreamHandler(ch)
+	h := newStreamHandler(ch, nil)
 	h.OnEvent(agentcore.ToolExecutionEndEvent{
 		ToolCallID: "c",
 		Result:     agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent("boom")}},

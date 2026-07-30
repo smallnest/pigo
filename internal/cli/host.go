@@ -12,6 +12,8 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/smallnest/pigo/internal/cli/run"
+	"github.com/smallnest/pigo/internal/hooks"
 	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
@@ -50,6 +52,13 @@ type Host interface {
 	Trust() *trust.Manager
 	Goal() *agenttool.GoalState
 	Telemetry() *TelemetryHolder
+
+	// Dispatcher returns the session's hook dispatcher, or nil when no hooks are
+	// configured (FR-18). Side-runs (/goal, /btw) install the per-turn seams onto
+	// their own cfg via run.InstallSeams(cfg, host.Dispatcher(), host.HookDeps()).
+	Dispatcher() *hooks.Dispatcher
+	// HookDeps carries the session id / project dir stamped onto every HookInput.
+	HookDeps() run.HookDeps
 
 	// Cwd is the directory pigo was launched in; it does not change during a
 	// session and gates side-effect tools.

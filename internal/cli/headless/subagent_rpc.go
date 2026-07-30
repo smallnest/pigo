@@ -106,6 +106,16 @@ func handleSubAgentRequest(ctx context.Context, enc *json.Encoder, req *jsonrpc.
 		},
 		Batch: agenttool.BatchConfig{ToolExecutorConfig: agenttool.ToolExecutorConfig{Registry: reg}},
 	}
+	// Wire hooks uniformly with every other driver (#425): the child sub-agent runs
+	// its own PreToolUse/PostToolUse (and Stop) hooks from the trust-gated hook set
+	// rooted at its working directory. It has no backing session, so SessionID is
+	// empty (omitted from HookInput). A malformed hook layer disables hooks with a
+	// warning rather than failing the child run.
+	if set, herr := run.ResolveHookSet(cwd, run.Trusted(cwd)); herr != nil {
+		fmt.Fprintf(os.Stderr, "pigo: hooks disabled: %v\n", herr)
+	} else {
+		run.InstallHooks(&runCfg, set, run.HookDeps{ProjectDir: cwd, WarnLog: os.Stderr})
+	}
 	text, err := runtime.RunSubAgentOnce(ctx, params.SystemPrompt, params.Prompt, tools, runCfg)
 	if err != nil {
 		// A failed child run is an RPC error so the parent's defaultProcessCall

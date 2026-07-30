@@ -28,8 +28,10 @@ import (
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/run"
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/compaction"
+	"github.com/smallnest/pigo/internal/hooks"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
 	"github.com/smallnest/pigo/internal/trust"
@@ -249,6 +251,12 @@ func runGoalLoop(setCancel func(context.CancelFunc), out io.Writer, host cli.Hos
 		},
 	}
 
+	// Wire the per-turn hook seams (PreToolUse/PostToolUse/Stop) onto this goal
+	// run's cfg from the session dispatcher; a nil dispatcher is a no-op (FR-18).
+	if d := host.Dispatcher(); d != nil {
+		run.InstallSeams(&cfg, d, host.HookDeps())
+	}
+
 	// The first turn is driven by the goal reminder alone (the objective is
 	// injected as background context); no explicit user prompt is appended so the
 	// objective is not duplicated in the durable history.
@@ -313,6 +321,26 @@ func goalTurnActivity(tail []agentcore.AgentMessage) (outputTokens int, hadTool 
 
 // drainGoalStream prints the streamed assistant text and tool activity of a goal
 // run to out, mirroring streamRun's rendering. It blocks until the run ends.
+// chainGoalEvent returns the OnEvent observer for a goal run: the plugin
+// notifier, with the SessionEnd/PreCompact hook notifier chained after it when
+// hooks are configured, mirroring the REPL's OnEvent composition.
+func chainGoalEvent(host cli.Host) func(agentcore.AgentEvent) {
+	notifier := host.NotifierHandle()
+	d := host.Dispatcher()
+	if d == nil {
+		return notifier
+	}
+	deps := host.HookDeps()
+	hookEvent := hooks.NewHookNotifier(d, deps.SessionID, deps.ProjectDir).Handle
+	if notifier == nil {
+		return hookEvent
+	}
+	return func(ev agentcore.AgentEvent) {
+		notifier(ev)
+		hookEvent(ev)
+	}
+}
+
 func drainGoalStream(ctx context.Context, out io.Writer, host cli.Host, stream *runtime.LoopEventStream) {
 	var reply strings.Builder
 	flushReply := func() {
@@ -327,7 +355,7 @@ func drainGoalStream(ctx context.Context, out io.Writer, host cli.Host, stream *
 		reply.Reset()
 	}
 	_, err := runtime.DrainStream(ctx, stream, runtime.StreamHandler{
-		OnEvent: host.NotifierHandle(),
+		OnEvent: chainGoalEvent(host),
 		OnText: func(delta string) {
 			reply.WriteString(delta)
 		},

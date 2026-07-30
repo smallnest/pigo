@@ -40,7 +40,7 @@ func newEventChan() chan tea.Msg {
 // back-pressure to the draining goroutine so no event is lost. It is factored
 // out of pump so the callback→msg conversion can be unit-tested without a real
 // provider run (see bridge_test.go).
-func newStreamHandler(ch chan tea.Msg) runtime.StreamHandler {
+func newStreamHandler(ch chan tea.Msg, extra func(agentcore.AgentEvent)) runtime.StreamHandler {
 	return runtime.StreamHandler{
 		OnText: func(delta string) {
 			ch <- textDeltaMsg{delta: delta}
@@ -49,6 +49,11 @@ func newStreamHandler(ch chan tea.Msg) runtime.StreamHandler {
 			ch <- turnEndMsg{msg: msg, results: results}
 		},
 		OnEvent: func(ev agentcore.AgentEvent) {
+			// Deliver observer events (plugin notifier, SessionEnd/PreCompact hook)
+			// first, then translate into TUI messages.
+			if extra != nil {
+				extra(ev)
+			}
 			switch e := ev.(type) {
 			case agentcore.ToolExecutionStartEvent:
 				ch <- toolStartMsg{id: e.ToolCallID, name: e.ToolName, input: argsToMap(e.Args)}
@@ -79,9 +84,9 @@ func argsToMap(args any) map[string]any {
 // pump runs the agent loop to completion on the calling goroutine, converting
 // every event to a tea.Msg on ch, and finally sends a runEndMsg carrying the
 // run's result error. It is meant to be launched as a goroutine by startRun.
-func pump(ctx context.Context, ch chan tea.Msg, agentCtx *agentcore.AgentContext, cfg runtime.RunConfig) {
+func pump(ctx context.Context, ch chan tea.Msg, agentCtx *agentcore.AgentContext, cfg runtime.RunConfig, onEvent func(agentcore.AgentEvent)) {
 	stream := runtime.StartRun(ctx, agentCtx, cfg)
-	_, err := runtime.DrainStream(ctx, stream, newStreamHandler(ch))
+	_, err := runtime.DrainStream(ctx, stream, newStreamHandler(ch, onEvent))
 	ch <- runEndMsg{err: err}
 }
 
@@ -101,8 +106,8 @@ func waitForEvent(ch chan tea.Msg) tea.Cmd {
 // again to pull the next msg. Returning the channel keeps the bridge
 // self-contained: the model owns the handle and decides when to stop pulling
 // (after runEndMsg).
-func startRun(ctx context.Context, agentCtx *agentcore.AgentContext, cfg runtime.RunConfig) (chan tea.Msg, tea.Cmd) {
+func startRun(ctx context.Context, agentCtx *agentcore.AgentContext, cfg runtime.RunConfig, onEvent func(agentcore.AgentEvent)) (chan tea.Msg, tea.Cmd) {
 	ch := newEventChan()
-	go pump(ctx, ch, agentCtx, cfg)
+	go pump(ctx, ch, agentCtx, cfg, onEvent)
 	return ch, waitForEvent(ch)
 }

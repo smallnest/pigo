@@ -12,6 +12,8 @@ import (
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/run"
+	"github.com/smallnest/pigo/internal/hooks"
 	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
@@ -34,6 +36,8 @@ func (d *replDeps) NotifierHandle() func(agentcore.AgentEvent) { return d.notifi
 func (d *replDeps) Trust() *trust.Manager                      { return d.trust }
 func (d *replDeps) Goal() *agenttool.GoalState                 { return d.goal }
 func (d *replDeps) Telemetry() *cli.TelemetryHolder            { return d.telemetry }
+func (d *replDeps) Dispatcher() *hooks.Dispatcher              { return d.dispatcher }
+func (d *replDeps) HookDeps() run.HookDeps                     { return d.hookDeps }
 func (d *replDeps) Cwd() string                                { return d.cwd }
 func (d *replDeps) Input() *bufio.Reader                       { return d.in }
 func (d *replDeps) ConfirmMu() *sync.Mutex                     { return d.confirmMu }

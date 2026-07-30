@@ -85,17 +85,44 @@ func Run(ctx context.Context, p RunParams, out, errOut io.Writer) int {
 	creds.SetOverride(env.ProviderName, p.APIKey)
 	runCfg := run.NewConfig(p.Model, env.ProviderName, thinking, env.Provider, creds, run.ToolRegistry(env.Tools), run.TodoReminders(env.Tools))
 	runCfg.SessionID = hs.header.ID
+
+	// Wire hooks uniformly with every other driver (#425): resolve the trust-gated
+	// hook set, install the tool-execution + Stop seams, dispatch SessionStart, and
+	// chain the SessionEnd/PreCompact observer onto the plugin event notifier. A
+	// malformed hook layer is a config error (exit 2), matching thinking-level.
+	source := "startup"
+	if p.ResumeID != "" {
+		source = "resume"
+	}
+	set, herr := run.ResolveHookSet(env.Cwd, run.Trusted(env.Cwd))
+	if herr != nil {
+		fmt.Fprintf(errOut, "pigo: %v\n", herr)
+		return 2
+	}
+	hookDeps := run.HookDeps{SessionID: hs.header.ID, ProjectDir: env.Cwd, WarnLog: errOut}
+	// Deliver agent lifecycle events to any subscribed plugin (US-017, #133).
+	// NewEventNotifier returns nil when no plugin subscribes, so the base handler
+	// stays nil in the common no-plugin case.
+	var baseOnEvent func(agentcore.AgentEvent)
+	if n := plugin.NewEventNotifier(env.Plugins, errOut); n != nil {
+		baseOnEvent = n.Handle
+	}
+	d, onEvent := run.InstallDriverHooks(ctx, &runCfg, set, hookDeps, source, baseOnEvent)
+	// UserPromptSubmit runs before the prompt is handed to the loop: a block aborts
+	// the headless run non-zero; additionalContext is injected into this run only.
+	if d != nil {
+		if block, reason := run.DispatchUserPromptSubmit(ctx, d, &runCfg, hookDeps, headlessPrompt); block {
+			fmt.Fprintf(errOut, "pigo: prompt blocked by hook: %s\n", reason)
+			return 1
+		}
+	}
+
 	cfg := runtime.HeadlessConfig{
 		Mode: p.Mode,
 		Out:  out,
 		Run:  runCfg,
 	}
-	// Deliver agent lifecycle events to any subscribed plugin (US-017, #133).
-	// NewEventNotifier returns nil when no plugin subscribes, so the OnEvent hook
-	// stays unset in the common no-plugin case.
-	if n := plugin.NewEventNotifier(env.Plugins, errOut); n != nil {
-		cfg.OnEvent = n.Handle
-	}
+	cfg.OnEvent = onEvent
 	runErr := runtime.RunHeadless(ctx, agentCtx, cfg)
 	// Persist the run's messages regardless of run outcome so a partial run is
 	// still resumable; a persistence failure is reported but does not mask a run
