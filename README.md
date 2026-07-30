@@ -11,7 +11,7 @@ pigo 可以读写文件、执行命令、检索代码、抓取网页，并借助
 
 > 📖 配套电子书《用 Go 编写 pi Agent》：[write_pi_agent_in_go.pdf](https://github.com/smallnest/ebooks/blob/master/write_pi_agent_in_go.pdf)
 
-![](docs/pigo.png)
+![](docs/pigo-tui.png)
 
 ---
 
@@ -30,6 +30,7 @@ pigo 可以读写文件、执行命令、检索代码、抓取网页，并借助
 - [技能 Skills](#技能-skills)
 - [提示词模板](#提示词模板)
 - [插件](#插件)
+- [Hooks](#hooks)
 - [包管理](#包管理)
 - [发布release](#发布release)
 - [目录与环境变量](#目录与环境变量)
@@ -401,6 +402,165 @@ Review the PR at $1. Focus on:
 - 容错发现——启动失败的插件会被记录并跳过。
 - 插件可提供额外工具，并订阅 Agent 生命周期事件。
 - `--no-tools` 会整体跳过插件发现。
+
+---
+
+## Hooks
+
+Hooks 让你在 Agent 生命周期的关键节点运行**自定义 shell 命令**，无需写 Go 或编译插件即可拦截、注入或观察 Agent 行为（对标 Claude Code 的 hooks）。命令以你**当前用户身份**执行，通过 stdin 收到一份 JSON、通过退出码与 stdout JSON 影响 Agent。
+
+### Hook 点一览（9 个）
+
+| 事件 | 触发时机 | 能否阻断 | 关键输入字段 |
+|------|---------|:-------:|-------------|
+| `PreToolUse` | 工具执行前 | ✅ | `tool_name`, `tool_input` |
+| `PostToolUse` | 工具执行后 | 反馈 | `tool_name`, `tool_input`, `tool_response` |
+| `UserPromptSubmit` | 用户提交 prompt 后、进入模型前 | ✅ | `prompt` |
+| `Stop` | 主 Agent 一轮自然结束时 | ✅（要求继续） | `stop_reason` |
+| `SubagentStop` | 子 Agent 结束时 | ✅（要求继续） | `stop_reason` |
+| `SessionStart` | 会话开始 / 恢复 | 注入 | `source`（`startup`/`resume`） |
+| `SessionEnd` | 会话结束 | 观察 | `stop_reason` |
+| `PreCompact` | 上下文压缩前 | 观察 | `trigger`（`manual`/`auto`） |
+| `Notification` | Agent 发出通知时 | 观察 | `message` |
+
+### 输入 JSON（写入 hook 的 stdin）
+
+pigo 向 hook 命令的 stdin 写入**单行 JSON**。只包含可观察、非敏感字段，**绝不包含 API Key 或任何凭证**。按事件类型只携带相关字段：
+
+```json
+{
+  "event_type": "PreToolUse",
+  "session_id": "0f9d…",
+  "project_dir": "/path/to/repo",
+  "tool_name": "bash",
+  "tool_input": { "command": "rm -rf /" }
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `event_type` | 事件名（见上表） |
+| `session_id` | 会话 id（子 Agent 无会话时省略） |
+| `project_dir` | 当前工作目录 |
+| `tool_name` / `tool_input` | 工具名与入参（Pre/PostToolUse） |
+| `tool_response` | 工具返回（PostToolUse） |
+| `prompt` | 用户输入（UserPromptSubmit） |
+| `stop_reason` | 结束原因（Stop/SessionEnd） |
+| `source` | `startup` 或 `resume`（SessionStart） |
+| `trigger` | `manual` 或 `auto`（PreCompact） |
+| `message` | 通知内容（Notification） |
+
+### 输出协议（退出码 + stdout JSON）
+
+hook 通过**退出码**给出决定：
+
+- **`0`**：放行。若 stdout 是合法 JSON，则按下表解析；非 JSON 视为无操作。
+- **`2`**：阻断。stderr 作为阻断原因（等价于 stdout 输出 `{"decision":"block"}`）。
+- **其它非 0**：执行失败，记录警告并对阻断型 hook **fail-open**（不阻断 Agent）。
+
+退出码 0 时，可选地在 stdout 打印 JSON 精细控制：
+
+| 字段 | 类型 | 作用 |
+|------|------|------|
+| `decision` | string | `"block"` 阻断；`"approve"` 或空放行 |
+| `reason` | string | 阻断原因 / 反馈文本 |
+| `additionalContext` | string | 注入给模型的额外上下文（UserPromptSubmit / SessionStart） |
+| `continue` | bool | `false` 等价于阻断 |
+| `updatedInput` | object | 仅 PreToolUse：改写工具入参后再执行 |
+
+多个 hook 命中同一事件时：任一阻断即阻断；`additionalContext` 按顺序累加；`updatedInput` 以最后一个为准。每个 hook 默认 60s 超时（`timeout` 字段可覆盖），超时按失败处理。
+
+### Matcher 规则
+
+`matcher` 仅对带工具名的事件（Pre/PostToolUse）生效，语义对标 Claude Code：
+
+- 空或 `"*"`：匹配所有工具。
+- 精确工具名（如 `bash`）：只匹配该工具。
+- `"|"` 分隔列表（如 `bash|write|edit`）：匹配其中任一。
+- 其它：作为 **Go 正则**对工具名求值（如 `"Notebook.*"`）。
+
+不带工具名的事件（UserPromptSubmit、Stop、SessionStart 等）忽略 matcher，全部 hook 触发。
+
+### 分层配置
+
+hook 配置写在 `config.json` 的 `hooks` 字段，按 `event → [{matcher, hooks}]` 组织。多层配置**按事件追加合并**（默认 < 全局 < 项目 < 环境），优先级低的先执行：
+
+- **全局**：`$PIGO_HOME/config.json`（默认 `~/.pigo/config.json`），对所有项目生效。
+- **项目**：`./.pigo/config.json`，**仅当项目被信任时加载**（见下方安全须知）。
+
+```jsonc
+// ~/.pigo/config.json —— 全局：所有会话都注入 git 分支
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "~/.pigo/hooks/inject-branch.sh" }] }
+    ]
+  }
+}
+```
+
+```jsonc
+// ./.pigo/config.json —— 项目级：仅本仓库拦截危险命令、写文件后跑格式化
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "bash", "hooks": [{ "type": "command", "command": "./.pigo/hooks/block-rm-rf.sh" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "write|edit", "hooks": [{ "type": "command", "command": "./.pigo/hooks/gofmt.sh", "timeout": 30 }] }
+    ]
+  }
+}
+```
+
+单个 hook 条目字段：`type`（当前为 `"command"`，可省略）、`command`（要执行的 shell 命令）、`timeout`（秒，默认 60，非正数忽略）。
+
+### 可运行示例
+
+以下脚本记得 `chmod +x`。
+
+**1. PreToolUse — 拦截 `rm -rf`**（退出码 2 阻断，stderr 作为原因）：
+
+```bash
+#!/usr/bin/env bash
+# ~/.pigo/hooks/block-rm-rf.sh
+payload=$(cat)
+cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // ""')
+if printf '%s' "$cmd" | grep -Eq 'rm[[:space:]]+(-[a-zA-Z]*r[a-zA-Z]*[[:space:]]+)*-?[a-zA-Z]*f'; then
+  echo "blocked: 'rm -rf' is not allowed by project policy" >&2
+  exit 2
+fi
+exit 0
+```
+
+**2. UserPromptSubmit — 注入当前 git 分支**（退出码 0 + stdout JSON 的 `additionalContext`）：
+
+```bash
+#!/usr/bin/env bash
+# ~/.pigo/hooks/inject-branch.sh
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "no-git")
+printf '{"additionalContext": "Current git branch: %s"}\n' "$branch"
+exit 0
+```
+
+**3. PostToolUse — 写文件后跑格式化**（观察型，读 `tool_input` 里的路径）：
+
+```bash
+#!/usr/bin/env bash
+# ~/.pigo/hooks/gofmt.sh
+payload=$(cat)
+path=$(printf '%s' "$payload" | jq -r '.tool_input.path // .tool_input.file_path // ""')
+case "$path" in
+  *.go) [ -f "$path" ] && gofmt -w "$path" ;;
+esac
+exit 0
+```
+
+### 安全须知
+
+- **以当前用户身份执行**：hook 就是普通 shell 命令，拥有你本人的全部权限。只配置你信任的命令，谨慎对待第三方脚本。
+- **payload 不含凭证**：写入 hook stdin 的 JSON 只有可观察的非敏感字段，**绝不包含 API Key 或任何凭证**。
+- **项目级 hook 仅受信任项目启用**：`./.pigo/config.json` 里的 hook 只有当项目被信任（`--approve` 或信任存储记录）时才加载；不受信任的目录一律忽略项目级 hook，避免克隆仓库即执行任意命令（fail-closed）。
 
 ---
 
