@@ -226,7 +226,13 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 				break // exit inner loop → consult follow-up messages
 			}
 
-			toolResults, allTerminate := agenttool.ExecuteToolCalls(ctx, cfg.Batch, calls, emitFrom)
+			// Inject the run-level emitter into the context so tools (notably the
+			// generic task tool) can retrieve it via ProgressEmitterFromContext and
+			// surface a dispatched sub-agent's progress up this parent event stream.
+			// emitFrom feeds the parent stream and is run-scoped, so a child's
+			// SubAgentProgressEvent lands on the right run's stream.
+			toolCtx := agentcore.WithProgressEmitter(ctx, emitFrom)
+			toolResults, allTerminate := agenttool.ExecuteToolCalls(toolCtx, cfg.Batch, calls, emitFrom)
 			for _, tr := range toolResults {
 				agentCtx.Messages = append(agentCtx.Messages, tr)
 			}

@@ -244,12 +244,21 @@ func (t *SubAgentTool) Execute(ctx context.Context, id string, args json.RawMess
 		// forwarded here; a caller supplying a sink gets no deltas in this mode.
 		return t.executeProcess(ctx, a.Prompt)
 	}
-	return t.executeGoroutine(ctx, a.Prompt, onUpdate)
+	return t.executeGoroutine(ctx, id, a.Prompt, a.Description, onUpdate)
 }
 
 // executeGoroutine runs the child agent loop in-process and returns its final
 // text. This is the default mode and the original sub-agent behavior.
-func (t *SubAgentTool) executeGoroutine(ctx context.Context, prompt string, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
+//
+// id is the parent tool call's id and description is the (optional) task
+// description; both are threaded onto any SubAgentProgressEvent emitted for this
+// run so a consumer can key status by the parent task call. When the parent loop
+// injected a run-level progress emitter into ctx (WithProgressEmitter), the
+// child's tool-execution / turn boundaries are translated into
+// SubAgentProgressEvent and surfaced up the parent stream; when no emitter is
+// present (e.g. the tool is called directly in a unit test) progress reporting is
+// silently skipped.
+func (t *SubAgentTool) executeGoroutine(ctx context.Context, id, prompt, description string, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
 	// Concurrency guard: when a shared semaphore is configured, acquire a slot
 	// before spawning the child and release it via defer so a panic or error
 	// still frees the slot. A full channel blocks (queues) the acquire; a
@@ -278,6 +287,37 @@ func (t *SubAgentTool) executeGoroutine(ctx context.Context, prompt string, onUp
 	if onUpdate != nil {
 		h.OnText = func(delta string) {
 			onUpdate(agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(delta)}})
+		}
+	}
+	// Progress reporting: when the parent loop injected a run-level emitter into
+	// ctx, translate the child's tool-execution / turn boundaries into
+	// SubAgentProgressEvent and emit them up the parent stream. Reporting is at
+	// activity granularity (per child tool start / turn boundary), NOT per text
+	// delta, so event volume stays proportional to the child's tool calls. When
+	// no emitter is present the OnEvent hook is left nil and progress is skipped.
+	if parentEmit := agentcore.ProgressEmitterFromContext(ctx); parentEmit != nil {
+		// chars accumulates the child's streamed text length so a coarse output
+		// token estimate can ride along on each progress event (0 = unknown).
+		chars := 0
+		if prev := h.OnText; prev != nil {
+			h.OnText = func(delta string) {
+				chars += len(delta)
+				prev(delta)
+			}
+		} else {
+			h.OnText = func(delta string) { chars += len(delta) }
+		}
+		h.OnEvent = func(ev agentcore.AgentEvent) {
+			act := activityOf(ev)
+			if act == "" {
+				return
+			}
+			_ = parentEmit(ctx, agentcore.SubAgentProgressEvent{
+				ToolCallID:  id,
+				Description: description,
+				Activity:    act,
+				Tokens:      estimateTokens(chars),
+			})
 		}
 	}
 	final, err := DrainStream(ctx, stream, h)
