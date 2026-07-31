@@ -127,6 +127,18 @@ type replDeps struct {
 	dispatcher *hooks.Dispatcher
 	// hookDeps carries the session id / project dir stamped onto every HookInput.
 	hookDeps run.HookDeps
+
+	// remote holds the active remote-control session (#443), or nil when remote
+	// control is off. The /remote-control command sets/clears it in place; the
+	// input loop selects on its RemoteInput channel and the confirm seam routes
+	// tool-call approvals to the paired browser while it is non-nil. When nil the
+	// REPL behaves exactly as before (byte-identical).
+	remote *remoteSession
+	// tee wraps out so REPL output can be mirrored to the remote browser while a
+	// session is active. It is created at the top of runREPL; the /remote-control
+	// command toggles its secondary writer. When no remote session is active it
+	// forwards only to the terminal.
+	tee *teeWriter
 }
 
 // replScanBufInit is the initial size of the shared input reader. A REPL user
@@ -166,6 +178,26 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 	if deps.in == nil {
 		deps.in = bufio.NewReaderSize(in, replScanBufInit)
 	}
+
+	// Mirror all REPL output to the remote browser while a /remote-control
+	// session is active (#443). teeWriter forwards to the terminal
+	// unconditionally and, when the command toggles a secondary, also to the
+	// bridge's output writer. When remote control is off it is a thin
+	// pass-through, so terminal output is byte-identical to before.
+	deps.tee = newTeeWriter(out)
+	out = deps.tee
+
+	// Stop a still-running remote-control server when the REPL exits (FR-16), so
+	// quitting pigo tears down the LAN listener rather than leaking it. The
+	// closure reads deps.remote at exit time, so it covers a session started mid
+	// run; an explicit /remote-control stop clears deps.remote and makes this a
+	// no-op.
+	defer func() {
+		if deps.remote != nil {
+			_ = deps.remote.server.Stop(context.Background())
+			deps.remote = nil
+		}
+	}()
 
 	// Resolve the run's hooks once per session and fire SessionStart so any
 	// injected context lands in the first turn (#423/#425). The project layer is
@@ -222,9 +254,54 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 		}
 	}()
 
+	// Input is acquired by a dedicated reader goroutine so the main loop can
+	// select between a locally-typed line and a line submitted from the paired
+	// browser (#443). The goroutine reads one line per request sent on promptReq
+	// and returns it on localCh; the loop only issues a new request when the
+	// reader is idle (readerBusy == false), so a browser-submitted line that
+	// arrives while a local ReadLine is still blocked does not deadlock or
+	// double-prompt. When remote control is off, remoteCh is nil (blocks
+	// forever), so the select degenerates to a plain local read — behavior is
+	// identical to before.
+	type lineResult struct {
+		raw string
+		err error
+	}
+	promptReq := make(chan string)
+	localCh := make(chan lineResult, 1)
+	go func() {
+		for p := range promptReq {
+			raw, err := editor.ReadLine(p)
+			localCh <- lineResult{raw: raw, err: err}
+		}
+	}()
+	defer close(promptReq)
+	readerBusy := false
+
 	for {
-		fmt.Fprintln(out)
-		raw, err := editor.ReadLine(fmt.Sprintf("pigo(%s)> ", deps.live.Model))
+		replPrompt := fmt.Sprintf("pigo(%s)> ", deps.live.Model)
+		if !readerBusy {
+			fmt.Fprintln(out)
+			promptReq <- replPrompt
+			readerBusy = true
+		}
+		var (
+			raw        string
+			err        error
+			fromRemote bool
+		)
+		select {
+		case res := <-localCh:
+			readerBusy = false
+			raw, err = res.raw, res.err
+		case rl := <-deps.remote.inputChan():
+			// A browser-submitted line. The pending local ReadLine stays blocked
+			// (readerBusy remains true) and will be consumed on a later iteration.
+			raw, fromRemote = rl, true
+			// Echo the remote line locally so the terminal (and, via the tee, the
+			// browser) shows what was submitted, mirroring a typed prompt.
+			fmt.Fprintf(out, "%s%s\n", replPrompt, raw)
+		}
 		if errors.Is(err, errLineInterrupted) {
 			continue
 		}
@@ -237,7 +314,9 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 			return err
 		}
 		line := strings.TrimSpace(raw)
-		editor.remember(line)
+		if !fromRemote {
+			editor.remember(line)
+		}
 		if line == "" {
 			if err != nil {
 				// A trailing partial line at EOF that trims to empty: exit.
@@ -341,6 +420,15 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 			btw.RunBtw(setCancel, out, &deps, editor, line)
 			continue
 		}
+		if line == "/remote-control" || strings.HasPrefix(line, "/remote-control ") {
+			// /remote-control is intercepted here (not a slash Action) because it
+			// starts/stops the in-process server and toggles deps.remote / the
+			// output tee in place — per-session state a pure string→string Action
+			// closure cannot reach (#443). The exact-or-space-prefix guard keeps a
+			// longer command from being mistaken for it.
+			runRemoteControl(out, &deps, line)
+			continue
+		}
 
 		// Resolve slash-commands: an action command runs and prints its message
 		// (no agent run); a prompt command or skill expands to the text we run; a
@@ -428,7 +516,7 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 		Batch: agenttool.BatchConfig{
 			ToolExecutorConfig: agenttool.ToolExecutorConfig{
 				Registry:       deps.reg,
-				BeforeToolCall: trust.BeforeToolCall(deps.trust, deps.cwd, deps.in, out, deps.confirmMu),
+				BeforeToolCall: beforeToolCall(deps, out),
 			},
 		},
 		Reminders: deps.reminders,

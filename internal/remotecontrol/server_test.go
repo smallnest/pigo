@@ -222,6 +222,191 @@ func TestWSRejectsUnauth(t *testing.T) {
 	}
 }
 
+// readOutput reads frames until it sees a FrameOutput and returns its text,
+// skipping any interleaved status frames.
+func readOutput(t *testing.T, ctx context.Context, conn *websocket.Conn) string {
+	t.Helper()
+	for {
+		var f Frame
+		if err := wsjson.Read(ctx, conn, &f); err != nil {
+			t.Fatalf("read output: %v", err)
+		}
+		if f.Type == FrameOutput {
+			return f.Text
+		}
+	}
+}
+
+// TestOutputCoalesced verifies that a burst of writes is coalesced into a
+// single output frame by the pump rather than one frame per write, and that no
+// bytes are dropped.
+func TestOutputCoalesced(t *testing.T) {
+	s, pairURL := startTestServer(t, &fakeHandler{})
+	base, cred := sessionCred(t, pairURL)
+
+	conn, _, err := dialWS(t, base, cred)
+	if err != nil {
+		t.Fatalf("dial ws: %v", err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// Drain the connected status frame.
+	var connected Frame
+	if err := wsjson.Read(ctx, conn, &connected); err != nil {
+		t.Fatalf("read connected: %v", err)
+	}
+
+	// Wait for the server to register the client so writes are not lost before
+	// the pump has a live connection.
+	deadline := time.Now().Add(time.Second)
+	for !s.HasClient() {
+		if time.Now().After(deadline) {
+			t.Fatal("client never registered")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	// Emit a burst within one flush interval.
+	const n = 50
+	want := ""
+	for i := 0; i < n; i++ {
+		s.SendOutput("x")
+		want += "x"
+	}
+
+	// Read frames until we have accumulated all the bytes. They must arrive in
+	// order and total exactly n bytes (no drops, no duplication). Coalescing
+	// should produce far fewer than n frames.
+	got := ""
+	frames := 0
+	for len(got) < len(want) {
+		got += readOutput(t, ctx, conn)
+		frames++
+	}
+	if got != want {
+		t.Fatalf("coalesced output = %q, want %q", got, want)
+	}
+	if frames >= n {
+		t.Fatalf("got %d frames for %d writes, expected coalescing", frames, n)
+	}
+}
+
+// TestReconnectReplay verifies that a client reconnecting mid-session is
+// replayed the recent scrollback from the ring buffer.
+func TestReconnectReplay(t *testing.T) {
+	s, pairURL := startTestServer(t, &fakeHandler{})
+	base, cred := sessionCred(t, pairURL)
+
+	// First client connects, receives some output, then disconnects.
+	conn1, _, err := dialWS(t, base, cred)
+	if err != nil {
+		t.Fatalf("dial ws 1: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	var connected Frame
+	if err := wsjson.Read(ctx, conn1, &connected); err != nil {
+		t.Fatalf("read connected 1: %v", err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for !s.HasClient() {
+		if time.Now().After(deadline) {
+			t.Fatal("client 1 never registered")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	s.SendOutput("scrollback")
+	if out := readOutput(t, ctx, conn1); out != "scrollback" {
+		t.Fatalf("client 1 output = %q, want scrollback", out)
+	}
+	conn1.Close(websocket.StatusNormalClosure, "")
+
+	// Wait for the server to release the client slot.
+	deadline = time.Now().Add(time.Second)
+	for s.HasClient() {
+		if time.Now().After(deadline) {
+			t.Fatal("client 1 slot never released")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	// Second client connects and should be replayed the scrollback.
+	conn2, _, err := dialWS(t, base, cred)
+	if err != nil {
+		t.Fatalf("dial ws 2: %v", err)
+	}
+	defer conn2.Close(websocket.StatusNormalClosure, "")
+	if err := wsjson.Read(ctx, conn2, &connected); err != nil {
+		t.Fatalf("read connected 2: %v", err)
+	}
+	if out := readOutput(t, ctx, conn2); out != "scrollback" {
+		t.Fatalf("replay output = %q, want scrollback", out)
+	}
+}
+
+// TestClientConnectDisconnectCallbacks verifies the terminal-notice callbacks
+// fire on connect and disconnect (§7.3).
+func TestClientConnectDisconnectCallbacks(t *testing.T) {
+	var mu sync.Mutex
+	var connectedAddr string
+	connected := make(chan struct{}, 1)
+	disconnected := make(chan struct{}, 1)
+
+	cfg := Config{
+		Host: "127.0.0.1",
+		Port: 0,
+		OnClientConnect: func(addr string) {
+			mu.Lock()
+			connectedAddr = addr
+			mu.Unlock()
+			connected <- struct{}{}
+		},
+		OnClientDisconnect: func() {
+			disconnected <- struct{}{}
+		},
+	}
+	s := NewServer(cfg, &fakeHandler{})
+	pairURL, err := s.Start()
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = s.Stop(ctx)
+	})
+
+	base, cred := sessionCred(t, pairURL)
+	conn, _, err := dialWS(t, base, cred)
+	if err != nil {
+		t.Fatalf("dial ws: %v", err)
+	}
+
+	select {
+	case <-connected:
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnClientConnect never fired")
+	}
+	mu.Lock()
+	addr := connectedAddr
+	mu.Unlock()
+	if addr == "" {
+		t.Fatal("OnClientConnect got empty remote addr")
+	}
+
+	conn.Close(websocket.StatusNormalClosure, "")
+	select {
+	case <-disconnected:
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnClientDisconnect never fired")
+	}
+}
+
 func TestWSSingleClient(t *testing.T) {
 	s, pairURL := startTestServer(t, &fakeHandler{})
 	base, cred := sessionCred(t, pairURL)

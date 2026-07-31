@@ -262,6 +262,11 @@ func ConfirmToolCall(out io.Writer, in *bufio.Reader, call agentcore.AgentToolCa
 	}
 }
 
+// ToolCallSummary is the exported form of toolCallSummary, used by callers
+// outside this package (e.g. the remote-control confirm path) that need the
+// same one-line preview a local confirmation prompt shows.
+func ToolCallSummary(call agentcore.AgentToolCall) string { return toolCallSummary(call) }
+
 // toolCallSummary renders a one-line preview of what a side-effect tool will
 // do, so the user can make an informed allow/deny choice. It best-effort
 // extracts the bash command or the write/edit path from the arguments; if the
