@@ -63,6 +63,28 @@ func SetupEnv(model, baseURL, protocol, providerName string, noTools, noSkills b
 		return Env{}, err
 	}
 	tools := BuiltinTools(cwd, noTools)
+	// Wire the generic task tool (US-002, #454) unless tools are disabled. It
+	// dispatches general-purpose sub-agents that reuse the resolved provider
+	// stream/model. Each spawn gets a fresh child RunConfig whose registry is the
+	// builtins with "task" removed (the nesting guard, so a child cannot fan out
+	// again), and all task calls in a run share one semaphore capping concurrency.
+	if !noTools {
+		sem := runtime.NewSubagentSemaphore()
+		childCreds := provider.NewCredentialStore(nil) // env-resolved, like the subagent RPC child
+		factory := func() runtime.RunConfig {
+			childTools := BuiltinToolsExcept(cwd, false, "task")
+			return runtime.RunConfig{
+				LoopConfig: runtime.LoopConfig{
+					Model:     model,
+					Provider:  resolvedName,
+					Stream:    provider.StreamFnFromProvider(prov),
+					GetAPIKey: childCreds.GetAPIKey,
+				},
+				Batch: agenttool.BatchConfig{ToolExecutorConfig: agenttool.ToolExecutorConfig{Registry: ToolRegistry(childTools)}},
+			}
+		}
+		tools = append(tools, runtime.NewTaskTool(factory, sem))
+	}
 	// Discover external plugins (US-016) and append their tools. Plugin loading
 	// is fault-tolerant: a plugin that fails to start is logged and skipped, and
 	// disabling tools (--no-tools) skips plugin discovery entirely.
@@ -162,6 +184,30 @@ func BuiltinTools(cwd string, disabled bool) []agentcore.AgentTool {
 		&agenttool.TodoTool{Store: agenttool.NewTodoStore()},
 		&agenttool.WebFetchTool{},
 	}
+}
+
+// BuiltinToolsExcept returns the default builtin tool set (BuiltinTools) with
+// any tool whose name matches one of the except names removed. It backs the
+// nesting guard for the generic task tool: a child sub-agent's registry is built
+// with "task" excluded so a child can never spawn further sub-agents, capping
+// delegation depth at one. With no except names it is equivalent to BuiltinTools.
+func BuiltinToolsExcept(cwd string, disabled bool, except ...string) []agentcore.AgentTool {
+	all := BuiltinTools(cwd, disabled)
+	if len(except) == 0 || len(all) == 0 {
+		return all
+	}
+	skip := make(map[string]struct{}, len(except))
+	for _, n := range except {
+		skip[n] = struct{}{}
+	}
+	out := make([]agentcore.AgentTool, 0, len(all))
+	for _, t := range all {
+		if _, ok := skip[t.Name()]; ok {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
 }
 
 // ReadableExtraRoots returns trusted directories the file tools may reach beyond

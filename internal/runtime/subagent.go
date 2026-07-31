@@ -142,12 +142,26 @@ type SubAgentSpec struct {
 	// Process configures process-isolated execution. Required when Isolation is
 	// SubAgentIsolationProcess; ignored otherwise.
 	Process SubAgentProcessConfig
+	// Schema, when non-empty, overrides the default single-prompt argument schema
+	// advertised to the model. The generic task tool uses this to also accept an
+	// optional description; a nil/empty Schema keeps the original prompt-only
+	// schema so existing specs are unaffected.
+	Schema json.RawMessage
+	// Sem, when non-nil, is a shared buffered channel used as a concurrency
+	// semaphore for goroutine-mode runs: executeGoroutine acquires a slot before
+	// spawning the child and releases it when the child settles. A full channel
+	// blocks (queues) the acquire rather than erroring. nil disables limiting, so
+	// existing sub-agent specs run unbounded exactly as before.
+	Sem chan struct{}
 }
 
-// subAgentArgs is the JSON argument shape for a sub-agent tool call: a single
-// free-form prompt describing the delegated task.
+// subAgentArgs is the JSON argument shape for a sub-agent tool call: a
+// free-form prompt describing the delegated task, plus an optional short
+// description used for status display (accepted by the generic task tool;
+// ignored by prompt-only specs).
 type subAgentArgs struct {
-	Prompt string `json:"prompt"`
+	Prompt      string `json:"prompt"`
+	Description string `json:"description,omitempty"`
 }
 
 // subAgentSchema is the JSON Schema validating a sub-agent invocation.
@@ -186,7 +200,12 @@ func (t *SubAgentTool) Name() string { return t.spec.Name }
 
 func (t *SubAgentTool) Description() string { return t.spec.Description }
 
-func (t *SubAgentTool) Schema() json.RawMessage { return subAgentSchema }
+func (t *SubAgentTool) Schema() json.RawMessage {
+	if len(t.spec.Schema) > 0 {
+		return t.spec.Schema
+	}
+	return subAgentSchema
+}
 
 // ExecutionMode is parallel: independent sub-agents may run concurrently, since
 // each spawns its own context and run (goroutine or process) with no shared
@@ -231,6 +250,18 @@ func (t *SubAgentTool) Execute(ctx context.Context, id string, args json.RawMess
 // executeGoroutine runs the child agent loop in-process and returns its final
 // text. This is the default mode and the original sub-agent behavior.
 func (t *SubAgentTool) executeGoroutine(ctx context.Context, prompt string, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
+	// Concurrency guard: when a shared semaphore is configured, acquire a slot
+	// before spawning the child and release it via defer so a panic or error
+	// still frees the slot. A full channel blocks (queues) the acquire; a
+	// cancelled parent ctx abandons the wait instead of blocking forever.
+	if t.spec.Sem != nil {
+		select {
+		case t.spec.Sem <- struct{}{}:
+			defer func() { <-t.spec.Sem }()
+		case <-ctx.Done():
+			return agentcore.AgentToolResult{}, ctx.Err()
+		}
+	}
 	childCtx := &agentcore.AgentContext{
 		SystemPrompt: t.spec.SystemPrompt,
 		Messages: agentcore.MessageList{
