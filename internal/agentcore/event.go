@@ -24,6 +24,7 @@ const (
 	EventToolExecutionEnd    = "tool_execution_end"
 	EventCompaction          = "compaction"
 	EventTelemetry           = "telemetry"
+	EventSubAgentProgress    = "subagent_progress"
 )
 
 // AgentStartEvent is emitted once when a loop run begins. SessionID, when set,
@@ -112,6 +113,25 @@ type CompactionEvent struct {
 	ErrorMessage string
 }
 
+// SubAgentProgressEvent carries structured progress from a running sub-agent
+// (dispatched by the task tool). It is reported at the sub-agent's tool
+// execution / turn boundaries so a TUI (multi-line status panel) or headless
+// mode (stderr line) can display live progress. Elapsed time is intentionally
+// omitted: consumers compute it themselves (TUI from tool-start time, headless
+// from when the id was first seen) to avoid emitting an event per frame.
+type SubAgentProgressEvent struct {
+	// ToolCallID is the parent task call's tool-call id, used as the key for
+	// the status line.
+	ToolCallID string
+	// Description is the task call's description, for display (may be empty).
+	Description string
+	// Activity is the current activity: tool name / phase, e.g. "Editing",
+	// "Running bash", "Thinking".
+	Activity string
+	// Tokens is the estimated sub-agent output token count (0 = unknown).
+	Tokens int
+}
+
 // ToolTiming records how long one tool invocation took, keyed by tool name in
 // TelemetryEvent.ToolDurationsMs. It aggregates repeated calls of the same tool
 // so a summary stays compact regardless of turn count.
@@ -166,6 +186,7 @@ func (ToolExecutionUpdateEvent) isAgentEvent() {}
 func (ToolExecutionEndEvent) isAgentEvent()    {}
 func (CompactionEvent) isAgentEvent()          {}
 func (TelemetryEvent) isAgentEvent()           {}
+func (SubAgentProgressEvent) isAgentEvent()    {}
 
 func (AgentStartEvent) EventType() string          { return EventAgentStart }
 func (AgentEndEvent) EventType() string            { return EventAgentEnd }
@@ -179,3 +200,4 @@ func (ToolExecutionUpdateEvent) EventType() string { return EventToolExecutionUp
 func (ToolExecutionEndEvent) EventType() string    { return EventToolExecutionEnd }
 func (CompactionEvent) EventType() string          { return EventCompaction }
 func (TelemetryEvent) EventType() string           { return EventTelemetry }
+func (SubAgentProgressEvent) EventType() string    { return EventSubAgentProgress }
