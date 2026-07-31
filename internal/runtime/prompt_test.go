@@ -42,6 +42,31 @@ func TestBuildSystemPromptBaseAndEnv(t *testing.T) {
 	}
 }
 
+// TestBuildSystemPromptAdvertisesTaskFanout verifies the base instruction tells
+// the model about the generic task tool: that it dispatches an independent
+// sub-agent (delegation) and that multiple task calls in one message run in
+// parallel (fan-out, US-008/#458).
+func TestBuildSystemPromptAdvertisesTaskFanout(t *testing.T) {
+	got, err := BuildSystemPrompt(PromptConfig{
+		WorkingDir: "/work/proj",
+		Now:        fixedTime,
+		ReadFile:   func(string) ([]byte, error) { return nil, os.ErrNotExist },
+	})
+	if err != nil {
+		t.Fatalf("BuildSystemPrompt: %v", err)
+	}
+	lower := strings.ToLower(got)
+	if !strings.Contains(lower, "task tool") {
+		t.Errorf("prompt should advertise the task tool:\n%s", got)
+	}
+	if !strings.Contains(lower, "sub-agent") || !strings.Contains(lower, "independent") {
+		t.Errorf("prompt should describe the task tool as an independent sub-agent (delegation):\n%s", got)
+	}
+	if !strings.Contains(lower, "parallel") {
+		t.Errorf("prompt should state that multiple task calls run in parallel (fan-out):\n%s", got)
+	}
+}
+
 // TestBuildSystemPromptAGENTSOrdering is the acceptance-critical test: with an
 // AGENTS.md at the root and at a nested working directory, the root's content
 // must appear BEFORE the nested one (general → specific).

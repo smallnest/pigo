@@ -68,7 +68,8 @@ type PromptConfig struct {
 // PromptConfig.BaseInstruction is empty.
 const DefaultBaseInstruction = "You are pigo, a helpful coding agent. " +
 	"Use the available tools to inspect files and accomplish the user's request precisely and concisely.\n\n" +
-	todoGuide
+	todoGuide + "\n\n" +
+	taskGuide
 
 // todoGuide instructs the model on how to drive the todo tool. It is appended to
 // the default base instruction so multi-step work is planned and its progress is
@@ -78,6 +79,18 @@ const todoGuide = "When a task has multiple steps or is non-trivial, use the tod
 	"list); each item has a content string and a status of pending, in_progress, or completed. " +
 	"Keep exactly one item in_progress at a time, and mark an item completed as soon as it is " +
 	"done before starting the next. Skip the todo tool for trivial single-step requests."
+
+// taskGuide instructs the model on how to use the generic `task` tool (US-008,
+// #458). The task tool dispatches an independent sub-agent that runs its own
+// agent loop with a fresh context and returns its final report, so it is the
+// mechanism for delegation and fan-out. The key affordance advertised here is
+// that emitting MULTIPLE task calls in a single assistant message runs those
+// sub-agents in parallel, letting skills like /graph achieve real concurrency.
+const taskGuide = "When work splits into independent subtasks, delegate them with the task tool: each " +
+	"task call dispatches an independent sub-agent that completes its subtask on a fresh context and " +
+	"returns its final report. To fan out, emit MULTIPLE task calls in a single message — they run in " +
+	"parallel. Give each a complete, self-contained prompt, since a sub-agent shares none of this " +
+	"conversation's context. Do the work directly for a single, sequential, or trivial task."
 
 // BuildSystemPrompt assembles the full system prompt from cfg: base instruction,
 // environment block, then AGENTS.md files ordered general-to-specific from Root
