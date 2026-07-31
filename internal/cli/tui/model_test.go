@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -278,5 +279,65 @@ func TestModelSuperVPastes(t *testing.T) {
 	m := apply(t, NewModel(Options{}), tea.WindowSizeMsg{Width: 40, Height: 12})
 	if _, cmd := m.Update(keyPress("super+v")); cmd == nil {
 		t.Fatal("super+v should emit a clipboard read command when idle")
+	}
+}
+
+// TestModelSubagentPanelLifecycle drives the sub-agent status panel through a
+// task tool's lifecycle on the running model: a toolStartMsg(name=="task") opens
+// a row, subagentProgressMsg refreshes it and it appears in the rendered View
+// above the input, and the task's toolEndMsg retires it (empty panel → no rows).
+func TestModelSubagentPanelLifecycle(t *testing.T) {
+	m := apply(t, NewModel(Options{}), tea.WindowSizeMsg{Width: 80, Height: 20})
+	m.running = true // the panel only renders while a run is in flight
+	m.spinner.begin(time.Now(), "")
+
+	m = apply(t, m, toolStartMsg{id: "task-1", name: "task", input: map[string]any{"description": "build parser"}})
+	if got := m.subagents.active(); got != 1 {
+		t.Fatalf("active after task start = %d, want 1", got)
+	}
+
+	m = apply(t, m, subagentProgressMsg{id: "task-1", desc: "build parser", activity: "Editing", tokens: 64})
+	if row := m.subagents.byID["task-1"]; row == nil || row.activity != "Editing" {
+		t.Fatalf("row after progress = %+v, want activity=Editing", row)
+	}
+	// The panel line is identified by its ⏺ glyph (distinct from the tool card,
+	// which also mentions the description) plus the live activity.
+	if view := m.View().Content; !strings.Contains(view, "⏺") || !strings.Contains(view, "Editing") {
+		t.Errorf("view missing panel line: %q", view)
+	}
+
+	// A non-task tool must not open a panel row.
+	m = apply(t, m, toolStartMsg{id: "read-1", name: "read_file", input: map[string]any{"path": "/x"}})
+	if got := m.subagents.active(); got != 1 {
+		t.Errorf("active after non-task start = %d, want 1", got)
+	}
+
+	m = apply(t, m, toolEndMsg{id: "task-1", ok: true, result: "done"})
+	if got := m.subagents.active(); got != 0 {
+		t.Errorf("active after task end = %d, want 0", got)
+	}
+	if view := m.View().Content; strings.Contains(view, "⏺") {
+		t.Errorf("view still shows retired panel line: %q", view)
+	}
+}
+
+// TestModelSubagentPanelHeightReservation verifies the panel's rows are reserved
+// out of the transcript height so the total shell height is unchanged whether or
+// not sub-agents are active.
+func TestModelSubagentPanelHeightReservation(t *testing.T) {
+	m := apply(t, NewModel(Options{}), tea.WindowSizeMsg{Width: 80, Height: 20})
+	m.running = true
+	m.spinner.begin(time.Now(), "")
+	m.relayout()
+	base := m.transcript.viewportHeight()
+
+	m = apply(t, m, toolStartMsg{id: "t1", name: "task", input: map[string]any{"description": "a"}})
+	m = apply(t, m, toolStartMsg{id: "t2", name: "task", input: map[string]any{"description": "b"}})
+	if got := m.transcript.viewportHeight(); got != base-2 {
+		t.Errorf("transcript height with 2 panel rows = %d, want %d (base %d - 2)", got, base-2, base)
+	}
+	// Every rendered frame stays exactly Height rows tall regardless of the panel.
+	if got := strings.Count(m.View().Content, "\n"); got != 19 {
+		t.Errorf("newline count = %d, want 19 (20 rows)", got)
 	}
 }

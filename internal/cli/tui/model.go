@@ -123,6 +123,13 @@ type Model struct {
 	// stats) shown on the row above the input while a run is in flight.
 	spinner spinner
 
+	// subagents is the ordered set of live sub-agents dispatched by the `task`
+	// tool (SPEC 4.4, US-006). A toolStartMsg with name=="task" adds a row (and
+	// records its start time), subagentProgressMsg refreshes activity/tokens, and
+	// the task's toolEndMsg removes it. View renders it as a multi-line panel just
+	// above the spinner; it contributes zero rows when empty.
+	subagents subagentPanel
+
 	// pastes stores the full text of collapsed multi-line pastes, keyed by the id
 	// shown in the "[Pasted text #N +M lines]" placeholder left in the composer.
 	// submit expands the placeholders back to their content before sending, so a
@@ -338,9 +345,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.toolCards[msg.id] = card
 		m.lastToolCard = card
 		m.transcript.addToolCard(card)
+		// A `task` tool call dispatches a sub-agent: open a status-panel row keyed by
+		// the tool-call id (matching the later progress/end events) and record its
+		// start so elapsed can be shown live (SPEC 4.4).
+		if msg.name == "task" {
+			m.subagents.add(msg.id, taskDescription(msg.input), time.Now())
+			m.relayout() // the new panel row shrinks the transcript to fit
+		}
 		return m, m.pumpNext()
 
 	case toolUpdateMsg:
+		return m, m.pumpNext()
+
+	case subagentProgressMsg:
+		// A running sub-agent reported structured progress: refresh its panel row's
+		// activity/tokens. update adds the row if it is missing so a late/out-of-order
+		// progress (arriving before the task's start) is still shown (SPEC 5.4).
+		m.subagents.update(msg.id, msg.desc, msg.activity, msg.tokens, time.Now())
+		m.relayout() // a first-seen id adds a row; keep the transcript sized to it
 		return m, m.pumpNext()
 
 	case toolEndMsg:
@@ -354,6 +376,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			card.response = parseToolResult(msg.result)
 			m.transcript.reflow()
+		}
+		// Retire the sub-agent's status-panel row (a no-op for non-task tools whose id
+		// was never added), reclaiming its reserved height.
+		if _, wasSub := m.subagents.byID[msg.id]; wasSub {
+			m.subagents.remove(msg.id)
+			m.relayout()
 		}
 		return m, m.pumpNext()
 
@@ -377,6 +405,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.running = false
 		m.runCh = nil
 		m.spinner.stop()
+		// The run is over: any still-open sub-agent rows are stale (their tasks ended
+		// with the run), so clear the panel to reclaim its height.
+		m.subagents = subagentPanel{}
 		m.relayout()
 		if msg.err != nil {
 			m.transcript.addSystem("运行结束：" + msg.err.Error())
@@ -665,6 +696,17 @@ func (m Model) thinkingLabel() string {
 	return string(m.opts.ThinkingLevel)
 }
 
+// taskDescription pulls the human-readable "description" out of a `task` tool
+// call's decoded arguments for the sub-agent panel's row label. It returns ""
+// when absent or non-string (the description field is optional in the schema),
+// in which case the panel row leads with the activity instead.
+func taskDescription(input map[string]any) string {
+	if s, ok := input["description"].(string); ok {
+		return s
+	}
+	return ""
+}
+
 // tickSpinner schedules the next spinner animation frame. The model re-issues it
 // on each spinnerTickMsg while running, so the animation self-sustains until the
 // run ends (the tick is simply not re-issued once idle).
@@ -859,8 +901,14 @@ func (m Model) renderContent() string {
 		}
 	}
 	// The working spinner sits on its own row just above the input while a run is
-	// in flight (relayout reserves the row so the transcript shrinks to fit).
+	// in flight (relayout reserves the row so the transcript shrinks to fit). The
+	// sub-agent status panel, when any `task` sub-agents are live, renders on the
+	// rows just ABOVE the spinner: one line each, elapsed refreshed every tick.
 	if m.running {
+		if panel := m.subagents.view(m.theme, width, time.Now()); panel != "" {
+			b.WriteString(panel)
+			b.WriteByte('\n')
+		}
 		if line := m.spinner.view(width); line != "" {
 			b.WriteString(line)
 			b.WriteByte('\n')
@@ -951,6 +999,9 @@ func (m *Model) relayout() {
 	rows := m.height - 1 - m.input.Height() - m.menu.rows()
 	if m.running {
 		rows-- // the working spinner occupies the row just above the input
+		// Each live sub-agent adds one status-panel row above the spinner; an empty
+		// panel reserves nothing so the single-run layout is unchanged.
+		rows -= m.subagents.active()
 	}
 	if rows < 0 {
 		rows = 0

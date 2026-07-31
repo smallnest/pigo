@@ -45,6 +45,20 @@ type toolEndMsg struct {
 	result string
 }
 
+// subagentProgressMsg carries a running sub-agent's structured progress
+// (translated from agentcore.SubAgentProgressEvent). id is the parent task
+// tool-call id (the row key, matching the task's toolStartMsg/toolEndMsg id);
+// desc is the task description (may be empty); activity is the current phase
+// ("Reading"/"Editing"/…, never empty); tokens is a coarse output estimate
+// (0 = unknown). Elapsed is NOT carried — the model computes it from the row's
+// start time so the panel stays live without an event per frame.
+type subagentProgressMsg struct {
+	id       string
+	desc     string
+	activity string
+	tokens   int
+}
+
 // telemetryMsg carries the run's end-of-run telemetry summary.
 type telemetryMsg struct{ ev agentcore.TelemetryEvent }
 

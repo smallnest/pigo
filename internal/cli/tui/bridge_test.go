@@ -140,6 +140,31 @@ func TestArgsToMap(t *testing.T) {
 	}
 }
 
+// TestSubAgentProgressConversion verifies a SubAgentProgressEvent maps to a
+// subagentProgressMsg carrying the id (parent task tool-call id), description,
+// activity, and token estimate.
+func TestSubAgentProgressConversion(t *testing.T) {
+	ch := newEventChan()
+	h := newStreamHandler(ch, nil)
+	h.OnEvent(agentcore.SubAgentProgressEvent{
+		ToolCallID:  "task-1",
+		Description: "build parser",
+		Activity:    "Editing",
+		Tokens:      256,
+	})
+	got := drain(ch)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 msg, got %d", len(got))
+	}
+	m, ok := got[0].(subagentProgressMsg)
+	if !ok {
+		t.Fatalf("got %#v, want subagentProgressMsg", got[0])
+	}
+	if m.id != "task-1" || m.desc != "build parser" || m.activity != "Editing" || m.tokens != 256 {
+		t.Errorf("got %#v, want {id:task-1 desc:build parser activity:Editing tokens:256}", m)
+	}
+}
+
 // TestWaitForEvent verifies the pump Cmd returns the next queued msg.
 func TestWaitForEvent(t *testing.T) {
 	ch := newEventChan()
