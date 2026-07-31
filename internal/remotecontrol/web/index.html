@@ -2,11 +2,134 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14">
   <title>pigo remote</title>
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --panel: #121822;
+      --panel-2: #1a2331;
+      --fg: #e6edf3;
+      --muted: #8b98a5;
+      --accent: #4f9cf9;
+      --ok: #3fb950;
+      --danger: #f85149;
+      --border: #223042;
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; height: 100%;
+      background: var(--bg); color: var(--fg);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      -webkit-text-size-adjust: 100%;
+    }
+    body {
+      display: flex; flex-direction: column;
+      height: 100dvh;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+    header {
+      display: flex; align-items: center; gap: .5rem;
+      padding: .6rem .8rem; border-bottom: 1px solid var(--border);
+      background: var(--panel);
+    }
+    header .title { font-weight: 600; letter-spacing: .3px; }
+    #status {
+      margin-left: auto; font-size: .78rem; color: var(--muted);
+      display: inline-flex; align-items: center; gap: .4rem;
+    }
+    #dot { width: .6rem; height: .6rem; border-radius: 50%; background: var(--muted); }
+    #dot.on { background: var(--ok); }
+    #dot.off { background: var(--danger); }
+
+    #output {
+      flex: 1 1 auto; overflow-y: auto; overflow-x: auto;
+      padding: .8rem; margin: 0;
+      font-family: var(--mono); font-size: .84rem; line-height: 1.45;
+      white-space: pre-wrap; word-break: break-word;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    form#composer {
+      display: flex; gap: .5rem; padding: .6rem;
+      border-top: 1px solid var(--border); background: var(--panel);
+    }
+    #prompt {
+      flex: 1 1 auto; resize: none;
+      background: var(--panel-2); color: var(--fg);
+      border: 1px solid var(--border); border-radius: .6rem;
+      padding: .6rem .7rem; font-size: 1rem; font-family: inherit;
+      max-height: 40vh; min-height: 2.6rem;
+    }
+    button {
+      border: 0; border-radius: .6rem; padding: 0 1rem;
+      font-size: .95rem; font-weight: 600; cursor: pointer;
+      background: var(--accent); color: #04121f;
+    }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* Confirmation sheet */
+    #confirm {
+      position: fixed; inset: 0; display: none;
+      align-items: flex-end; justify-content: center;
+      background: rgba(0,0,0,.55); z-index: 10;
+    }
+    #confirm.show { display: flex; }
+    .sheet {
+      width: 100%; max-width: 640px;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 1rem 1rem 0 0; padding: 1rem 1rem 1.3rem;
+    }
+    .sheet h2 { margin: 0 0 .3rem; font-size: 1rem; }
+    .sheet .tool { color: var(--accent); font-family: var(--mono); }
+    .sheet pre {
+      background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: .6rem; padding: .6rem; margin: .6rem 0 1rem;
+      font-family: var(--mono); font-size: .82rem; overflow-x: auto;
+      white-space: pre-wrap; word-break: break-word; max-height: 40vh;
+    }
+    .sheet .row { display: flex; gap: .5rem; }
+    .sheet .row button { flex: 1; padding: .7rem 0; }
+    .btn-approve { background: var(--ok); color: #04121f; }
+    .btn-reject { background: var(--danger); color: #1a0303; }
+    .btn-always { background: var(--panel-2); color: var(--fg); border: 1px solid var(--border); }
+    label.always {
+      display: flex; align-items: center; gap: .5rem;
+      color: var(--muted); font-size: .85rem; margin-bottom: .8rem;
+    }
+    @media (min-width: 700px) {
+      #confirm { align-items: center; }
+      .sheet { border-radius: 1rem; }
+    }
+  </style>
 </head>
 <body>
-  <!-- Placeholder SPA. Replaced by the responsive web SPA node (#444). -->
-  <main id="app">pigo remote-control</main>
+  <header>
+    <span class="title">pigo remote</span>
+    <span id="status"><span id="dot"></span><span id="statusText">connecting…</span></span>
+  </header>
+
+  <pre id="output" aria-live="polite"></pre>
+
+  <form id="composer" autocomplete="off">
+    <textarea id="prompt" rows="1" placeholder="Type a prompt and press Send…" enterkeyhint="send"></textarea>
+    <button id="send" type="submit">Send</button>
+  </form>
+
+  <div id="confirm" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+    <div class="sheet">
+      <h2 id="confirmTitle">Approve <span class="tool" id="confirmTool"></span>?</h2>
+      <pre id="confirmSummary"></pre>
+      <label class="always"><input type="checkbox" id="confirmAlways"> Always approve this tool</label>
+      <div class="row">
+        <button type="button" class="btn-reject" id="btnReject">Reject</button>
+        <button type="button" class="btn-approve" id="btnApprove">Approve</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
 </body>
 </html>
