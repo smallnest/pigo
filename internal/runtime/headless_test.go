@@ -184,6 +184,93 @@ func TestRunHeadlessNilWriter(t *testing.T) {
 	}
 }
 
+// emitTool returns a tool that surfaces ev on the run stream via the run-level
+// progress emitter the loop injects into ctx (WithProgressEmitter), then returns
+// a trivial text result. This mirrors how a dispatched sub-agent surfaces a
+// SubAgentProgressEvent up the parent stream.
+func emitTool(name string, ev agentcore.AgentEvent) execTool {
+	return execTool{
+		name: name,
+		mode: agentcore.ToolExecutionParallel,
+		run: func(ctx context.Context, id string, args json.RawMessage, onUpdate agentcore.ToolUpdateFunc) (agentcore.AgentToolResult, error) {
+			if emit := agentcore.ProgressEmitterFromContext(ctx); emit != nil {
+				_ = emit(ctx, ev)
+			}
+			return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(name)}}, nil
+		},
+	}
+}
+
+// TestRunHeadlessSubAgentProgressToStderr verifies the D-9 contract: a
+// SubAgentProgressEvent emitted during the run is rendered as a human-readable
+// line to the progress writer (stderr) and is NEVER serialised onto stdout —
+// neither the final result text nor the stream-json envelope stream may contain
+// it. The event is injected via a faux tool whose execution fires it on the
+// run's event stream (the same seam the loop uses).
+func TestRunHeadlessSubAgentProgressToStderr(t *testing.T) {
+	const desc = "investigate the parser"
+	const activity = "Editing"
+
+	run := func(mode HeadlessMode) (stdout, stderr string) {
+		p := &fauxProvider{
+			name:   "faux",
+			models: []provider.Model{{Provider: "faux", ID: "faux"}},
+			turns: []fauxTurn{
+				toolCallTurn("call-1", "task", `{"description":"investigate the parser"}`),
+				textTurn("done"),
+			},
+		}
+		// The tool emits a SubAgentProgressEvent onto the run stream, mimicking a
+		// dispatched sub-agent surfacing progress up the parent stream.
+		tool := emitTool("task", agentcore.SubAgentProgressEvent{
+			ToolCallID:  "call-1",
+			Description: desc,
+			Activity:    activity,
+		})
+		cfg := newFauxRunCfg(p, tool)
+		var out, prog bytes.Buffer
+		agentCtx := &agentcore.AgentContext{Messages: agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("start")}}}}
+		if err := RunHeadless(context.Background(), agentCtx, HeadlessConfig{Run: cfg, Mode: mode, Out: &out, Progress: &prog}); err != nil {
+			t.Fatalf("RunHeadless: unexpected error %v", err)
+		}
+		return out.String(), prog.String()
+	}
+
+	for _, mode := range []struct {
+		name string
+		mode HeadlessMode
+	}{{"print", PrintMode}, {"stream-json", StreamJSONMode}} {
+		t.Run(mode.name, func(t *testing.T) {
+			stdout, stderr := run(mode.mode)
+			// (a) stderr carries the progress line with description + activity.
+			if !strings.Contains(stderr, desc) || !strings.Contains(stderr, activity) {
+				t.Errorf("stderr = %q, want it to contain description %q and activity %q", stderr, desc, activity)
+			}
+			// (b) stdout must not contain the progress event in any form.
+			if strings.Contains(stdout, "subagent_progress") {
+				t.Errorf("stdout must not contain the subagent_progress envelope, got %q", stdout)
+			}
+			if strings.Contains(stdout, desc) {
+				t.Errorf("stdout must not leak the progress description, got %q", stdout)
+			}
+		})
+	}
+}
+
+// TestWriteProgressLineEmptyDescription verifies the line degrades gracefully to
+// the activity alone when the task supplied no description.
+func TestWriteProgressLineEmptyDescription(t *testing.T) {
+	var buf bytes.Buffer
+	writeProgressLine(&buf, agentcore.SubAgentProgressEvent{Activity: "Thinking"})
+	got := buf.String()
+	if !strings.Contains(got, "Thinking") {
+		t.Errorf("line = %q, want it to contain the activity", got)
+	}
+	if strings.Contains(got, "·") {
+		t.Errorf("line = %q, want no separator when description is empty", got)
+	}
+}
+
 // contains reports whether s contains v.
 func contains(s []string, v string) bool {
 	for _, x := range s {

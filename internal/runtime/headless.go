@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/smallnest/pigo/internal/agentcore"
@@ -48,6 +49,11 @@ type HeadlessConfig struct {
 	// handling. It is the seam plugin lifecycle-event delivery (US-017, #133)
 	// hooks into, independent of the output mode. It must not block.
 	OnEvent func(ev agentcore.AgentEvent)
+	// Progress receives human-readable sub-agent progress lines
+	// (SubAgentProgressEvent). Defaults to os.Stderr when nil. Progress is
+	// stderr-only by contract: it is never serialised onto Out (stdout), so it
+	// cannot pollute the final result text or the stream-json envelope stream.
+	Progress io.Writer
 }
 
 // ErrRunFailed is the sentinel returned by RunHeadless when the agent run ended
@@ -86,17 +92,31 @@ func RunHeadless(ctx context.Context, agentCtx *agentcore.AgentContext, cfg Head
 	// external OnEvent (plugin lifecycle delivery, US-017). Both observe every
 	// event; the serialiser runs first so a write failure is recorded even when a
 	// plugin observer is also wired.
+	//
+	// SubAgentProgressEvent (D-9) is special-cased: it is written as a
+	// human-readable line to the progress writer (stderr) and is deliberately
+	// excluded from the stream-json stdout path so it never pollutes the result
+	// output or the machine-readable envelope stream (progress is stderr-only).
+	progress := cfg.Progress
+	if progress == nil {
+		progress = os.Stderr
+	}
 	streamJSON := cfg.Mode == StreamJSONMode
-	if streamJSON || cfg.OnEvent != nil {
-		h.OnEvent = func(ev agentcore.AgentEvent) {
-			if streamJSON && writeErr == nil {
-				if err := writeEventJSON(cfg.Out, ev); err != nil {
-					writeErr = err
-				}
-			}
+	h.OnEvent = func(ev agentcore.AgentEvent) {
+		if pe, ok := ev.(agentcore.SubAgentProgressEvent); ok {
+			writeProgressLine(progress, pe)
 			if cfg.OnEvent != nil {
 				cfg.OnEvent(ev)
 			}
+			return
+		}
+		if streamJSON && writeErr == nil {
+			if err := writeEventJSON(cfg.Out, ev); err != nil {
+				writeErr = err
+			}
+		}
+		if cfg.OnEvent != nil {
+			cfg.OnEvent(ev)
 		}
 	}
 	lastAssistant, resErr := DrainStream(ctx, stream, h)
@@ -135,6 +155,19 @@ func RunHeadless(ctx context.Context, agentCtx *agentcore.AgentContext, cfg Head
 		}
 	}
 	return nil
+}
+
+// writeProgressLine renders one SubAgentProgressEvent as a human-readable line
+// on w (stderr by contract). When the task supplied a description it is shown
+// alongside the activity; otherwise the line degrades to the activity alone
+// (Description MAY be empty, Activity never is). Write errors are ignored:
+// progress is a non-critical, best-effort side channel.
+func writeProgressLine(w io.Writer, ev agentcore.SubAgentProgressEvent) {
+	if ev.Description != "" {
+		fmt.Fprintf(w, "  ⏺ %s · %s\n", ev.Description, ev.Activity)
+		return
+	}
+	fmt.Fprintf(w, "  ⏺ %s\n", ev.Activity)
 }
 
 // writeEventJSON serializes one AgentEvent as a single line of JSON, terminated
