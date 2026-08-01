@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-en="Installation — pigo" data-zh="安装 — pigo">Installation — pigo</title>
+  <meta name="description" content="Install pigo via install.sh, go install (Go 1.27+), or from source; keep it current with pigo update. 多种方式安装 pigo。">
+  <link rel="stylesheet" href="assets/site.css">
+  <script defer src="assets/i18n.js"></script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="../index.html"><span class="nav-logo">p</span> pigo</a>
+      <div class="nav-links">
+        <a href="quickstart.html" data-en="Quickstart" data-zh="快速开始"></a>
+        <a href="features.html" data-en="Features" data-zh="特性"></a>
+        <a href="configuration.html" class="hide-sm" data-en="Config" data-zh="配置"></a>
+        <a href="slash-commands.html" class="hide-sm" data-en="Commands" data-zh="命令"></a>
+        <a href="architecture.html" class="hide-sm" data-en="Architecture" data-zh="架构"></a>
+        <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
+        <button class="nav-btn" data-lang-toggle aria-label="切换到中文">中文</button>
+        <button class="nav-btn" data-theme-toggle aria-label="Toggle theme">☀️</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="docs">
+    <aside class="doc-sidebar">
+      <h4 data-en="Docs" data-zh="文档"></h4>
+      <ul>
+        <li><a href="quickstart.html" data-en="Quickstart" data-zh="快速开始"></a></li>
+        <li><a href="install.html" class="active" data-en="Installation" data-zh="安装"></a></li>
+        <li><a href="features.html" data-en="Features" data-zh="特性"></a></li>
+        <li><a href="configuration.html" data-en="Configuration" data-zh="配置"></a></li>
+        <li><a href="slash-commands.html" data-en="Slash commands" data-zh="Slash 命令"></a></li>
+        <li><a href="architecture.html" data-en="Architecture" data-zh="架构"></a></li>
+      </ul>
+    </aside>
+
+    <main class="doc-content">
+      <h1 data-en="Installation" data-zh="安装"></h1>
+      <p class="doc-sub" data-en="Pick whichever method suits your environment."
+         data-zh="按你的环境选择合适的安装方式。"></p>
+
+      <h2 data-en="install.sh (recommended)" data-zh="install.sh 脚本（推荐）"></h2>
+      <p data-en="The script detects your OS/arch and drops a prebuilt binary onto your PATH."
+         data-zh="脚本会检测系统与架构，将预编译二进制放到你的 PATH 上。"></p>
+      <div class="copy-wrap">
+        <pre><code>curl -fsSL https://raw.githubusercontent.com/smallnest/pigo/master/install.sh | sh</code></pre>
+        <button class="copy-btn" data-copy="curl -fsSL https://raw.githubusercontent.com/smallnest/pigo/master/install.sh | sh">Copy</button>
+      </div>
+
+      <h2 data-en="go install (Go 1.27+)" data-zh="go install（Go 1.27+）"></h2>
+      <p data-en="If you have a recent Go toolchain, install straight from source into <code>$GOBIN</code>."
+         data-zh="若已有较新的 Go 工具链，可直接从源码安装到 <code>$GOBIN</code>。"></p>
+      <div class="copy-wrap">
+        <pre><code>go install github.com/smallnest/pigo/cmd/pigo@latest</code></pre>
+        <button class="copy-btn" data-copy="go install github.com/smallnest/pigo/cmd/pigo@latest">Copy</button>
+      </div>
+
+      <h2 data-en="Build from source" data-zh="从源码构建"></h2>
+      <p data-en="Clone the repo and build the binary yourself — useful for contributing or pinning a commit."
+         data-zh="克隆仓库自行构建 —— 适合参与开发或锁定某个提交。"></p>
+      <div class="copy-wrap">
+        <pre><code>git clone https://github.com/smallnest/pigo.git
+cd pigo
+go build ./cmd/pigo
+./pigo -v</code></pre>
+        <button class="copy-btn" data-copy="git clone https://github.com/smallnest/pigo.git
+cd pigo
+go build ./cmd/pigo">Copy</button>
+      </div>
+
+      <h2 data-en="Self-update" data-zh="自更新"></h2>
+      <p data-en="Once installed, keep pigo current with the built-in updater."
+         data-zh="安装后，用内置更新器保持 pigo 最新。"></p>
+      <div class="copy-wrap">
+        <pre><code>pigo update</code></pre>
+        <button class="copy-btn" data-copy="pigo update">Copy</button>
+      </div>
+
+      <h2 data-en="Binary location &amp; PATH" data-zh="二进制位置与 PATH"></h2>
+      <p data-en="The install script places the binary in <code>/usr/local/bin</code> (or <code>~/.local/bin</code> without sudo). <code>go install</code> uses <code>$(go env GOBIN)</code>, falling back to <code>$(go env GOPATH)/bin</code>. Make sure that directory is on your <code>PATH</code>:"
+         data-zh="安装脚本将二进制放到 <code>/usr/local/bin</code>（无 sudo 时为 <code>~/.local/bin</code>）。<code>go install</code> 使用 <code>$(go env GOBIN)</code>，否则回退到 <code>$(go env GOPATH)/bin</code>。请确保该目录在你的 <code>PATH</code> 中："></p>
+      <div class="copy-wrap">
+        <pre><code>export PATH="$HOME/.local/bin:$(go env GOPATH)/bin:$PATH"
+# 加到 ~/.zshrc 或 ~/.bashrc 以持久生效</code></pre>
+        <button class="copy-btn" data-copy='export PATH="$HOME/.local/bin:$(go env GOPATH)/bin:$PATH"'>Copy</button>
+      </div>
+
+      <div class="note" data-en="Verify the install with <code>pigo -v</code>. Then head to the Quickstart."
+           data-zh="用 <code>pigo -v</code> 验证安装，然后前往快速开始。"></div>
+
+      <div class="doc-next">
+        <a href="quickstart.html"><span data-en="Previous" data-zh="上一页"></span><strong data-en="← Quickstart" data-zh="← 快速开始"></strong></a>
+        <a href="configuration.html"><span data-en="Next" data-zh="下一页"></span><strong data-en="Configuration →" data-zh="配置 →"></strong></a>
+      </div>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div><strong>pigo</strong> · <span data-en="A command-line coding agent in Go." data-zh="用 Go 打造的命令行编码 Agent。"></span></div>
+      <div class="footer-links">
+        <a href="../index.html" data-en="Home" data-zh="首页"></a>
+        <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
