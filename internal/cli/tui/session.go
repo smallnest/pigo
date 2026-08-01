@@ -16,7 +16,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -49,6 +48,11 @@ type runSession struct {
 	reg       *agenttool.ToolRegistry
 	reminders *runtime.ReminderRegistry
 	creds     *provider.CredentialStore
+
+	// memoryRoot is the persistent-memory Store root (empty when memory is
+	// disabled). It routes auto-compaction checkpoints and /rebuild recovery to
+	// <memoryRoot>/sessions/<id>/, the canonical checkpoint location.
+	memoryRoot string
 
 	// dispatcher is the session's hook dispatcher, nil when no hooks are
 	// configured (FR-18). hookDeps carries the session id / project dir stamped
@@ -158,6 +162,7 @@ func newRunSessionWithStore(store *session.Store, opts Options) (*runSession, []
 		creds:     creds,
 		curLeaf:   curLeaf,
 		persisted: len(history),
+		memoryRoot: run.MemoryRootFromTools(opts.Tools),
 	}
 	// Wire hooks uniformly with every other driver (#425): resolve the trust-gated
 	// hook set, build the dispatcher, dispatch SessionStart once, and compose the
@@ -239,6 +244,8 @@ func (s *runSession) buildConfig() runtime.RunConfig {
 			},
 		},
 		Reminders: s.reminders,
+		SessionID: s.header.ID,
+		MemoryRoot: s.memoryRoot,
 	}
 	// Per-turn wiring of the tool-execution + Stop seams; nil dispatcher is a
 	// no-op so the hot path pays nothing when no hooks are configured (FR-18).
@@ -275,9 +282,10 @@ func (s *runSession) rebuildCmd() tea.Cmd {
 func (s *runSession) rebuild() (string, error) {
 	msgs := s.agentCtx.Messages
 	before := compaction.EstimateContextTokens(msgs).Tokens
-	// The checkpoint lives under <memoryRoot>/sessions/<id>/; the store is rooted
-	// at <memoryRoot>/sessions, so the memory root is its parent.
-	memoryRoot := filepath.Dir(s.store.Dir())
+	// Checkpoints live under <memoryRoot>/sessions/<id>/; recover from the same
+	// root the loop writes to. Empty when memory is disabled — RebuildFromCheckpoint
+	// then falls back to lossy compaction.
+	memoryRoot := s.memoryRoot
 	cfg := s.buildConfig()
 	res, err := runtime.RebuildFromCheckpoint(context.Background(), msgs, s.header.ID, memoryRoot, &cfg, nil)
 	if err != nil {

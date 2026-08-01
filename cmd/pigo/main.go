@@ -307,13 +307,16 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			fmt.Fprintln(errOut, "pigo: no prompt (use -p \"...\" or positional args)")
 			return 2
 		}
-		env, err := run.SetupEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.apiKey, opts.noTools, opts.noSkills, opts.systemPrompt, opts.appendSystemPrompt)
+		env, err := run.SetupEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.apiKey, opts.noTools, opts.noSkills, opts.systemPrompt, opts.appendSystemPrompt, opts.memory.Memory.Enabled)
 		if err != nil {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
 			return 1
 		}
 		if env.Plugins != nil {
 			defer env.Plugins.Close()
+		}
+		if env.Memory != nil {
+			defer env.Memory.Close()
 		}
 		thinking, err := run.ResolveThinkingLevel(opts.thinkingLevel)
 		if err != nil {
@@ -379,13 +382,16 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		return 2
 	}
 
-	env, err := run.SetupEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.apiKey, opts.noTools, opts.noSkills, opts.systemPrompt, opts.appendSystemPrompt)
+	env, err := run.SetupEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.apiKey, opts.noTools, opts.noSkills, opts.systemPrompt, opts.appendSystemPrompt, opts.memory.Memory.Enabled)
 	if err != nil {
 		fmt.Fprintf(errOut, "pigo: %v\n", err)
 		return 1
 	}
 	if env.Plugins != nil {
 		defer env.Plugins.Close()
+	}
+	if env.Memory != nil {
+		defer env.Memory.Close()
 	}
 	return headless.Run(ctx, headless.RunParams{
 		Mode:          mode,

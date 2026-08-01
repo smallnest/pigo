@@ -212,6 +212,7 @@ func Run(opts Options) error {
 		confirmMu: &sync.Mutex{},
 		curLeaf:   curLeaf,
 		persisted: len(history),
+		memoryRoot: run.MemoryRootFromTools(opts.Tools),
 		notifier:  plugin.NewEventNotifier(opts.Plugins, os.Stderr),
 		goal:      agenttool.NewGoalState(),
 		telemetry: cli.NewTelemetryHolder(),

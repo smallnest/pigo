@@ -85,6 +85,9 @@ func Run(ctx context.Context, p RunParams, out, errOut io.Writer) int {
 	creds.SetOverride(env.ProviderName, p.APIKey)
 	runCfg := run.NewConfig(p.Model, env.ProviderName, thinking, env.Provider, creds, run.ToolRegistry(env.Tools), run.TodoReminders(env.Tools))
 	runCfg.SessionID = hs.header.ID
+	// Route auto-compaction checkpoints to the shared memory root so a rebuild can
+	// recover the pre-watermark prefix (no-op when memory is disabled → empty root).
+	runCfg.MemoryRoot = run.MemoryRootFromTools(env.Tools)
 
 	// Wire hooks uniformly with every other driver (#425): resolve the trust-gated
 	// hook set, install the tool-execution + Stop seams, dispatch SessionStart, and

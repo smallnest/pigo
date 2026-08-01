@@ -87,6 +87,19 @@ func (s *Store) DB() *sql.DB {
 	return s.db
 }
 
+// Root returns the memory root directory the store was opened with (the magic
+// layout root holding global/projects/sessions). It is the canonical source for
+// the memory root used by checkpoint persistence and context rebuild
+// (<root>/sessions/<id>/checkpoint.md); callers must resolve the memory root
+// through this accessor rather than re-deriving it from another store's dir. It
+// is "" for a nil store.
+func (s *Store) Root() string {
+	if s == nil {
+		return ""
+	}
+	return s.root
+}
+
 // Close closes the underlying database connection.
 func (s *Store) Close() error {
 	if s == nil || s.db == nil {

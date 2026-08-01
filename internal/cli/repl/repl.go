@@ -19,7 +19,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -140,6 +139,11 @@ type replDeps struct {
 	// command toggles its secondary writer. When no remote session is active it
 	// forwards only to the terminal.
 	tee *teeWriter
+
+	// memoryRoot is the persistent-memory Store root (empty when memory is
+	// disabled). streamRun routes auto-compaction checkpoints here and /rebuild
+	// recovers from <memoryRoot>/sessions/<id>/, the canonical checkpoint location.
+	memoryRoot string
 }
 
 // replScanBufInit is the initial size of the shared input reader. A REPL user
@@ -540,6 +544,8 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 			},
 		},
 		Reminders: deps.reminders,
+		SessionID: deps.header.ID,
+		MemoryRoot: deps.memoryRoot,
 	}
 	// Per-turn wiring of the tool-execution + Stop seams (PreToolUse/PostToolUse/
 	// Stop) onto this turn's freshly-built cfg; a nil dispatcher is a no-op so the
@@ -1005,9 +1011,10 @@ func runManualRebuild(out io.Writer, deps replDeps) {
 		cfg.GetAPIKey = deps.creds.GetAPIKey
 	}
 
-	// The checkpoint lives at <memoryRoot>/sessions/<id>/checkpoint.md; the session
-	// store is rooted at <memoryRoot>/sessions, so the memory root is its parent.
-	memoryRoot := filepath.Dir(deps.store.Dir())
+	// Checkpoints live at <memoryRoot>/sessions/<id>/checkpoint.md; recover from
+	// the same root streamRun writes to. Empty when memory is disabled — then
+	// RebuildFromCheckpoint falls back to lossy compaction.
+	memoryRoot := deps.memoryRoot
 
 	fmt.Fprintln(out, ui.Colorize(ui.Enabled(), ui.Dim, "Preparing conversation context…"))
 	res, err := runtime.RebuildFromCheckpoint(context.Background(), msgs, deps.header.ID, memoryRoot, &cfg, nil)

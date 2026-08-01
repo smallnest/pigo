@@ -17,6 +17,7 @@ import (
 	"github.com/smallnest/pigo/internal/agenttool"
 	"github.com/smallnest/pigo/internal/builtinskills"
 	"github.com/smallnest/pigo/internal/hooks"
+	"github.com/smallnest/pigo/internal/memory"
 	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
@@ -42,6 +43,15 @@ type Env struct {
 	// Plugins holds any loaded external plugins so the caller can Close them when
 	// the run ends. It is nil when no plugins were discovered.
 	Plugins *plugin.Manager
+
+	// Memory is the persistent memory store opened once for the run (issue #481),
+	// or nil when persistent memory is disabled (memory.enabled=false), tools are
+	// disabled (--no-tools), or the store could not be opened (a non-fatal
+	// failure). When non-nil the caller MUST Close it when the run ends. The store
+	// is also handed to the memory_search tool (in Tools) and, through it, the
+	// per-turn memory reminder provider, so this field exists mainly so the owner
+	// can close the DB — downstream wiring reaches the store via the tool.
+	Memory *memory.Store
 }
 
 // SetupEnv resolves the provider for model/baseURL, builds the tool set rooted
@@ -54,7 +64,7 @@ type Env struct {
 // config.toml) used as the override for sub-agent credential resolution so
 // dispatched task children authenticate the same way the parent does. It
 // returns an error rather than exiting so the caller owns exit-code mapping.
-func SetupEnv(model, baseURL, protocol, providerName, apiKey string, noTools, noSkills bool, systemPrompt string, appendSystemPrompt []string) (Env, error) {
+func SetupEnv(model, baseURL, protocol, providerName, apiKey string, noTools, noSkills bool, systemPrompt string, appendSystemPrompt []string, memEnabled bool) (Env, error) {
 	cwd, _ := os.Getwd()
 	prov, resolvedName, err := provider.ResolveProvider(model, baseURL, protocol, providerName, os.Getenv)
 	if err != nil {
@@ -65,6 +75,20 @@ func SetupEnv(model, baseURL, protocol, providerName, apiKey string, noTools, no
 		return Env{}, err
 	}
 	tools := BuiltinTools(cwd, noTools)
+	// Open the persistent memory store once (issue #481) and expose it as the
+	// memory_search tool so the agent can recall earlier context. Memory is a
+	// tool, so it is skipped under --no-tools; memory.enabled=false disables it
+	// too. Opening is non-fatal: a failure logs and leaves memory off, matching
+	// the "fall back to file-based auto-memory" contract.
+	var memStore *memory.Store
+	if !noTools {
+		if store, err := OpenMemoryStore(memEnabled); err != nil {
+			fmt.Fprintf(os.Stderr, "pigo: memory disabled: %v\n", err)
+		} else if store != nil {
+			memStore = store
+			tools = append(tools, &agenttool.MemorySearchTool{Store: store})
+		}
+	}
 	// Wire the generic task tool (US-002, #454) unless tools are disabled. It
 	// dispatches general-purpose sub-agents that reuse the resolved provider
 	// stream/model. Each spawn gets a fresh child RunConfig whose registry is the
@@ -132,6 +156,7 @@ func SetupEnv(model, baseURL, protocol, providerName, apiKey string, noTools, no
 		SysPrompt:    sysPrompt,
 		Skills:       skills,
 		Plugins:      mgr,
+		Memory:       memStore,
 	}, nil
 }
 
@@ -243,15 +268,77 @@ func ToolRegistry(tools []agentcore.AgentTool) *agenttool.ToolRegistry {
 // TodoReminders builds the per-turn system-reminder registry for a tool set
 // (US-002): it locates the stateful TodoTool and registers a TodoReminderProvider
 // over its shared store, so the model is reminded of unfinished tasks each turn.
-// Returns nil when no todo tool is present (e.g. --no-tools), leaving injection
-// disabled.
+// It also registers a MemoryReminderProvider over the memory_search tool's store
+// (issue #481) when present, so relevant persisted memory is recalled each turn
+// (this is the recall channel used after auto-compaction/rebuild). Returns nil
+// when neither provider applies (e.g. --no-tools), leaving injection disabled.
 func TodoReminders(tools []agentcore.AgentTool) *runtime.ReminderRegistry {
+	var providers []runtime.ReminderProvider
 	for _, t := range tools {
-		if tt, ok := t.(*agenttool.TodoTool); ok && tt.Store != nil {
-			return runtime.NewReminderRegistry(&runtime.TodoReminderProvider{Store: tt.Store})
+		switch tool := t.(type) {
+		case *agenttool.TodoTool:
+			if tool.Store != nil {
+				providers = append(providers, &runtime.TodoReminderProvider{Store: tool.Store})
+			}
+		case *agenttool.MemorySearchTool:
+			if tool.Store != nil {
+				providers = append(providers, &runtime.MemoryReminderProvider{Store: tool.Store})
+			}
 		}
 	}
-	return nil
+	if len(providers) == 0 {
+		return nil
+	}
+	return runtime.NewReminderRegistry(providers...)
+}
+
+// MemoryRootFromTools returns the persistent memory root the run's memory_search
+// tool is backed by (its Store.Root()), or "" when persistent memory is not wired
+// into this tool set (memory.enabled=false, --no-tools, or the store failed to
+// open). It is the canonical source of the memory root for checkpoint persistence
+// and context rebuild (<root>/sessions/<id>/checkpoint.md): callers resolve the
+// root through the opened store rather than re-deriving it from the session store.
+func MemoryRootFromTools(tools []agentcore.AgentTool) string {
+	for _, t := range tools {
+		if mt, ok := t.(*agenttool.MemorySearchTool); ok && mt.Store != nil {
+			return mt.Store.Root()
+		}
+	}
+	return ""
+}
+
+// MemoryDir returns the persistent memory root directory: $PIGO_HOME/memory, or
+// ~/.pigo/memory by default (a single global store so cross-project "global"
+// memories are searchable, mirroring the session store's ~/.pigo base). It
+// returns "" when the home directory cannot be resolved and no override is set.
+func MemoryDir() string {
+	dir := os.Getenv("PIGO_HOME")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		dir = filepath.Join(home, ".pigo")
+	}
+	return filepath.Join(dir, "memory")
+}
+
+// OpenMemoryStore opens the persistent memory store under MemoryDir() (index DB
+// at <root>/index.db). It returns (nil, nil) — not an error — when persistent
+// memory is disabled (memEnabled=false) or the home dir is unresolvable, so the
+// caller degrades to file-based auto-memory without treating the off state as a
+// failure. A genuine open failure is returned as an error for the caller to log
+// non-fatally.
+func OpenMemoryStore(memEnabled bool) (*memory.Store, error) {
+	if !memEnabled {
+		return nil, nil
+	}
+	root := MemoryDir()
+	if root == "" {
+		return nil, nil
+	}
+	dbPath := filepath.Join(root, "index.db")
+	return memory.Open(dbPath, root, "")
 }
 
 // SkillsDir returns the directory skills are loaded from. It defaults to
