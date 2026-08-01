@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -90,7 +91,9 @@ func (t *BashTool) Name() string { return "bash" }
 // Description implements AgentTool.
 func (t *BashTool) Description() string {
 	return "Run a shell command, streaming stdout/stderr. Supports a timeout " +
-		"and cancellation. A non-zero exit code is reported as an error."
+		"and cancellation. A non-zero exit code is reported as an error. " +
+		"On Windows the command runs under bash if available (Git Bash/WSL), " +
+		"else PowerShell, else cmd — prefer portable commands."
 }
 
 // Schema implements AgentTool.
@@ -111,11 +114,33 @@ func (t *BashTool) ExecutionMode() agentcore.ToolExecutionMode {
 	return agentcore.ToolExecutionSequential
 }
 
-func (t *BashTool) shell() string {
-	if t.Shell != "" {
-		return t.Shell
+// shellLookPath resolves a program on PATH. It is a package var so tests can
+// simulate a Windows box with or without bash installed.
+var shellLookPath = exec.LookPath
+
+// resolveShell picks the interpreter and the flag that makes it read the command
+// from the next argument. An explicit shell (BashTool.Shell) is always honored as
+// a POSIX-style "<shell> -c <command>".
+//
+// On Windows with no explicit shell, the naive "bash -c" hardcode fails on stock
+// machines that have no bash on PATH — the model then retries bash blindly and
+// every call errors (issue #518). So we prefer a real bash when one is present
+// (Git Bash / WSL / MSYS), since commands are authored in bash syntax, and fall
+// back to PowerShell, then cmd, so a command still runs on a bare Windows box.
+func resolveShell(explicit, goos string, lookPath func(string) (string, error)) (shell, flag string) {
+	if explicit != "" {
+		return explicit, "-c"
 	}
-	return "bash"
+	if goos == "windows" {
+		if p, err := lookPath("bash"); err == nil {
+			return p, "-c"
+		}
+		if p, err := lookPath("powershell"); err == nil {
+			return p, "-Command"
+		}
+		return "cmd", "/C"
+	}
+	return "bash", "-c"
 }
 
 // streamWriter forwards each written chunk to onUpdate as a growing partial
@@ -161,7 +186,8 @@ func (t *BashTool) Execute(ctx context.Context, id string, args json.RawMessage,
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(runCtx, t.shell(), "-c", a.Command)
+	shell, flag := resolveShell(t.Shell, runtime.GOOS, shellLookPath)
+	cmd := exec.CommandContext(runCtx, shell, flag, a.Command)
 	if t.Dir != "" {
 		cmd.Dir = t.Dir
 	}
@@ -191,6 +217,15 @@ func (t *BashTool) Execute(ctx context.Context, id string, args json.RawMessage,
 	if ctx.Err() == context.Canceled {
 		return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(output)}},
 			fmt.Errorf("bash: command canceled\n%s", output)
+	}
+
+	// A missing interpreter (no bash/powershell/cmd on PATH) surfaces as an
+	// *exec.Error before the command ever runs. Report it with actionable
+	// guidance instead of a bare "code -1", so the model stops retrying blindly.
+	var execErr *exec.Error
+	if errors.As(err, &execErr) {
+		return agentcore.AgentToolResult{Content: agentcore.ContentList{agentcore.NewTextContent(output)}},
+			fmt.Errorf("bash: could not start shell %q: %v. On Windows install Git Bash or WSL (or configure a shell); commands are bash syntax", shell, execErr.Err)
 	}
 
 	if err != nil {

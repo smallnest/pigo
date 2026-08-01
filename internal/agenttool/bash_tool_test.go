@@ -229,3 +229,44 @@ func TestTruncateBashOutputByteCount(t *testing.T) {
 	}
 }
 
+// TestResolveShell covers the platform-aware interpreter selection (issue #518).
+// It injects goos + a lookPath stub so every branch runs regardless of the host.
+func TestResolveShell(t *testing.T) {
+	found := func(name string) func(string) (string, error) {
+		return func(s string) (string, error) {
+			if s == name {
+				return `C:\bin\` + s, nil
+			}
+			return "", fmt.Errorf("not found")
+		}
+	}
+	none := func(string) (string, error) { return "", fmt.Errorf("not found") }
+
+	tests := []struct {
+		name           string
+		explicit, goos string
+		lookPath       func(string) (string, error)
+		wantFlag       string
+		wantShellHas   string // substring the resolved shell must contain
+	}{
+		{"explicit honored on windows", "zsh", "windows", none, "-c", "zsh"},
+		{"explicit honored on linux", "fish", "linux", none, "-c", "fish"},
+		{"non-windows always bash", "", "linux", none, "-c", "bash"},
+		{"darwin always bash", "", "darwin", none, "-c", "bash"},
+		{"windows with bash", "", "windows", found("bash"), "-c", "bash"},
+		{"windows falls back to powershell", "", "windows", found("powershell"), "-Command", "powershell"},
+		{"windows falls back to cmd", "", "windows", none, "/C", "cmd"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			shell, flag := resolveShell(tc.explicit, tc.goos, tc.lookPath)
+			if flag != tc.wantFlag {
+				t.Errorf("flag = %q, want %q", flag, tc.wantFlag)
+			}
+			if !strings.Contains(shell, tc.wantShellHas) {
+				t.Errorf("shell = %q, want to contain %q", shell, tc.wantShellHas)
+			}
+		})
+	}
+}
+
