@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-en="Quickstart — pigo" data-zh="快速开始 — pigo">Quickstart — pigo</title>
+  <meta name="description" content="Get pigo running in 5 minutes: install, configure a provider, run a headless prompt, then enter the REPL. 5 分钟跑起 pigo。">
+  <link rel="stylesheet" href="assets/site.css">
+  <script defer src="assets/i18n.js"></script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="../index.html"><span class="nav-logo">p</span> pigo</a>
+      <div class="nav-links">
+        <a href="quickstart.html" data-en="Quickstart" data-zh="快速开始"></a>
+        <a href="features.html" data-en="Features" data-zh="特性"></a>
+        <a href="configuration.html" class="hide-sm" data-en="Config" data-zh="配置"></a>
+        <a href="slash-commands.html" class="hide-sm" data-en="Commands" data-zh="命令"></a>
+        <a href="architecture.html" class="hide-sm" data-en="Architecture" data-zh="架构"></a>
+        <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
+        <button class="nav-btn" data-lang-toggle aria-label="切换到中文">中文</button>
+        <button class="nav-btn" data-theme-toggle aria-label="Toggle theme">☀️</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="docs">
+    <aside class="doc-sidebar">
+      <h4 data-en="Docs" data-zh="文档"></h4>
+      <ul>
+        <li><a href="quickstart.html" class="active" data-en="Quickstart" data-zh="快速开始"></a></li>
+        <li><a href="install.html" data-en="Installation" data-zh="安装"></a></li>
+        <li><a href="features.html" data-en="Features" data-zh="特性"></a></li>
+        <li><a href="configuration.html" data-en="Configuration" data-zh="配置"></a></li>
+        <li><a href="slash-commands.html" data-en="Slash commands" data-zh="Slash 命令"></a></li>
+        <li><a href="architecture.html" data-en="Architecture" data-zh="架构"></a></li>
+      </ul>
+    </aside>
+
+    <main class="doc-content">
+      <h1 data-en="Quickstart" data-zh="快速开始"></h1>
+      <p class="doc-sub" data-en="From zero to your first agent run in about 5 minutes."
+         data-zh="从零到第一次 Agent 运行，约 5 分钟。"></p>
+
+      <h2 data-en="1 · Install" data-zh="1 · 安装"></h2>
+      <p data-en="The quickest way is the install script. See the <a href='install.html'>Installation</a> page for <code>go install</code> and building from source."
+         data-zh="最快的方式是安装脚本。<code>go install</code> 与源码构建见<a href='install.html'>安装</a>页。"></p>
+      <div class="copy-wrap">
+        <pre><code>curl -fsSL https://raw.githubusercontent.com/smallnest/pigo/master/install.sh | sh</code></pre>
+        <button class="copy-btn" data-copy="curl -fsSL https://raw.githubusercontent.com/smallnest/pigo/master/install.sh | sh">Copy</button>
+      </div>
+
+      <h2 data-en="2 · Configure a provider" data-zh="2 · 配置 Provider"></h2>
+      <p data-en="pigo uses OpenRouter by default. Export an API key, or point it at any OpenAI-compatible endpoint. Full options on the <a href='configuration.html'>Configuration</a> page."
+         data-zh="pigo 默认使用 OpenRouter。导出 API Key，或指向任意 OpenAI 兼容端点。完整配置见<a href='configuration.html'>配置</a>页。"></p>
+      <div class="copy-wrap">
+        <pre><code>export OPENROUTER_API_KEY="sk-or-..."
+
+# 或使用本地 Ollama：
+pigo -u http://localhost:11434/v1 -m qwen3</code></pre>
+        <button class="copy-btn" data-copy='export OPENROUTER_API_KEY="sk-or-..."'>Copy</button>
+      </div>
+
+      <h2 data-en="3 · Run a headless prompt" data-zh="3 · 无头执行一条提示"></h2>
+      <p data-en="Use <code>-p</code> to run a single prompt and exit — ideal for scripts and CI."
+         data-zh="用 <code>-p</code> 执行单条提示后退出 —— 适合脚本与 CI。"></p>
+      <div class="copy-wrap">
+        <pre><code>pigo -p "用 Go 写一个 FizzBuzz"
+
+# 指定模型 + JSON 输出：
+pigo -m gpt-5 -o json -p "解释这段代码" &lt; main.go</code></pre>
+        <button class="copy-btn" data-copy='pigo -p "用 Go 写一个 FizzBuzz"'>Copy</button>
+      </div>
+
+      <h2 data-en="4 · Enter the REPL" data-zh="4 · 进入交互式 REPL"></h2>
+      <p data-en="Run <code>pigo</code> with no prompt to start an interactive session. Type <code>/help</code> to list commands, <code>/exit</code> to leave. See all <a href='slash-commands.html'>slash commands</a>."
+         data-zh="不带提示直接运行 <code>pigo</code> 进入交互式会话。输入 <code>/help</code> 查看命令，<code>/exit</code> 退出。全部命令见 <a href='slash-commands.html'>Slash 命令</a>。"></p>
+      <div class="copy-wrap">
+        <pre><code>$ pigo
+&gt; 帮我给这个仓库补一份 README
+&gt; /model claude-opus-4-7
+&gt; /exit</code></pre>
+        <button class="copy-btn" data-copy="pigo">Copy</button>
+      </div>
+
+      <div class="note" data-en="Tip: resume your last session anytime with <code>pigo -r</code>."
+           data-zh="提示：随时用 <code>pigo -r</code> 续跑上次会话。"></div>
+
+      <div class="doc-next">
+        <a href="install.html"><span data-en="Next" data-zh="下一页"></span><strong data-en="Installation →" data-zh="安装 →"></strong></a>
+        <a href="configuration.html"><span data-en="Related" data-zh="相关"></span><strong data-en="Configuration →" data-zh="配置 →"></strong></a>
+      </div>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div><strong>pigo</strong> · <span data-en="A command-line coding agent in Go." data-zh="用 Go 打造的命令行编码 Agent。"></span></div>
+      <div class="footer-links">
+        <a href="../index.html" data-en="Home" data-zh="首页"></a>
+        <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
