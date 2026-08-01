@@ -75,6 +75,15 @@ type SessionHeader struct {
 	// (US-006, #122). Empty for a session created from scratch. It records
 	// lineage only; a fork is otherwise a fully independent session file.
 	ParentSession string `json:"parentSession,omitempty"`
+	// ContextFrom is the id of the session this one inherited its collapsed
+	// context from (#480, "infinite context"). Empty when the session started
+	// with no inherited checkpoint. Optional and additive: older schemas (v1/v2/v3)
+	// omit it and still load.
+	ContextFrom string `json:"contextFrom,omitempty"`
+	// ContextWatermark is the message index up to which context was collapsed
+	// into an inherited checkpoint (#480). Messages before this index live in the
+	// checkpoint summary rather than the replayed transcript. Optional/additive.
+	ContextWatermark int `json:"contextWatermark,omitempty"`
 }
 
 // Entry wraps one persisted message with the tree metadata introduced in schema
