@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-en="Slash commands — pigo" data-zh="Slash 命令 — pigo">Slash commands — pigo</title>
+  <meta name="description" content="pigo slash commands reference: built-ins (/help /model /compact /fork /clone /tree /session /memory ...), skill commands /skill-name, and prompt templates with $1/$@/$ARGUMENTS. pigo 斜杠命令参考。">
+  <link rel="stylesheet" href="assets/site.css">
+  <script defer src="assets/i18n.js"></script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="../index.html"><span class="nav-logo">p</span> pigo</a>
+      <div class="nav-links">
+        <a href="quickstart.html" data-en="Quickstart" data-zh="快速开始"></a>
+        <a href="features.html" data-en="Features" data-zh="特性"></a>
+        <a href="configuration.html" class="hide-sm" data-en="Config" data-zh="配置"></a>
+        <a href="slash-commands.html" class="hide-sm" data-en="Commands" data-zh="命令"></a>
+        <a href="architecture.html" class="hide-sm" data-en="Architecture" data-zh="架构"></a>
+        <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
+        <button class="nav-btn" data-lang-toggle aria-label="切换到中文">中文</button>
+        <button class="nav-btn" data-theme-toggle aria-label="Toggle theme">☀️</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="docs">
+    <aside class="doc-sidebar">
+      <h4 data-en="Docs" data-zh="文档"></h4>
+      <ul>
+        <li><a href="quickstart.html" data-en="Quickstart" data-zh="快速开始"></a></li>
+        <li><a href="install.html" data-en="Installation" data-zh="安装"></a></li>
+        <li><a href="features.html" data-en="Features" data-zh="特性"></a></li>
+        <li><a href="configuration.html" data-en="Configuration" data-zh="配置"></a></li>
+        <li><a href="slash-commands.html" class="active" data-en="Slash commands" data-zh="Slash 命令"></a></li>
+        <li><a href="architecture.html" data-en="Architecture" data-zh="架构"></a></li>
+      </ul>
+    </aside>
+
+    <main class="doc-content">
+      <h1 data-en="Slash commands" data-zh="Slash 命令"></h1>
+      <p class="doc-sub" data-en="Type a slash at the REPL prompt to run a command instead of a message."
+         data-zh="在 REPL 提示符下输入斜杠即可运行命令，而非发送消息。"></p>
+
+      <h2 data-en="Built-in commands" data-zh="内置命令"></h2>
+      <table>
+        <thead><tr>
+          <th data-en="Command" data-zh="命令"></th>
+          <th data-en="What it does" data-zh="作用"></th>
+        </tr></thead>
+        <tbody>
+          <tr><td><code>/help</code></td><td data-en="List available commands" data-zh="列出可用命令"></td></tr>
+          <tr><td><code>/model</code></td><td data-en="Switch the active model live" data-zh="实时切换当前模型"></td></tr>
+          <tr><td><code>/models</code></td><td data-en="List selectable models" data-zh="列出可选模型"></td></tr>
+          <tr><td><code>/think</code></td><td data-en="Set reasoning effort level" data-zh="设置推理强度"></td></tr>
+          <tr><td><code>/compact</code></td><td data-en="Compact context now" data-zh="立即压缩上下文"></td></tr>
+          <tr><td><code>/fork</code></td><td data-en="Branch off the current session" data-zh="从当前会话分叉"></td></tr>
+          <tr><td><code>/clone</code></td><td data-en="Duplicate the current session" data-zh="复制当前会话"></td></tr>
+          <tr><td><code>/tree</code></td><td data-en="Show the session tree" data-zh="显示会话树"></td></tr>
+          <tr><td><code>/export</code></td><td data-en="Export the session to a file" data-zh="导出会话到文件"></td></tr>
+          <tr><td><code>/import</code></td><td data-en="Import a session from a file" data-zh="从文件导入会话"></td></tr>
+          <tr><td><code>/copy</code></td><td data-en="Copy the last reply to clipboard" data-zh="复制上一条回复到剪贴板"></td></tr>
+          <tr><td><code>/session</code></td><td data-en="Manage / switch sessions" data-zh="管理 / 切换会话"></td></tr>
+          <tr><td><code>/status</code></td><td data-en="Show current run status" data-zh="显示当前运行状态"></td></tr>
+          <tr><td><code>/memory</code></td><td data-en="Inspect &amp; manage persistent memory" data-zh="查看与管理持久记忆"></td></tr>
+          <tr><td><code>/exit</code></td><td data-en="Quit the REPL (alias /quit)" data-zh="退出 REPL（别名 /quit）"></td></tr>
+        </tbody>
+      </table>
+
+      <h2 data-en="Skill commands" data-zh="技能命令"></h2>
+      <p data-en="Every installed skill is exposed as <code>/skill-name</code>. Typing it loads that skill's instructions into the run. Skills come from built-ins, your <code>~/.pigo</code> directory, plugins, and packages — <code>/help</code> lists whatever is currently available."
+         data-zh="每个已安装的 skill 都以 <code>/skill-name</code> 暴露。输入它即把该 skill 的指令载入本次运行。Skills 来自内置、你的 <code>~/.pigo</code> 目录、插件与 package —— <code>/help</code> 会列出当前可用的全部命令。"></p>
+      <pre><code>/review-it        # 运行某个已安装 skill
+/note-it</code></pre>
+
+      <h2 data-en="Prompt templates" data-zh="提示词模板"></h2>
+      <p data-en="Drop a Markdown file into your commands/prompts directory and its name becomes a command: <code>/name</code>. The file body is a prompt template expanded at invoke time. Argument syntax:"
+         data-zh="把一个 Markdown 文件放进 commands/prompts 目录，其文件名即成为命令：<code>/name</code>。文件正文是一段在调用时展开的提示词模板。参数语法："></p>
+      <table>
+        <thead><tr>
+          <th data-en="Token" data-zh="占位符"></th>
+          <th data-en="Expands to" data-zh="展开为"></th>
+        </tr></thead>
+        <tbody>
+          <tr><td><code>$1</code>, <code>$2</code> … <code>$N</code></td><td data-en="The Nth positional argument (1-indexed; out-of-range → empty)" data-zh="第 N 个位置参数（从 1 计；越界 → 空）"></td></tr>
+          <tr><td><code>$@</code></td><td data-en="All arguments, joined by a single space" data-zh="全部参数，以单个空格连接"></td></tr>
+          <tr><td><code>$ARGUMENTS</code></td><td data-en="Same as $@ — all arguments" data-zh="等同 $@ —— 全部参数"></td></tr>
+        </tbody>
+      </table>
+      <pre><code># ~/.pigo/commands/greet.md 内容: "向 $1 用 $2 语言问好"
+/greet Alice 中文    # → 向 Alice 用 中文 问好</code></pre>
+
+      <div class="note" data-en="Both braced <code>${1}</code> and bare <code>$1</code> forms work. A bare <code>$</code> not followed by a digit, <code>@</code>, or <code>ARGUMENTS</code> is left as-is."
+           data-zh="花括号 <code>${1}</code> 与裸 <code>$1</code> 两种写法都支持。裸 <code>$</code> 后若不接数字、<code>@</code> 或 <code>ARGUMENTS</code>，则原样保留。"></div>
+
+      <div class="doc-next">
+        <a href="configuration.html"><span data-en="Previous" data-zh="上一页"></span><strong data-en="← Configuration" data-zh="← 配置"></strong></a>
+        <a href="architecture.html"><span data-en="Next" data-zh="下一页"></span><strong data-en="Architecture →" data-zh="架构 →"></strong></a>
+      </div>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div><strong>pigo</strong> · <span data-en="A command-line coding agent in Go." data-zh="用 Go 打造的命令行编码 Agent。"></span></div>
+      <div class="footer-links">
+        <a href="../index.html" data-en="Home" data-zh="首页"></a>
+        <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
