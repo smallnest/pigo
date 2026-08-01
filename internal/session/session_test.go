@@ -686,3 +686,51 @@ func TestSaveLoadCompactionEntry(t *testing.T) {
 		t.Fatalf("compaction fields: %+v", cm)
 	}
 }
+
+// TestContextHeaderFieldsRoundTrip verifies the additive "infinite context"
+// header fields (#480) — ContextFrom/ContextWatermark — survive a Save→Load
+// round-trip through the real session file path.
+func TestContextHeaderFieldsRoundTrip(t *testing.T) {
+	s := newStore(t)
+	now := time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC)
+	header := SessionHeader{
+		ID:               NewID(now),
+		CreatedAt:        now,
+		UpdatedAt:        now,
+		ContextFrom:      "parent-sess-123",
+		ContextWatermark: 37,
+	}
+	if err := s.Save(header, sampleMessages()); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, _, err := s.Load(header.ID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.ContextFrom != "parent-sess-123" {
+		t.Errorf("ContextFrom = %q, want %q", got.ContextFrom, "parent-sess-123")
+	}
+	if got.ContextWatermark != 37 {
+		t.Errorf("ContextWatermark = %d, want 37", got.ContextWatermark)
+	}
+}
+
+// TestContextHeaderFieldsOmittedWhenZero verifies the fields are omitempty: a
+// header without them serializes without the keys, keeping v1/v2/v3 files
+// byte-compatible for the common no-inherited-context case.
+func TestContextHeaderFieldsOmittedWhenZero(t *testing.T) {
+	s := newStore(t)
+	now := time.Now().UTC()
+	header := SessionHeader{ID: "no-ctx", CreatedAt: now, UpdatedAt: now}
+	if err := s.Save(header, sampleMessages()); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(s.Dir(), FileName("no-ctx")))
+	if err != nil {
+		t.Fatalf("read session file: %v", err)
+	}
+	headerLine := strings.SplitN(string(raw), "\n", 2)[0]
+	if strings.Contains(headerLine, "contextFrom") || strings.Contains(headerLine, "contextWatermark") {
+		t.Errorf("zero context fields must be omitted; header line = %s", headerLine)
+	}
+}
