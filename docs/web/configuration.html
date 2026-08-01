@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-en="Configuration — pigo" data-zh="配置 — pigo">Configuration — pigo</title>
+  <meta name="description" content="Configure pigo via ~/.config/pigo/config.toml: model, base_url, api_key, output_format, [memory]/[checkpoint] tables, and PROVIDER_API_KEY env vars. 配置 pigo。">
+  <link rel="stylesheet" href="assets/site.css">
+  <script defer src="assets/i18n.js"></script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="../index.html"><span class="nav-logo">p</span> pigo</a>
+      <div class="nav-links">
+        <a href="quickstart.html" data-en="Quickstart" data-zh="快速开始"></a>
+        <a href="features.html" data-en="Features" data-zh="特性"></a>
+        <a href="configuration.html" class="hide-sm" data-en="Config" data-zh="配置"></a>
+        <a href="slash-commands.html" class="hide-sm" data-en="Commands" data-zh="命令"></a>
+        <a href="architecture.html" class="hide-sm" data-en="Architecture" data-zh="架构"></a>
+        <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
+        <button class="nav-btn" data-lang-toggle aria-label="切换到中文">中文</button>
+        <button class="nav-btn" data-theme-toggle aria-label="Toggle theme">☀️</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="docs">
+    <aside class="doc-sidebar">
+      <h4 data-en="Docs" data-zh="文档"></h4>
+      <ul>
+        <li><a href="quickstart.html" data-en="Quickstart" data-zh="快速开始"></a></li>
+        <li><a href="install.html" data-en="Installation" data-zh="安装"></a></li>
+        <li><a href="features.html" data-en="Features" data-zh="特性"></a></li>
+        <li><a href="configuration.html" class="active" data-en="Configuration" data-zh="配置"></a></li>
+        <li><a href="slash-commands.html" data-en="Slash commands" data-zh="Slash 命令"></a></li>
+        <li><a href="architecture.html" data-en="Architecture" data-zh="架构"></a></li>
+      </ul>
+    </aside>
+
+    <main class="doc-content">
+      <h1 data-en="Configuration" data-zh="配置"></h1>
+      <p class="doc-sub" data-en="One TOML file, a handful of env vars, and clear precedence."
+         data-zh="一个 TOML 文件、几个环境变量，外加清晰的优先级。"></p>
+
+      <h2 data-en="Config file location" data-zh="配置文件位置"></h2>
+      <p data-en="pigo reads <code>~/.config/pigo/config.toml</code> — or <code>$XDG_CONFIG_HOME/pigo/config.toml</code> when <code>XDG_CONFIG_HOME</code> is set. A missing or empty file is fine; every key falls back to a built-in default."
+         data-zh="pigo 读取 <code>~/.config/pigo/config.toml</code> —— 若设置了 <code>XDG_CONFIG_HOME</code>，则为 <code>$XDG_CONFIG_HOME/pigo/config.toml</code>。文件缺失或为空也没关系，每个键都会回退到内置默认值。"></p>
+
+      <h2 data-en="Precedence" data-zh="优先级"></h2>
+      <p data-en="Three layers resolve each setting, closer wins:"
+         data-zh="每个设置由三层解析，越靠前优先级越高："></p>
+      <pre><code>command-line flag  &gt;  config.toml  &gt;  built-in default</code></pre>
+      <p data-en="So <code>pigo -m gpt-5</code> overrides <code>model</code> in the file, which in turn overrides the shipped default."
+         data-zh="因此 <code>pigo -m gpt-5</code> 会覆盖文件里的 <code>model</code>，而文件又覆盖出厂默认值。"></p>
+
+      <h2 data-en="Common keys" data-zh="常用键"></h2>
+      <table>
+        <thead><tr>
+          <th data-en="Key" data-zh="键"></th>
+          <th data-en="Purpose" data-zh="用途"></th>
+        </tr></thead>
+        <tbody>
+          <tr><td><code>model</code></td><td data-en="Default model id" data-zh="默认模型 id"></td></tr>
+          <tr><td><code>base_url</code></td><td data-en="OpenAI-compatible endpoint" data-zh="OpenAI 兼容端点"></td></tr>
+          <tr><td><code>api_key</code></td><td data-en="Inline key (prefer env vars)" data-zh="内联密钥（建议改用环境变量）"></td></tr>
+          <tr><td><code>provider</code></td><td data-en="Force a named provider" data-zh="强制指定 provider"></td></tr>
+          <tr><td><code>protocol</code></td><td data-en="Wire protocol (openai / anthropic)" data-zh="通信协议（openai / anthropic）"></td></tr>
+          <tr><td><code>output_format</code></td><td data-en="text or json" data-zh="text 或 json"></td></tr>
+          <tr><td><code>thinking_level</code></td><td data-en="Reasoning effort" data-zh="推理强度"></td></tr>
+          <tr><td><code>approve</code></td><td data-en="Auto-approve tool calls" data-zh="自动批准工具调用"></td></tr>
+          <tr><td><code>no_tools</code></td><td data-en="Disable built-in tools" data-zh="禁用内置工具"></td></tr>
+          <tr><td><code>no_skills</code></td><td data-en="Disable skills" data-zh="禁用 skills"></td></tr>
+          <tr><td><code>system_prompt</code></td><td data-en="Override the base system prompt" data-zh="覆盖基础系统提示词"></td></tr>
+          <tr><td><code>prompts</code></td><td data-en="Paths to prompt-template files/dirs" data-zh="提示词模板文件/目录路径"></td></tr>
+        </tbody>
+      </table>
+
+      <h2 data-en="Nested tables" data-zh="嵌套表"></h2>
+      <p data-en="Three optional TOML tables tune memory, checkpointing, and compaction. All keys are optional and default-safe:"
+         data-zh="三个可选 TOML 表用于调节记忆、检查点与压缩。所有键都可选且带安全默认值："></p>
+      <ul>
+        <li data-en="<code>[memory]</code> — <code>enabled</code> (default true), <code>reconcile_on_search</code> (default true), <code>search_score_floor</code> (0–1, default 0.15), <code>cc_index</code> (default false)."
+            data-zh="<code>[memory]</code> —— <code>enabled</code>（默认 true）、<code>reconcile_on_search</code>（默认 true）、<code>search_score_floor</code>（0–1，默认 0.15）、<code>cc_index</code>（默认 false）。"></li>
+        <li data-en="<code>[checkpoint]</code> — <code>thresholds</code> (percent strings like <code>\"80%\"</code>), <code>reserved</code> (int tokens or a percent string), and a nested <code>[checkpoint.push_caps]</code> of per-section token caps."
+            data-zh="<code>[checkpoint]</code> —— <code>thresholds</code>（百分比字符串，如 <code>\"80%\"</code>）、<code>reserved</code>（整数 token 或百分比字符串），以及嵌套的 <code>[checkpoint.push_caps]</code> 分区 token 上限。"></li>
+        <li data-en="<code>[compaction]</code> — <code>max_context</code> lowers the auto-compaction trigger (absolute tokens or a fraction of the window)."
+            data-zh="<code>[compaction]</code> —— <code>max_context</code> 降低自动压缩触发点（绝对 token 数，或窗口的一个比例）。"></li>
+      </ul>
+
+      <h2 data-en="API keys via environment" data-zh="通过环境变量提供 API Key"></h2>
+      <p data-en="Prefer env vars over an inline <code>api_key</code>. Each provider has a named variable — <code>OPENROUTER_API_KEY</code>, <code>ANTHROPIC_API_KEY</code>, <code>NVIDIA_API_KEY</code>, <code>DEEPSEEK_API_KEY</code>, and so on. For an unknown provider, pigo falls back to a generic <code>&lt;PROVIDER&gt;_API_KEY</code> (uppercased provider name)."
+         data-zh="相比内联 <code>api_key</code>，更推荐用环境变量。每个 provider 有对应变量 —— <code>OPENROUTER_API_KEY</code>、<code>ANTHROPIC_API_KEY</code>、<code>NVIDIA_API_KEY</code>、<code>DEEPSEEK_API_KEY</code> 等。对未知 provider，pigo 回退到通用的 <code>&lt;PROVIDER&gt;_API_KEY</code>（provider 名大写）。"></p>
+      <pre><code>export OPENROUTER_API_KEY=sk-or-...
+export ANTHROPIC_API_KEY=sk-ant-...</code></pre>
+
+      <h2 data-en="Sample config.toml" data-zh="示例 config.toml"></h2>
+      <div class="copy-wrap">
+        <pre><code>model = "gpt-5"
+base_url = "https://openrouter.ai/api/v1"
+output_format = "text"
+approve = false
+prompts = ["~/.config/pigo/prompts"]
+
+[memory]
+enabled = true
+search_score_floor = 0.15
+
+[checkpoint]
+thresholds = ["80%", "90%"]
+reserved = "10%"
+
+[checkpoint.push_caps]
+memory = 800
+recall = 1200
+
+[compaction]
+max_context = "60%"</code></pre>
+        <button class="copy-btn" data-copy='model = "gpt-5"
+base_url = "https://openrouter.ai/api/v1"
+output_format = "text"
+approve = false
+prompts = ["~/.config/pigo/prompts"]
+
+[memory]
+enabled = true
+search_score_floor = 0.15
+
+[checkpoint]
+thresholds = ["80%", "90%"]
+reserved = "10%"
+
+[checkpoint.push_caps]
+memory = 800
+recall = 1200
+
+[compaction]
+max_context = "60%"'>Copy</button>
+      </div>
+
+      <div class="note" data-en="Keep secrets out of the file — use <code>&lt;PROVIDER&gt;_API_KEY</code> env vars. Next, see the slash commands."
+           data-zh="不要把密钥写进文件 —— 用 <code>&lt;PROVIDER&gt;_API_KEY</code> 环境变量。接下来看看 Slash 命令。"></div>
+
+      <div class="doc-next">
+        <a href="features.html"><span data-en="Previous" data-zh="上一页"></span><strong data-en="← Features" data-zh="← 特性"></strong></a>
+        <a href="slash-commands.html"><span data-en="Next" data-zh="下一页"></span><strong data-en="Slash commands →" data-zh="Slash 命令 →"></strong></a>
+      </div>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div><strong>pigo</strong> · <span data-en="A command-line coding agent in Go." data-zh="用 Go 打造的命令行编码 Agent。"></span></div>
+      <div class="footer-links">
+        <a href="../index.html" data-en="Home" data-zh="首页"></a>
+        <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
