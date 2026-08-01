@@ -255,3 +255,39 @@ func TestApplyFileConfigPrompts(t *testing.T) {
 		t.Errorf("opts.configPrompts = %v, want [./my-prompts /abs/x.md]", opts.configPrompts)
 	}
 }
+
+// applyFileConfig always resolves the [memory]/[checkpoint]/[compaction] tables
+// into opts.memory, applying defaults when they are absent.
+func TestApplyFileConfig_MemoryDefaults(t *testing.T) {
+	var opts cliOptions
+	applyFileConfig(&opts, config.FileConfig{}, changedSet())
+	if !opts.memory.Memory.Enabled || !opts.memory.Memory.ReconcileOnSearch {
+		t.Errorf("memory defaults not applied: %+v", opts.memory.Memory)
+	}
+	if opts.memory.Memory.SearchScoreFloor != 0.15 {
+		t.Errorf("search_score_floor default = %v, want 0.15", opts.memory.Memory.SearchScoreFloor)
+	}
+	if len(opts.memory.CheckpointThresholds) != 3 {
+		t.Errorf("checkpoint thresholds default = %v, want 3 entries", opts.memory.CheckpointThresholds)
+	}
+	if opts.memory.MaxContext.IsSet() {
+		t.Errorf("max_context should be unset by default")
+	}
+}
+
+// A configured [memory]/[compaction] set overlays into opts.memory.
+func TestApplyFileConfig_MemoryOverride(t *testing.T) {
+	var opts cliOptions
+	enabled := false
+	cfg := config.FileConfig{
+		Memory:     config.MemoryConfig{Enabled: &enabled},
+		Compaction: config.CompactionConfig{MaxContext: "50%"},
+	}
+	applyFileConfig(&opts, cfg, changedSet())
+	if opts.memory.Memory.Enabled {
+		t.Errorf("memory.enabled=false should overlay, got true")
+	}
+	if got := opts.memory.MaxContext.Resolve(200000); got != 100000 {
+		t.Errorf("max_context 50%% of 200000 = %d, want 100000", got)
+	}
+}

@@ -114,6 +114,12 @@ type cliOptions struct {
 	// given directory. This is what makes pigo usable as an SDK backend that can
 	// be pointed at an arbitrary project root.
 	cwd string
+	// memory holds the resolved [memory]/[checkpoint]/[compaction] config tables
+	// (defaults applied, string forms parsed). These have no CLI flags — the
+	// config file is their only source — so applyFileConfig always populates this
+	// (defaults when the tables are absent) for downstream memory/checkpoint/
+	// compaction wiring to consume. See config.MemorySettings.
+	memory config.MemorySettings
 }
 
 func main() {
@@ -247,6 +253,10 @@ func applyFileConfig(opts *cliOptions, cfg config.FileConfig, changed func(strin
 	if len(cfg.Prompts) > 0 {
 		opts.configPrompts = cfg.Prompts
 	}
+	// The [memory]/[checkpoint]/[compaction] tables have no CLI flags, so they
+	// are resolved (with defaults) and overlaid unconditionally — an absent set
+	// of tables yields the default-safe MemorySettings.
+	opts.memory = cfg.ResolveMemorySettings()
 }
 
 // dispatch runs the resolved command and returns a process exit code, writing

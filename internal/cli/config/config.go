@@ -42,6 +42,14 @@ type FileConfig struct {
 	// Prompts is the config.toml `prompts` array: paths (files or dirs) to load
 	// prompt templates from at the settings tier (mirrors pi's settings prompts).
 	Prompts []string `toml:"prompts"`
+	// Memory, Checkpoint, and Compaction are nested TOML tables for the
+	// persistent-memory / infinite-context feature. They are pure config
+	// plumbing here; defaults/parsing live in memory.go (Resolve* helpers) and
+	// the overlay into runtime options lives in cmd/pigo. See
+	// tasks/spec-persistent-memory-infinite-context.md §3/§4/§5.2.
+	Memory     MemoryConfig     `toml:"memory"`
+	Checkpoint CheckpointConfig `toml:"checkpoint"`
+	Compaction CompactionConfig `toml:"compaction"`
 }
 
 // FileConfigPath returns the path to the user config file:

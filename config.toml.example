@@ -43,3 +43,30 @@ no_skills = false
 
 # Internal: run as a process-isolated sub-agent JSON-RPC server over stdio (US-019).
 # subagent_rpc = false
+
+# --- Persistent memory + infinite context (nested tables) ---
+
+# [memory] controls the persistent memory system. All keys are optional and
+# default to the values shown; set memory.enabled = false to fully disable it.
+# [memory]
+# enabled = true              # master switch for the memory system
+# reconcile_on_search = true  # lazily re-index memory files before each search
+# search_score_floor = 0.15   # drop search hits below this relevance score (0..1)
+# cc_index = false            # also index the Claude Code memory directory (read-only)
+
+# [checkpoint] controls infinite-context checkpointing.
+# [checkpoint]
+# thresholds = ["40%", "60%", "80%"]  # context-window fill levels that trigger compaction
+# reserved = 4096                     # optional: tokens to reserve (int) or a percentage ("10%")
+
+# [checkpoint.push_caps] caps per-section injection token budgets.
+# [checkpoint.push_caps]
+# memory = 800
+# recall = 1200
+
+# [compaction] tunes auto-compaction.
+# [compaction]
+# max_context accepts a token count (300000), a K/M suffix ("300K", "1M"), or a
+# percentage of the provider window ("50%"). It only lowers the trigger point and
+# is always clamped by the provider limit.
+# max_context = "300K"
