@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -247,7 +248,55 @@ func (s *runSession) buildConfig() runtime.RunConfig {
 	return cfg
 }
 
-// startRun is the real binding for Model.startRunFn: it appends the submitted
+// rebuildDoneMsg reports the outcome of a manual /rebuild to the model: summary
+// is the status line to show in the transcript, err is set when the rebuild
+// failed (the context is then left unchanged).
+type rebuildDoneMsg struct {
+	summary string
+	err     error
+}
+
+// rebuildCmd runs a context rebuild off the tea loop (the no-checkpoint fallback
+// makes a summarization LLM call, so it must not block the UI goroutine) and
+// yields a rebuildDoneMsg the model folds into the transcript. It mirrors the
+// REPL's runManualRebuild.
+func (s *runSession) rebuildCmd() tea.Cmd {
+	return func() tea.Msg {
+		summary, err := s.rebuild()
+		return rebuildDoneMsg{summary: summary, err: err}
+	}
+}
+
+// rebuild reconstructs the shared context from the session's persisted checkpoint
+// (collapsing the pre-watermark prefix to the checkpoint summary and preserving
+// the recent tail verbatim), falling back to lossy compaction when no checkpoint
+// exists. It replaces agentCtx.Messages in place on success and flags compacted
+// so persist() re-saves the flattened context linearly (as after a /compact).
+func (s *runSession) rebuild() (string, error) {
+	msgs := s.agentCtx.Messages
+	before := compaction.EstimateContextTokens(msgs).Tokens
+	// The checkpoint lives under <memoryRoot>/sessions/<id>/; the store is rooted
+	// at <memoryRoot>/sessions, so the memory root is its parent.
+	memoryRoot := filepath.Dir(s.store.Dir())
+	cfg := s.buildConfig()
+	res, err := runtime.RebuildFromCheckpoint(context.Background(), msgs, s.header.ID, memoryRoot, &cfg, nil)
+	if err != nil {
+		return "", err
+	}
+	if res.NoOp {
+		return fmt.Sprintf("nothing to rebuild (%d tokens, %d messages)", before, len(msgs)), nil
+	}
+	s.agentCtx.Messages = res.Messages
+	s.compacted = true
+	source := "checkpoint"
+	if !res.FromCheckpoint {
+		source = "compaction (no checkpoint)"
+	}
+	return fmt.Sprintf("context rebuilt from %s: %d → %d tokens, collapsed %d messages, kept %d",
+		source, res.TokensBefore, res.TokensAfter, res.SummarizedCount, res.KeptCount), nil
+}
+
+
 // prompt to the growing context as a user message, then hands the context and a
 // freshly-built config to the event bridge (bridge.startRun → runtime.StartRun +
 // DrainStream on a goroutine), returning the bridge channel and the first

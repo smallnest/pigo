@@ -426,6 +426,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.transcript.addSystem("(context compacted)")
 		return m, m.pumpNext()
 
+	case rebuildDoneMsg:
+		// A manual /rebuild finished: clear the pinned "Preparing conversation
+		// context…" spinner (no run is pumping, so stop it and drop out of the
+		// running state) and report the outcome. rebuild() already applied the
+		// rebuilt messages and set session.compacted on success.
+		m.spinner.unpin()
+		m.spinner.stop()
+		m.running = false
+		if msg.err != nil {
+			m.transcript.addSystem("rebuild failed: " + msg.err.Error() + " (context left unchanged)")
+		} else {
+			m.transcript.addSystem(msg.summary)
+		}
+		m.relayout()
+		return m, nil
+
 	case runEndMsg:
 		m.running = false
 		m.runCh = nil
@@ -714,6 +730,27 @@ func (m Model) runSlash(line string) (tea.Model, tea.Cmd) {
 	if line == "/exit" || line == "/quit" {
 		m.quitting = true
 		return m, tea.Quit
+	}
+	// /rebuild is intercepted before registry resolution (like /exit): it
+	// reconstructs the shared context from a persisted checkpoint (or falls back
+	// to compaction) and replaces the message list in place — work a slash Action
+	// closure cannot do. It reuses the compacting-indicator: the spinner is armed
+	// and pinned to "Preparing conversation context…" while the rebuild runs off
+	// the tea loop, and rebuildDoneMsg clears it and reports the result.
+	if line == "/rebuild" {
+		m.transcript.addUser(line)
+		m.input.Clear()
+		m.menu.close()
+		if m.session == nil {
+			m.transcript.addSystem("(rebuild unavailable: no active session)")
+			m.relayout()
+			return m, nil
+		}
+		m.spinner.begin(time.Now(), m.thinkingLabel())
+		m.spinner.pin("Preparing conversation context")
+		m.running = true
+		m.relayout()
+		return m, tea.Batch(m.session.rebuildCmd(), m.tickSpinner())
 	}
 	m.transcript.addUser(line)
 	m.input.Clear()

@@ -19,6 +19,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -336,6 +337,25 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 			// is rewritten linearly (Save) and the branch-tracking state is reset to
 			// the new flattened leaf.
 			runManualCompact(out, deps)
+			deps.header.UpdatedAt = time.Now().UTC()
+			if err := deps.store.Save(deps.header, deps.agentCtx.Messages); err != nil {
+				fmt.Fprintf(out, "pigo: session save failed: %v\n", err)
+			}
+			deps.persisted = len(deps.agentCtx.Messages)
+			deps.curLeaf = ""
+			if _, entries, err := deps.store.LoadEntries(deps.header.ID); err == nil && len(entries) > 0 {
+				deps.curLeaf = entries[len(entries)-1].ID
+			}
+			continue
+		}
+		if line == "/rebuild" {
+			// /rebuild is intercepted here for the same reason as /compact: it
+			// reconstructs the whole message list (checkpoint summary + retained
+			// tail) and mutates the shared context, which a slash Action closure
+			// cannot do. It reloads a persisted checkpoint when present, else falls
+			// back to lossy compaction. Like /compact, the session is rewritten
+			// linearly (Save) and the branch cursor reset to the new flattened leaf.
+			runManualRebuild(out, deps)
 			deps.header.UpdatedAt = time.Now().UTC()
 			if err := deps.store.Save(deps.header, deps.agentCtx.Messages); err != nil {
 				fmt.Fprintf(out, "pigo: session save failed: %v\n", err)
@@ -955,6 +975,57 @@ func runManualCompact(out io.Writer, deps replDeps) {
 	summarized := len(msgs) - (len(rebuilt) - 1)
 	fmt.Fprintf(out, "compacted: %d → %d tokens, summarized %d messages, kept %d\n",
 		before, after, summarized, len(rebuilt)-1)
+}
+
+// runManualRebuild reconstructs the shared context on an explicit /rebuild
+// request. It reloads the session's persisted checkpoint (from #480) and inserts
+// the compression boundary at its watermark — collapsing the pre-watermark
+// prefix into the checkpoint summary and preserving the recent tail verbatim. If
+// no checkpoint exists it falls back to the same lossy compaction /compact runs.
+// It prints the before/after token counts; a failure is reported but non-fatal
+// (the original context is kept unchanged).
+func runManualRebuild(out io.Writer, deps replDeps) {
+	msgs := deps.agentCtx.Messages
+	before := compaction.EstimateContextTokens(msgs).Tokens
+
+	// Build a RunConfig matching a normal turn so the no-checkpoint fallback can
+	// summarize against the live provider/model (RebuildFromCheckpoint reuses the
+	// loop's compaction path). The checkpoint path itself is pure/local.
+	cfg := runtime.RunConfig{
+		LoopConfig: runtime.LoopConfig{
+			Model:         deps.live.Model,
+			Provider:      deps.live.ProviderName,
+			ThinkingLevel: deps.live.ThinkingLevel,
+			Stream:        provider.StreamFnFromProvider(deps.live.Provider),
+			ContextWindow: deps.live.ContextWindow,
+			Compaction:    compaction.DefaultCompactionSettings,
+		},
+	}
+	if deps.creds != nil {
+		cfg.GetAPIKey = deps.creds.GetAPIKey
+	}
+
+	// The checkpoint lives at <memoryRoot>/sessions/<id>/checkpoint.md; the session
+	// store is rooted at <memoryRoot>/sessions, so the memory root is its parent.
+	memoryRoot := filepath.Dir(deps.store.Dir())
+
+	fmt.Fprintln(out, ui.Colorize(ui.Enabled(), ui.Dim, "Preparing conversation context…"))
+	res, err := runtime.RebuildFromCheckpoint(context.Background(), msgs, deps.header.ID, memoryRoot, &cfg, nil)
+	if err != nil {
+		fmt.Fprintf(out, "rebuild failed: %v (context left unchanged)\n", err)
+		return
+	}
+	if res.NoOp {
+		fmt.Fprintf(out, "nothing to rebuild (%d tokens, %d messages)\n", before, len(msgs))
+		return
+	}
+	deps.agentCtx.Messages = res.Messages
+	source := "checkpoint"
+	if !res.FromCheckpoint {
+		source = "compaction (no checkpoint)"
+	}
+	fmt.Fprintf(out, "rebuilt from %s: %d → %d tokens, collapsed %d messages, kept %d\n",
+		source, res.TokensBefore, res.TokensAfter, res.SummarizedCount, res.KeptCount)
 }
 
 // replayTranscript prints a resumed session's prior messages to out so the user
