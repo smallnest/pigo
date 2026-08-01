@@ -20,6 +20,9 @@ type Options struct {
 	BaseURL      string
 	APIKey       string
 	Protocol     string
+	// Version is the running build version (main.version), shown in the startup
+	// banner. Empty or "dev"/"unknown" renders as-is with no update hint.
+	Version string
 	// ThinkingLevel is the resolved reasoning-effort level (US-023): it seeds the
 	// live run config so every turn requests it, until a control command changes
 	// it.

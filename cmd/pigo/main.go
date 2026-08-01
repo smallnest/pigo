@@ -308,6 +308,10 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			return 2
 		}
 		if shouldUseTUI(opts, isTTY) {
+			// Refresh the cached latest-release check off the hot path so the banner
+			// can show an upgrade hint on this or the next launch without blocking
+			// startup (US-004). No-ops for dev builds or a fresh cache.
+			selfupdate.StartBackgroundCheck(version)
 			if err := tui.Run(tui.Options{
 				Model:             opts.model,
 				ProviderName:      env.ProviderName,
@@ -315,6 +319,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 				BaseURL:           opts.baseURL,
 				APIKey:            opts.apiKey,
 				Protocol:          opts.protocol,
+				Version:           version,
 				ThinkingLevel:     thinking,
 				Tools:             env.Tools,
 				SysPrompt:         env.SysPrompt,
