@@ -307,6 +307,19 @@ func MemoryRootFromTools(tools []agentcore.AgentTool) string {
 	return ""
 }
 
+// MemoryStoreFromTools returns the persistent memory Store backing the run's
+// memory_search tool, or nil when persistent memory is not wired into this tool
+// set. It lets status commands (/memory) inspect the live store without
+// re-opening the database.
+func MemoryStoreFromTools(tools []agentcore.AgentTool) *memory.Store {
+	for _, t := range tools {
+		if mt, ok := t.(*agenttool.MemorySearchTool); ok && mt.Store != nil {
+			return mt.Store
+		}
+	}
+	return nil
+}
+
 // MemoryDir returns the persistent memory root directory: $PIGO_HOME/memory, or
 // ~/.pigo/memory by default (a single global store so cross-project "global"
 // memories are searchable, mirroring the session store's ~/.pigo base). It

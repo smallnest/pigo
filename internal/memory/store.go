@@ -100,6 +100,34 @@ func (s *Store) Root() string {
 	return s.root
 }
 
+// CountByScope returns the number of indexed memory entries grouped by scope.
+// Scopes with no entries are omitted from the map. It reflects the current
+// contents of memory_index; callers that want fresh counts should Reconcile
+// first. A nil store or nil db yields an empty map.
+func (s *Store) CountByScope() (map[Scope]int, error) {
+	out := make(map[Scope]int)
+	if s == nil || s.db == nil {
+		return out, nil
+	}
+	rows, err := s.db.Query(`SELECT scope, COUNT(*) FROM memory_index GROUP BY scope`)
+	if err != nil {
+		return nil, fmt.Errorf("memory: count by scope: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var scope string
+		var n int
+		if err := rows.Scan(&scope, &n); err != nil {
+			return nil, fmt.Errorf("memory: scan scope count: %w", err)
+		}
+		out[Scope(scope)] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("memory: iterate scope counts: %w", err)
+	}
+	return out, nil
+}
+
 // Close closes the underlying database connection.
 func (s *Store) Close() error {
 	if s == nil || s.db == nil {

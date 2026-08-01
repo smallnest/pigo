@@ -28,6 +28,7 @@ import (
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/compaction"
 	"github.com/smallnest/pigo/internal/hooks"
+	"github.com/smallnest/pigo/internal/memory"
 	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
@@ -53,6 +54,9 @@ type runSession struct {
 	// disabled). It routes auto-compaction checkpoints and /rebuild recovery to
 	// <memoryRoot>/sessions/<id>/, the canonical checkpoint location.
 	memoryRoot string
+	// memstore is the live persistent-memory Store (nil when memory is disabled).
+	// It lets /memory inspect entry counts without re-opening the database.
+	memstore *memory.Store
 
 	// dispatcher is the session's hook dispatcher, nil when no hooks are
 	// configured (FR-18). hookDeps carries the session id / project dir stamped
@@ -163,6 +167,7 @@ func newRunSessionWithStore(store *session.Store, opts Options) (*runSession, []
 		curLeaf:   curLeaf,
 		persisted: len(history),
 		memoryRoot: run.MemoryRootFromTools(opts.Tools),
+		memstore:   run.MemoryStoreFromTools(opts.Tools),
 	}
 	// Wire hooks uniformly with every other driver (#425): resolve the trust-gated
 	// hook set, build the dispatcher, dispatch SessionStart once, and compose the

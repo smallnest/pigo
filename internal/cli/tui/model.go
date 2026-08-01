@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"regexp"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/cli/memstatus"
+	"github.com/smallnest/pigo/internal/memory"
 	"github.com/smallnest/pigo/internal/runtime"
 )
 
@@ -730,6 +733,30 @@ func (m Model) runSlash(line string) (tea.Model, tea.Cmd) {
 	if line == "/exit" || line == "/quit" {
 		m.quitting = true
 		return m, tea.Quit
+	}
+	// /memory is intercepted before registry resolution (like /rebuild): it
+	// prints the persistent-memory + infinite-context report, reading the live
+	// memory store, memory root, session id, and messages that a slash Action
+	// closure (string→string) cannot reach.
+	if line == "/memory" || strings.HasPrefix(line, "/memory ") {
+		m.transcript.addUser(line)
+		m.input.Clear()
+		m.menu.close()
+		var buf bytes.Buffer
+		var store *memory.Store
+		var memoryRoot, sessionID string
+		var msgs agentcore.MessageList
+		window := m.live.ContextWindow
+		if m.session != nil {
+			store = m.session.memstore
+			memoryRoot = m.session.memoryRoot
+			sessionID = m.session.header.ID
+			msgs = m.session.agentCtx.Messages
+		}
+		memstatus.RunMemory(&buf, store, memoryRoot, sessionID, msgs, window)
+		m.transcript.addSystem(strings.TrimRight(buf.String(), "\n"))
+		m.relayout()
+		return m, nil
 	}
 	// /rebuild is intercepted before registry resolution (like /exit): it
 	// reconstructs the shared context from a persisted checkpoint (or falls back

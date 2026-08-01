@@ -29,12 +29,14 @@ import (
 	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/cli/btw"
 	"github.com/smallnest/pigo/internal/cli/goal"
+	"github.com/smallnest/pigo/internal/cli/memstatus"
 	"github.com/smallnest/pigo/internal/cli/run"
 	"github.com/smallnest/pigo/internal/cli/status"
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/clipboard"
 	"github.com/smallnest/pigo/internal/compaction"
 	"github.com/smallnest/pigo/internal/hooks"
+	"github.com/smallnest/pigo/internal/memory"
 	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
@@ -144,6 +146,9 @@ type replDeps struct {
 	// disabled). streamRun routes auto-compaction checkpoints here and /rebuild
 	// recovers from <memoryRoot>/sessions/<id>/, the canonical checkpoint location.
 	memoryRoot string
+	// memstore is the live persistent-memory Store (nil when memory is disabled).
+	// It lets /memory inspect entry counts without re-opening the database.
+	memstore *memory.Store
 }
 
 // replScanBufInit is the initial size of the shared input reader. A REPL user
@@ -423,6 +428,15 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 			// closure cannot see. The exact-or-space-prefix guard keeps "/statusfoo"
 			// from being mistaken for "/status".
 			status.RunStatus(out, &deps)
+			continue
+		}
+		if line == "/memory" || strings.HasPrefix(line, "/memory ") {
+			// /memory prints the persistent-memory + infinite-context report.
+			// Like /status it needs live state (the memory store, memory root,
+			// session id, and messages) that a string→string Action closure
+			// cannot reach, so it is intercepted here.
+			memstatus.RunMemory(out, deps.memstore, deps.memoryRoot, deps.header.ID,
+				deps.agentCtx.Messages, deps.live.ContextWindow)
 			continue
 		}
 		if line == "/goal" || strings.HasPrefix(line, "/goal ") {

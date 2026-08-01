@@ -213,6 +213,7 @@ func Run(opts Options) error {
 		curLeaf:   curLeaf,
 		persisted: len(history),
 		memoryRoot: run.MemoryRootFromTools(opts.Tools),
+		memstore:   run.MemoryStoreFromTools(opts.Tools),
 		notifier:  plugin.NewEventNotifier(opts.Plugins, os.Stderr),
 		goal:      agenttool.NewGoalState(),
 		telemetry: cli.NewTelemetryHolder(),
