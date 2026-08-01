@@ -734,3 +734,110 @@ func TestContextHeaderFieldsOmittedWhenZero(t *testing.T) {
 		t.Errorf("zero context fields must be omitted; header line = %s", headerLine)
 	}
 }
+
+// TestSetContextInheritanceRoundTrips verifies that a session created with
+// inheritance set via SetContextInheritance writes both fields and exposes them
+// (via the ContextInheritance accessor) when read back.
+func TestSetContextInheritanceRoundTrips(t *testing.T) {
+	s := newStore(t)
+	now := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	header := SessionHeader{ID: NewID(now), CreatedAt: now, UpdatedAt: now}
+	SetContextInheritance(&header, "src-sess-42", 12)
+
+	if err := s.Save(header, sampleMessages()); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, _, err := s.Load(header.ID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	fromID, watermark, ok := got.ContextInheritance()
+	if !ok {
+		t.Fatalf("ContextInheritance ok = false, want true")
+	}
+	if fromID != "src-sess-42" || watermark != 12 {
+		t.Errorf("ContextInheritance = (%q, %d), want (%q, 12)", fromID, watermark, "src-sess-42")
+	}
+	if !got.HasContextInheritance() {
+		t.Errorf("HasContextInheritance = false, want true")
+	}
+}
+
+// TestSetContextInheritanceClears verifies an empty source or non-positive
+// watermark clears both fields, so the header round-trips as a no-inheritance
+// session (omitempty keeps it byte-compatible with older files).
+func TestSetContextInheritanceClears(t *testing.T) {
+	cases := []struct {
+		name      string
+		fromID    string
+		watermark int
+	}{
+		{"empty source", "", 5},
+		{"zero watermark", "src", 0},
+		{"negative watermark", "src", -3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			header := SessionHeader{ID: "h", ContextFrom: "stale", ContextWatermark: 99}
+			SetContextInheritance(&header, tc.fromID, tc.watermark)
+			if header.ContextFrom != "" || header.ContextWatermark != 0 {
+				t.Errorf("expected cleared inheritance, got (%q, %d)", header.ContextFrom, header.ContextWatermark)
+			}
+			if header.HasContextInheritance() {
+				t.Errorf("HasContextInheritance = true after clear")
+			}
+		})
+	}
+}
+
+// TestContextInheritanceRejectsPartial verifies the accessor treats a header
+// with only one of the two fields as "no inheritance" (ok=false) rather than
+// reporting a half-configured record.
+func TestContextInheritanceRejectsPartial(t *testing.T) {
+	onlyFrom := SessionHeader{ContextFrom: "src"}
+	if _, _, ok := onlyFrom.ContextInheritance(); ok {
+		t.Errorf("ok = true for header with source but no watermark")
+	}
+	onlyWatermark := SessionHeader{ContextWatermark: 8}
+	if _, _, ok := onlyWatermark.ContextInheritance(); ok {
+		t.Errorf("ok = true for header with watermark but no source")
+	}
+}
+
+// TestLoadedSessionsWithoutInheritanceReadZero verifies backward compatibility:
+// v1/v2/v3 sessions written without the inheritance fields load with zero-value
+// ContextFrom/ContextWatermark and report HasContextInheritance()=false.
+func TestLoadedSessionsWithoutInheritanceReadZero(t *testing.T) {
+	s := newStore(t)
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	// v3 written through the normal path (no inheritance set).
+	v3 := SessionHeader{ID: "v3-noctx", CreatedAt: now, UpdatedAt: now}
+	if err := s.Save(v3, sampleMessages()); err != nil {
+		t.Fatalf("Save v3: %v", err)
+	}
+
+	// Hand-crafted v1 and v2 fixtures (bare message lines, no context fields).
+	msgLine := `{"role":"user","content":[{"type":"text","text":"hi"}]}`
+	if err := writeFile(filepath.Join(s.Dir(), FileName("v1-noctx")),
+		`{"version":1,"id":"v1-noctx","createdAt":"2026-01-02T03:04:05Z","updatedAt":"2026-01-02T03:04:05Z"}`+"\n"+msgLine+"\n"); err != nil {
+		t.Fatalf("write v1 fixture: %v", err)
+	}
+	if err := writeFile(filepath.Join(s.Dir(), FileName("v2-noctx")),
+		`{"version":2,"id":"v2-noctx","createdAt":"2026-01-02T03:04:05Z","updatedAt":"2026-01-02T03:04:05Z"}`+"\n"+msgLine+"\n"); err != nil {
+		t.Fatalf("write v2 fixture: %v", err)
+	}
+
+	for _, id := range []string{"v3-noctx", "v1-noctx", "v2-noctx"} {
+		got, _, err := s.Load(id)
+		if err != nil {
+			t.Fatalf("Load %s: %v", id, err)
+		}
+		if got.ContextFrom != "" || got.ContextWatermark != 0 {
+			t.Errorf("%s: expected zero inheritance, got (%q, %d)", id, got.ContextFrom, got.ContextWatermark)
+		}
+		if got.HasContextInheritance() {
+			t.Errorf("%s: HasContextInheritance = true, want false", id)
+		}
+	}
+}
