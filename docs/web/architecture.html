@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-en="Architecture — pigo" data-zh="架构 — pigo">Architecture — pigo</title>
+  <meta name="description" content="pigo architecture: the agent loop, AgentCore, provider abstraction, tool system, and runtime components — with links to the detailed diagrams. pigo 架构总览。">
+  <link rel="stylesheet" href="assets/site.css">
+  <script defer src="assets/i18n.js"></script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="../index.html"><span class="nav-logo">p</span> pigo</a>
+      <div class="nav-links">
+        <a href="quickstart.html" data-en="Quickstart" data-zh="快速开始"></a>
+        <a href="features.html" data-en="Features" data-zh="特性"></a>
+        <a href="configuration.html" class="hide-sm" data-en="Config" data-zh="配置"></a>
+        <a href="slash-commands.html" class="hide-sm" data-en="Commands" data-zh="命令"></a>
+        <a href="architecture.html" class="hide-sm" data-en="Architecture" data-zh="架构"></a>
+        <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
+        <button class="nav-btn" data-lang-toggle aria-label="切换到中文">中文</button>
+        <button class="nav-btn" data-theme-toggle aria-label="Toggle theme">☀️</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="docs">
+    <aside class="doc-sidebar">
+      <h4 data-en="Docs" data-zh="文档"></h4>
+      <ul>
+        <li><a href="quickstart.html" data-en="Quickstart" data-zh="快速开始"></a></li>
+        <li><a href="install.html" data-en="Installation" data-zh="安装"></a></li>
+        <li><a href="features.html" data-en="Features" data-zh="特性"></a></li>
+        <li><a href="configuration.html" data-en="Configuration" data-zh="配置"></a></li>
+        <li><a href="slash-commands.html" data-en="Slash commands" data-zh="Slash 命令"></a></li>
+        <li><a href="architecture.html" class="active" data-en="Architecture" data-zh="架构"></a></li>
+      </ul>
+    </aside>
+
+    <main class="doc-content">
+      <h1 data-en="Architecture" data-zh="架构"></h1>
+      <p class="doc-sub" data-en="How the pieces fit: an agent loop driving tools through a provider."
+         data-zh="各部件如何协作：一个 agent loop 通过 provider 驱动工具。"></p>
+
+      <h2 data-en="The agent loop" data-zh="Agent Loop"></h2>
+      <p data-en="At the heart of pigo is a loop: send the conversation to the model, receive a reply that may request tool calls, execute those tools, feed the results back, and repeat until the model returns a final answer. Context compaction and memory recall hook into this loop so long runs don't overflow the window."
+         data-zh="pigo 的核心是一个循环：把对话发给模型，收到可能包含工具调用的回复，执行这些工具，把结果回喂，如此往复直到模型给出最终回答。上下文压缩与记忆检索挂接在此循环上，使长时运行不会撑爆窗口。"></p>
+
+      <h2 data-en="AgentCore" data-zh="AgentCore"></h2>
+      <p data-en="<code>AgentCore</code> owns the loop and the conversation state. It orchestrates the turn: assembling the layered system prompt, deciding when to compact, dispatching tool calls, and enforcing approval policy. It is provider- and UI-agnostic — the same core drives both headless <code>-p</code> runs and the interactive REPL."
+         data-zh="<code>AgentCore</code> 持有循环与对话状态。它编排每一轮：组装分层系统提示词、决定何时压缩、派发工具调用、执行批准策略。它与 provider 和 UI 无关 —— 同一个核心既驱动无头 <code>-p</code> 运行，也驱动交互式 REPL。"></p>
+
+      <h2 data-en="Provider abstraction" data-zh="Provider 抽象"></h2>
+      <p data-en="A <code>Provider</code> is the thin adapter between AgentCore and a model endpoint. It normalizes request/response shapes across wire protocols (OpenAI-compatible, Anthropic) and resolves credentials from <code>&lt;PROVIDER&gt;_API_KEY</code> env vars. Adding a backend means implementing this one interface — the loop above never changes."
+         data-zh="<code>Provider</code> 是 AgentCore 与模型端点之间的薄适配层。它跨通信协议（OpenAI 兼容、Anthropic）归一化请求/响应结构，并从 <code>&lt;PROVIDER&gt;_API_KEY</code> 环境变量解析凭据。新增后端只需实现这一个接口 —— 上层循环无需改动。"></p>
+
+      <h2 data-en="Tool system" data-zh="工具系统"></h2>
+      <p data-en="Tools are the agent's hands. Each tool declares a name, a JSON schema, and an executor. AgentCore exposes the tool set to the model, validates the model's arguments against the schema, runs the executor, and returns the result as a tool message. Built-in tools (read/write/edit/grep/find/bash/todo/webfetch) share the same contract as plugin- and skill-provided tools."
+         data-zh="工具是 agent 的双手。每个工具声明名称、JSON schema 与执行器。AgentCore 把工具集暴露给模型，按 schema 校验模型给出的参数，运行执行器，并把结果作为工具消息返回。内置工具（read/write/edit/grep/find/bash/todo/webfetch）与插件、skill 提供的工具遵循同一契约。"></p>
+
+      <h2 data-en="Runtime components" data-zh="运行时组件"></h2>
+      <p data-en="Around the core sit the runtime services: session store (persist/resume/fork/clone), the prompt-template &amp; slash-command registry, skills and plugins, hooks at lifecycle points, persistent memory with <code>memory_search</code>, and checkpointing. The CLI layer wires these together and hands AgentCore a fully configured run."
+         data-zh="核心之外是运行时服务：会话存储（持久化/续跑/fork/clone）、提示词模板与 slash 命令注册表、skills 与插件、生命周期节点上的 hooks、带 <code>memory_search</code> 的持久记忆，以及检查点。CLI 层把它们装配起来，交给 AgentCore 一次完整配置好的运行。"></p>
+
+      <h2 data-en="Detailed diagrams" data-zh="详细图示"></h2>
+      <p data-en="These standalone diagrams go deeper into each area:"
+         data-zh="以下独立图示对各部分做了更深入的展开："></p>
+      <ul>
+        <li><a href="../pigo-agent-loop.html" data-en="Agent loop — annotated overview" data-zh="Agent Loop —— 带注解总览"></a></li>
+        <li><a href="../agent-loop-flowchart.html" data-en="Agent loop — flowchart" data-zh="Agent Loop —— 流程图"></a></li>
+        <li><a href="../pigo-runtime.html" data-en="Runtime — architecture diagram" data-zh="运行时 —— 架构图"></a></li>
+        <li><a href="../sequence_runtime.html" data-en="Runtime — sequence diagram" data-zh="运行时 —— 时序图"></a></li>
+        <li><a href="../class_agentcore.html" data-en="Class diagram — AgentCore" data-zh="类图 —— AgentCore"></a></li>
+        <li><a href="../class_provider.html" data-en="Class diagram — Provider" data-zh="类图 —— Provider"></a></li>
+        <li><a href="../class_agenttool.html" data-en="Class diagram — AgentTool" data-zh="类图 —— AgentTool"></a></li>
+      </ul>
+
+      <div class="note" data-en="That completes the docs tour. Jump back to the <a href='../index.html'>home page</a> or the <a href='quickstart.html'>Quickstart</a>."
+           data-zh="文档之旅到此结束。返回<a href='../index.html'>首页</a>或<a href='quickstart.html'>快速开始</a>。"></div>
+
+      <div class="doc-next">
+        <a href="slash-commands.html"><span data-en="Previous" data-zh="上一页"></span><strong data-en="← Slash commands" data-zh="← Slash 命令"></strong></a>
+        <a href="quickstart.html"><span data-en="Back to start" data-zh="回到开头"></span><strong data-en="Quickstart →" data-zh="快速开始 →"></strong></a>
+      </div>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div><strong>pigo</strong> · <span data-en="A command-line coding agent in Go." data-zh="用 Go 打造的命令行编码 Agent。"></span></div>
+      <div class="footer-links">
+        <a href="../index.html" data-en="Home" data-zh="首页"></a>
+        <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
