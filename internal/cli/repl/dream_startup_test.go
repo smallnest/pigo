@@ -6,11 +6,39 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/smallnest/pigo/internal/dream"
 )
+
+// syncWriter is a concurrency-safe writer whose first Write closes done, so a
+// test can wait for the async one-line notice and then read it under the same
+// lock the background goroutine wrote it under (bytes.Buffer is not safe for
+// concurrent use).
+type syncWriter struct {
+	mu   sync.Mutex
+	buf  bytes.Buffer
+	done chan struct{}
+	once sync.Once
+}
+
+func newSyncWriter() *syncWriter { return &syncWriter{done: make(chan struct{})} }
+
+func (w *syncWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	n, err := w.buf.Write(p)
+	w.once.Do(func() { close(w.done) })
+	return n, err
+}
+
+func (w *syncWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
+}
 
 // seedDueDreamState writes a state.json under memoryRoot old enough that a
 // 7-day-interval dream is due, so maybeStartBackgroundDream will spawn.
@@ -30,9 +58,7 @@ func TestMaybeStartBackgroundDream_NoticeOnChanges(t *testing.T) {
 
 	orig := spawnDream
 	t.Cleanup(func() { spawnDream = orig })
-	done := make(chan struct{})
 	spawnDream = func(_ context.Context, dir string, dryRun bool) (dreamSubprocessResult, error) {
-		defer close(done)
 		if dryRun {
 			t.Errorf("background trigger must not run in dry-run mode")
 		}
@@ -42,21 +68,16 @@ func TestMaybeStartBackgroundDream_NoticeOnChanges(t *testing.T) {
 		return dreamSubprocessResult{report: dream.Report{Merged: 3}}, nil
 	}
 
-	var buf bytes.Buffer
-	if !maybeStartBackgroundDream(&buf, root, "/proj/y", dream.NewConfig(nil, 7, 20)) {
+	w := newSyncWriter()
+	if !maybeStartBackgroundDream(w, root, "/proj/y", dream.NewConfig(nil, 7, 20)) {
 		t.Fatal("due+enabled dream should launch a background run")
 	}
 	select {
-	case <-done:
+	case <-w.done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("spawn not invoked within timeout")
+		t.Fatal("one-line notice not written within timeout")
 	}
-	// The notice writes asynchronously after spawn returns; poll briefly.
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) && buf.Len() == 0 {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if got := buf.String(); !strings.Contains(got, "dream:") || !strings.Contains(got, "merged 3") {
+	if got := w.String(); !strings.Contains(got, "dream:") || !strings.Contains(got, "merged 3") {
 		t.Fatalf("one-line notice missing/incorrect: %q", got)
 	}
 }
