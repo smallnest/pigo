@@ -1,509 +1,69 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-lang="zh">
+<html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>pigo · 使用手册 / Manual</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    :root {
-      --bg: #FAF9F6; --surface: #FFFFFF; --ink: #1a1a1a; --ink-soft: #4A4540;
-      --muted: #8B8680; --faint: #B0AAA4; --line: #E8E4DE; --accent: #D97757;
-      --accent-soft: #FFF5F0; --code-bg: #F0EEEA; --green: #5B8A72; --blue: #4A6FA5;
-    }
-    html { scroll-behavior: smooth; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-      background: var(--bg); color: var(--ink); line-height: 1.75; font-size: 15px;
-    }
-    .layout { display: flex; max-width: 1180px; margin: 0 auto; }
-    aside {
-      width: 240px; flex-shrink: 0; position: sticky; top: 0; height: 100vh;
-      overflow-y: auto; padding: 2rem 1.25rem; border-right: 1px solid var(--line);
-    }
-    aside .brand { font-size: 1.25rem; font-weight: 700; margin-bottom: 0.25rem; }
-    aside .brand .dot { color: var(--accent); }
-    aside .tag { font-size: 0.75rem; color: var(--muted); margin-bottom: 1.25rem; }
-    .lang-switch { display: flex; gap: 0.35rem; margin-bottom: 1.5rem; }
-    .lang-switch button {
-      flex: 1; font-size: 0.72rem; padding: 0.32rem 0; border: 1px solid var(--line);
-      background: var(--surface); color: var(--muted); border-radius: 6px; cursor: pointer;
-      font-family: inherit; transition: all 0.12s;
-    }
-    .lang-switch button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-    aside nav a {
-      display: block; color: var(--ink-soft); text-decoration: none;
-      font-size: 0.8125rem; padding: 0.3rem 0.6rem; border-radius: 6px; margin-bottom: 0.1rem;
-    }
-    aside nav a:hover { background: var(--code-bg); color: var(--ink); }
-    aside nav a.group { color: var(--muted); font-weight: 600; font-size: 0.7rem;
-      text-transform: uppercase; letter-spacing: 0.04em; margin-top: 1.1rem; padding-left: 0.6rem; }
-    aside nav a.group:hover { background: none; }
-    main { flex: 1; min-width: 0; padding: 2.75rem 3rem 5rem; }
-    h1 { font-size: 2rem; font-weight: 700; margin-bottom: 0.5rem; }
-    .lead { color: var(--muted); font-size: 0.95rem; margin-bottom: 2.5rem; }
-    section { margin-bottom: 3rem; scroll-margin-top: 1.5rem; }
-    h2 { font-size: 1.375rem; font-weight: 700; margin-bottom: 1rem; padding-bottom: 0.5rem;
-      border-bottom: 1px solid var(--line); }
-    h3 { font-size: 1.0625rem; font-weight: 600; margin: 1.75rem 0 0.6rem; }
-    p { margin-bottom: 0.9rem; color: var(--ink-soft); }
-    ul, ol { margin: 0 0 1rem 1.3rem; color: var(--ink-soft); }
-    li { margin-bottom: 0.35rem; }
-    a { color: var(--accent); }
-    code {
-      background: var(--code-bg); padding: 0.1rem 0.38rem; border-radius: 4px;
-      font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace; font-size: 0.82em; color: #9a4a30;
-    }
-    pre {
-      background: #2b2b2b; color: #e8e6e0; border-radius: 10px; padding: 1rem 1.15rem;
-      overflow-x: auto; margin-bottom: 1.1rem; font-size: 0.82rem; line-height: 1.65;
-      font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
-    }
-    pre code { background: none; padding: 0; color: inherit; font-size: 1em; }
-    pre .c { color: #8b9a8f; }
-    pre .p { color: #d99a76; }
-    .callout {
-      background: var(--accent-soft); border: 1px solid #f0d0c2; border-left: 3px solid var(--accent);
-      border-radius: 8px; padding: 0.85rem 1.1rem; margin-bottom: 1.1rem; font-size: 0.86rem;
-    }
-    .callout.info { background: #F0F4F8; border-color: #cdd9e6; border-left-color: var(--blue); }
-    .callout.ok { background: #F5F8F6; border-color: #cfe0d5; border-left-color: var(--green); }
-    .callout strong { color: var(--ink); }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 1.2rem; font-size: 0.84rem; }
-    th, td { text-align: left; padding: 0.55rem 0.7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-    th { color: var(--muted); font-weight: 600; font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.03em; }
-    td code { white-space: nowrap; }
-    .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.85rem; margin-bottom: 1rem; }
-    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.15rem; }
-    .card h4 { font-size: 0.9rem; margin-bottom: 0.3rem; display: flex; align-items: center; gap: 0.45rem; }
-    .card .pill { font-size: 0.68rem; padding: 0.08rem 0.45rem; border-radius: 20px; background: var(--code-bg); color: var(--muted); font-weight: 500; }
-    .card p { font-size: 0.8rem; margin: 0; color: var(--muted); }
-    footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--faint); font-size: 0.75rem; }
-    /* i18n: 只显示当前语言 / show only the active language */
-    [data-lang="zh"] .en { display: none !important; }
-    [data-lang="en"] .zh { display: none !important; }
-    @media (max-width: 820px) {
-      aside { display: none; }
-      main { padding: 2rem 1.25rem 3rem; }
-      .cards { grid-template-columns: 1fr; }
-    }
-  </style>
+  <title>pigo — 用 Go 打造的命令行编码 Agent</title>
+  <meta name="description" content="pigo — a command-line coding agent written in Go: headless & REPL modes, multi-provider, built-in tools, skills, plugins and persistent memory. 用 Go 编写的命令行编码 Agent。">
+  <link rel="stylesheet" href="web/assets/site.css">
+  <script defer src="web/assets/i18n.js"></script>
 </head>
 <body>
-  <div class="layout">
-    <aside>
-      <div class="brand">pigo<span class="dot">.</span></div>
-      <div class="tag"><span class="zh">命令行 AI Agent · 使用手册</span><span class="en">Command-line AI Agent · Manual</span></div>
-      <div class="lang-switch">
-        <button id="btn-zh" onclick="setLang('zh')">中文</button>
-        <button id="btn-en" onclick="setLang('en')">English</button>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="index.html">
+        <span class="nav-logo">p</span> pigo
+      </a>
+      <div class="nav-links">
+        <a href="web/quickstart.html" data-en="Quickstart" data-zh="快速开始"></a>
+        <a href="web/features.html" data-en="Features" data-zh="特性"></a>
+        <a href="web/configuration.html" class="hide-sm" data-en="Config" data-zh="配置"></a>
+        <a href="web/slash-commands.html" class="hide-sm" data-en="Commands" data-zh="命令"></a>
+        <a href="web/architecture.html" class="hide-sm" data-en="Architecture" data-zh="架构"></a>
+        <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
+        <button class="nav-btn" data-lang-toggle aria-label="切换到中文">中文</button>
+        <button class="nav-btn" data-theme-toggle aria-label="Toggle theme">☀️</button>
       </div>
-      <nav>
-        <a class="group zh">入门</a><a class="group en">Getting Started</a>
-        <a href="#intro"><span class="zh">简介</span><span class="en">Introduction</span></a>
-        <a href="#architecture"><span class="zh">运行架构</span><span class="en">Architecture</span></a>
-        <a href="#install"><span class="zh">安装与构建</span><span class="en">Install &amp; Build</span></a>
-        <a href="#quickstart"><span class="zh">快速开始</span><span class="en">Quick Start</span></a>
-        <a class="group zh">Agent 模式</a><a class="group en">Agent Mode</a>
-        <a href="#agent"><span class="zh">运行 Agent</span><span class="en">Running the Agent</span></a>
-        <a href="#models"><span class="zh">模型与 Provider</span><span class="en">Models &amp; Providers</span></a>
-        <a class="group zh">交互式 REPL</a><a class="group en">Interactive REPL</a>
-        <a href="#repl"><span class="zh">多行输入与编辑</span><span class="en">Multi-line Input &amp; Editing</span></a>
-        <a href="#slash"><span class="zh">斜杠命令</span><span class="en">Slash Commands</span></a>
-        <a class="group zh">包管理</a><a class="group en">Package Manager</a>
-        <a href="#pkg-overview"><span class="zh">概览</span><span class="en">Overview</span></a>
-        <a href="#pkg-install">install</a>
-        <a href="#pkg-list">list</a>
-        <a href="#pkg-uninstall">uninstall</a>
-        <a href="#pkg-update">update</a>
-        <a href="#selfupdate"><span class="zh">自更新</span><span class="en">Self-update</span></a>
-        <a class="group zh">参考</a><a class="group en">Reference</a>
-        <a href="#layout"><span class="zh">目录与环境变量</span><span class="en">Paths &amp; Env Vars</span></a>
-        <a href="#faq"><span class="zh">常见问题</span><span class="en">FAQ</span></a>
-      </nav>
-    </aside>
+    </div>
+  </nav>
 
-    <main>
-      <h1>pigo <span class="zh">使用手册</span><span class="en">Manual</span></h1>
-      <p class="lead">
-        <span class="zh">pigo 是一个面向命令行的 AI Agent，可在脚本与 CI 中无头运行，并支持安装 pi 生态的扩展、技能、命令与主题包。</span>
-        <span class="en">pigo is a command-line AI agent that runs headlessly in scripts and CI, and installs extensions, skills, commands, and themes from the pi ecosystem.</span>
-      </p>
+  <!-- HERO -->
+  <header class="hero">
+    <div class="container">
+      <span class="hero-badge" data-en="Open source · Go 1.27+" data-zh="开源 · Go 1.27+"></span>
+      <h1 data-en="The coding agent for your <span class='grad'>terminal</span>"
+          data-zh="属于你终端的 <span class='grad'>编码 Agent</span>"></h1>
+      <p class="lead"
+         data-en="pigo is a fast, hackable command-line coding agent written in Go. Headless one-shot or interactive REPL, any provider, built-in tools, skills, plugins and persistent memory."
+         data-zh="pigo 是一个用 Go 编写的、快速且可深度定制的命令行编码 Agent。无头一次性执行或交互式 REPL，兼容任意 Provider，内置工具、技能、插件与持久记忆。"></p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="web/quickstart.html" data-en="Get started →" data-zh="快速开始 →"></a>
+        <a class="btn btn-ghost" href="https://github.com/smallnest/pigo" target="_blank" rel="noopener" data-en="View on GitHub" data-zh="在 GitHub 查看"></a>
+      </div>
+      <div class="hero-cmd copy-wrap">
+        <span class="prompt">$</span>
+        <span>curl -fsSL https://raw.githubusercontent.com/smallnest/pigo/master/install.sh | sh</span>
+        <button class="copy-btn" data-copy="curl -fsSL https://raw.githubusercontent.com/smallnest/pigo/master/install.sh | sh">Copy</button>
+      </div>
+    </div>
+  </header>
 
-      <section id="intro">
-        <h2><span class="zh">简介</span><span class="en">Introduction</span></h2>
-        <p class="zh">pigo 提供两类能力：</p>
-        <p class="en">pigo offers two kinds of capabilities:</p>
-        <ul class="zh">
-          <li><strong>Agent 模式</strong>——以 flag 驱动，针对单条 prompt 运行 Agent 循环，适合脚本化与流水线；也可不带 <code>-p</code> 进入交互式 REPL。</li>
-          <li><strong>包管理</strong>——通过 <code>install / list / uninstall / update</code> 子命令，从 npm 安装 <a href="https://pi.dev/packages">pi 生态</a>的扩展、技能、命令模板与主题。</li>
-        </ul>
-        <ul class="en">
-          <li><strong>Agent mode</strong> — flag-driven, runs one agent loop for a single prompt (great for scripting and pipelines); omit <code>-p</code> to enter the interactive REPL.</li>
-          <li><strong>Package manager</strong> — install extensions, skills, command templates, and themes from the <a href="https://pi.dev/packages">pi ecosystem</a> on npm via the <code>install / list / uninstall / update</code> subcommands.</li>
-        </ul>
-        <div class="callout info">
-          <strong class="zh">提示</strong><strong class="en">Tip</strong>
-          <span class="zh">　包管理子命令是位置参数，独立于 Agent 模式的 flag；pigo 会在解析 flag 之前先把它们剥离出来。</span>
-          <span class="en">　Package subcommands are positional arguments, independent of the agent-mode flags; pigo strips them out before parsing flags.</span>
-        </div>
-      </section>
+  <!-- FEATURE-SECTIONS: populated in #499 -->
 
-      <section id="architecture">
-        <h2><span class="zh">运行架构</span><span class="en">Runtime Architecture</span></h2>
-        <p class="zh">下图展示 pigo 的高层运行架构：主请求路径（用户 → CLI → Agent 循环 → Provider → LLM 网关）、外部依赖，以及信任边界（pigo 进程 vs 外部网络，副作用工具经 Trust Gate 进入本地文件系统与 Shell）。</p>
-        <p class="en">A high-level runtime view of pigo: the primary request path (user → CLI → agent loop → provider → LLM gateway), external dependencies, and trust boundaries (the pigo process vs. the external network, with side-effecting tools crossing the Trust Gate into the local filesystem and shell).</p>
-        <p><a href="pigo-runtime.html" target="_blank" rel="noopener"><span class="zh">在新标签页打开交互式架构图 ↗</span><span class="en">Open the interactive diagram in a new tab ↗</span></a></p>
-        <iframe src="pigo-runtime.html" title="pigo runtime architecture" loading="lazy" style="width:100%;height:640px;border:1px solid var(--border,#d0d7de);border-radius:8px;"></iframe>
-      </section>
-
-      <section id="install">
-        <h2><span class="zh">安装与构建</span><span class="en">Install &amp; Build</span></h2>
-        <h3><span class="zh">一键安装脚本（Linux / macOS）</span><span class="en">One-line installer (Linux / macOS)</span></h3>
-        <p class="zh">自动检测操作系统 / 架构，从 GitHub Releases 下载最新的预编译二进制并安装到常用的 PATH 目录：</p>
-        <p class="en">Detects your OS/arch, downloads the latest prebuilt binary from GitHub Releases, and installs it into a common PATH directory:</p>
-        <pre><code>curl -fsSL https://raw.githubusercontent.com/smallnest/pigo/master/install.sh | sh</code></pre>
-        <p class="zh">可用环境变量覆盖：<code>PIGO_VERSION</code>（指定版本）、<code>PIGO_INSTALL_DIR</code>（安装目录）、<code>GITHUB_TOKEN</code>（提高 API 速率限制）。</p>
-        <p class="en">Override with env vars: <code>PIGO_VERSION</code> (pin a version), <code>PIGO_INSTALL_DIR</code> (install dir), <code>GITHUB_TOKEN</code> (raise API rate limit).</p>
-
-        <h3><span class="zh">从源码构建</span><span class="en">Build from source</span></h3>
-        <p class="zh">pigo 使用 Go 编写（需 Go 1.27+）。</p>
-        <p class="en">pigo is written in Go (requires Go 1.27+).</p>
-        <pre><code><span class="c"># <span class="zh">克隆并构建</span><span class="en">clone and build</span></span>
-git clone https://github.com/smallnest/pigo.git
-cd pigo
-go build -o pigo ./cmd/pigo
-
-<span class="c"># <span class="zh">或直接安装到 $GOBIN</span><span class="en">or install into $GOBIN</span></span>
-go install github.com/smallnest/pigo/cmd/pigo@latest</code></pre>
-        <div class="callout">
-          <strong class="zh">前置依赖</strong><strong class="en">Prerequisite</strong>
-          <span class="zh">　包管理功能（<code>install</code>/<code>update</code>）依赖本机已安装的 <code>npm</code>，pigo 通过 <code>npm pack --ignore-scripts</code> 安全下载包，不会执行包的生命周期脚本。</span>
-          <span class="en">　The package manager (<code>install</code>/<code>update</code>) requires <code>npm</code> on your machine. pigo downloads packages safely via <code>npm pack --ignore-scripts</code>, never running lifecycle scripts.</span>
-        </div>
-      </section>
-
-      <section id="quickstart">
-        <h2><span class="zh">快速开始</span><span class="en">Quick Start</span></h2>
-        <pre><code><span class="c"># 1) <span class="zh">用 Agent 跑一条 prompt</span><span class="en">run a prompt with the agent</span></span>
-<span class="p">pigo</span> -p "<span class="zh">读取 README 并用中文总结</span><span class="en">read the README and summarize it</span>"
-
-<span class="c"># 2) <span class="zh">进入交互式 REPL</span><span class="en">enter the interactive REPL</span></span>
-<span class="p">pigo</span>
-
-<span class="c"># 3) <span class="zh">安装一个 pi 扩展包</span><span class="en">install a pi extension</span></span>
-<span class="p">pigo</span> install npm:pi-mcp-adapter
-
-<span class="c"># 4) <span class="zh">查看已安装的包</span><span class="en">list installed packages</span></span>
-<span class="p">pigo</span> list</code></pre>
-      </section>
-
-      <section id="agent">
-        <h2><span class="zh">运行 Agent</span><span class="en">Running the Agent</span></h2>
-        <p class="zh">Agent 模式对单条 prompt 运行一次 Agent 循环，退出码反映成功（0）或失败（1），便于在管道中组合。不带 <code>-p</code> 且 stdout 是终端时自动进入交互式 REPL。</p>
-        <p class="en">Agent mode runs a single agent loop for one prompt; the exit code reflects success (0) or failure (1), so it composes well in pipelines. Without <code>-p</code> and with a TTY on stdout, pigo enters the interactive REPL.</p>
-        <pre><code><span class="c"># <span class="zh">打印模式：仅输出最终文本</span><span class="en">print mode: emit only the final text</span></span>
-<span class="p">pigo</span> -p "<span class="zh">解释这段代码</span><span class="en">explain this code</span>" -m openrouter/free
-
-<span class="c"># <span class="zh">流式 JSON 事件（行分隔），适合程序消费</span><span class="en">line-delimited JSON events for programmatic use</span></span>
-<span class="p">pigo</span> -p "..." --output-format stream-json
-
-<span class="c"># <span class="zh">prompt 也可作为位置参数传入</span><span class="en">the prompt can be a positional arg too</span></span>
-<span class="p">pigo</span> "<span class="zh">帮我写一个 Go 的快排</span><span class="en">write a quicksort in Go</span>"</code></pre>
-
-        <h3><span class="zh">常用 flag</span><span class="en">Common flags</span></h3>
-        <table>
-          <thead><tr><th>Flag</th><th><span class="zh">简写</span><span class="en">Short</span></th><th><span class="zh">说明</span><span class="en">Description</span></th></tr></thead>
-          <tbody>
-            <tr><td><code>--print</code></td><td><code>-p</code></td><td><span class="zh">要运行的 prompt（无头打印模式）</span><span class="en">Prompt to run (headless print mode)</span></td></tr>
-            <tr><td><code>--model</code></td><td><code>-m</code></td><td><span class="zh">模型 id，默认 <code>openrouter/free</code></span><span class="en">Model id, default <code>openrouter/free</code></span></td></tr>
-            <tr><td><code>--base-url</code></td><td><code>-u</code></td><td><span class="zh">覆盖 Provider 的 base URL（如本地 Ollama）</span><span class="en">Override the provider base URL (e.g. local Ollama)</span></td></tr>
-            <tr><td><code>--api-key</code></td><td><code>-k</code></td><td><span class="zh">Provider 的 API Key（覆盖环境变量/配置）</span><span class="en">Provider API key (overrides env/config)</span></td></tr>
-            <tr><td><code>--protocol</code></td><td><code>-P</code></td><td><span class="zh">强制线协议</span><span class="en">Force wire protocol</span>: <code>openai</code> | <code>anthropic</code></td></tr>
-            <tr><td><code>--output-format</code></td><td><code>-o</code></td><td><span class="zh">输出格式</span><span class="en">Output format</span>: <code>text</code> | <code>stream-json</code></td></tr>
-            <tr><td><code>--no-tools</code></td><td><code>-n</code></td><td><span class="zh">禁用内置的文件/Shell 工具</span><span class="en">Disable built-in file/shell tools</span></td></tr>
-            <tr><td><code>--system-prompt</code></td><td></td><td><span class="zh">用自定义系统提示词替换默认</span><span class="en">Replace the default system prompt</span></td></tr>
-            <tr><td><code>--append-system-prompt</code></td><td></td><td><span class="zh">追加系统提示词（文本或文件，可重复）</span><span class="en">Append to the system prompt (text or file, repeatable)</span></td></tr>
-            <tr><td><code>--continue</code></td><td><code>-c</code></td><td><span class="zh">恢复最近一次会话</span><span class="en">Resume the most recent session</span></td></tr>
-            <tr><td><code>--resume</code></td><td><code>-r</code></td><td><span class="zh">按 id 恢复指定会话</span><span class="en">Resume a session by id</span></td></tr>
-            <tr><td><code>--approve</code></td><td><code>-a</code></td><td><span class="zh">本次运行信任工作目录，副作用工具免逐次确认</span><span class="en">Trust the working dir for this run; skip per-call confirmation</span></td></tr>
-            <tr><td><code>--version</code></td><td><code>-v</code></td><td><span class="zh">打印版本信息并退出</span><span class="en">Print version info and exit</span></td></tr>
-          </tbody>
-        </table>
-      </section>
-
-      <section id="models">
-        <h2><span class="zh">模型与 Provider</span><span class="en">Models &amp; Providers</span></h2>
-        <p class="zh">pigo 从 <code>--model</code> 解析对应的内置 Provider，API Key 从环境变量取用（<code>&lt;PROVIDER&gt;_API_KEY</code>）。解析规则如下：</p>
-        <p class="en">pigo resolves a built-in provider from <code>--model</code> and reads the API key from the environment (<code>&lt;PROVIDER&gt;_API_KEY</code>). Resolution rules:</p>
-        <ol class="zh">
-          <li>若显式指定 <code>--protocol</code>（<code>openai</code>/<code>anthropic</code>），优先于一切启发式；<code>openai</code> 需配合 <code>--base-url</code>。</li>
-          <li>预置目录中的模型 id 使用其自带 Provider（OpenRouter / NVIDIA / Ollama）。</li>
-          <li><code>ollama/</code> 前缀或指向 11434 端口的 base URL → 本地 Ollama。</li>
-          <li><code>nvidia/</code> 前缀 → NVIDIA NIM。</li>
-          <li>其余一律走 OpenRouter（OpenAI 兼容网关）。</li>
-        </ol>
-        <ol class="en">
-          <li>An explicit <code>--protocol</code> (<code>openai</code>/<code>anthropic</code>) beats every heuristic; <code>openai</code> requires <code>--base-url</code>.</li>
-          <li>Model ids in the preset catalog use their declared provider (OpenRouter / NVIDIA / Ollama).</li>
-          <li><code>ollama/</code> prefix or a base URL on port 11434 → local Ollama.</li>
-          <li><code>nvidia/</code> prefix → NVIDIA NIM.</li>
-          <li>Everything else → OpenRouter (OpenAI-compatible gateway).</li>
-        </ol>
-        <pre><code><span class="c"># <span class="zh">本地 Ollama</span><span class="en">local Ollama</span></span>
-<span class="p">pigo</span> -p "<span class="zh">你好</span><span class="en">hello</span>" -m ollama/qwen2.5
-
-<span class="c"># <span class="zh">自建 OpenAI 兼容端点</span><span class="en">self-hosted OpenAI-compatible endpoint</span></span>
-<span class="p">pigo</span> -p "..." -P openai -u https://my-endpoint/v1 -m my-model</code></pre>
-      </section>
-
-      <section id="repl">
-        <h2><span class="zh">多行输入与编辑</span><span class="en">Multi-line Input &amp; Editing</span></h2>
-        <p class="zh">不带 <code>-p</code> 启动 pigo 即进入交互式 REPL。行编辑器工作在终端的原始（raw）模式，逐字节处理按键，支持在同一条消息里输入并编辑多行文本——整块作为一条消息提交给 Agent。</p>
-        <p class="en">Launch pigo without <code>-p</code> to enter the interactive REPL. The line editor runs in the terminal's raw mode, handling keystrokes byte-by-byte, and lets you type and edit multiple lines within a single message — the whole block is submitted to the agent as one message.</p>
-
-        <h3><span class="zh">换行的两种方式</span><span class="en">Two ways to add a newline</span></h3>
-        <ul class="zh">
-          <li><strong>Shift+Enter</strong>——在光标处插入换行，继续在下一行输入。支持现代终端的 CSI-u（<code>\x1b[13;2u</code>）与 modifyOtherKeys（<code>\x1b[27;2;13~</code>）两种上报格式。</li>
-          <li><strong>行尾反斜杠 <code>\</code></strong>——作为通用兜底：以单个未转义的 <code>\</code> 结尾再回车即续行，适用于不上报 Shift+Enter 的终端。写 <code>\\</code>（转义）则保留一个字面反斜杠并直接提交。</li>
-        </ul>
-        <ul class="en">
-          <li><strong>Shift+Enter</strong> — inserts a newline at the cursor and keeps typing on the next line. Both the CSI-u (<code>\x1b[13;2u</code>) and modifyOtherKeys (<code>\x1b[27;2;13~</code>) reporting formats of modern terminals are supported.</li>
-          <li><strong>Trailing backslash <code>\</code></strong> — the universal fallback: a line ending in a single unescaped <code>\</code> followed by Enter continues onto the next line, for terminals that don't report Shift+Enter. A <code>\\</code> (escaped) keeps one literal backslash and submits.</li>
-        </ul>
-        <div class="callout info">
-          <strong class="zh">提交</strong><strong class="en">Submit</strong>
-          <span class="zh">　在不触发续行的情况下按 <strong>Enter</strong> 提交整块多行文本；行首尾的空白会被裁剪，但内部换行完整保留后传给 Agent。</span>
-          <span class="en">　Press <strong>Enter</strong> (without triggering a continuation) to submit the whole multi-line block; leading/trailing whitespace is trimmed, but internal newlines are preserved and passed to the agent intact.</span>
-        </div>
-
-        <h3><span class="zh">光标移动与编辑</span><span class="en">Cursor movement &amp; editing</span></h3>
-        <table>
-          <thead><tr><th><span class="zh">按键</span><span class="en">Key</span></th><th><span class="zh">作用</span><span class="en">Action</span></th></tr></thead>
-          <tbody>
-            <tr><td><code>←</code> / <code>→</code></td><td><span class="zh">左右移动光标，在行首/行尾可跨行移动到上一行末/下一行首</span><span class="en">Move left/right; wraps across lines at a line's start/end</span></td></tr>
-            <tr><td><code>↑</code> / <code>↓</code></td><td><span class="zh">多行缓冲内上下移动光标（列超出目标行长度时自动收敛）；单行/空行时浏览历史</span><span class="en">Move up/down within a multi-line buffer (column clamps to the target line); browse history on a single/empty line</span></td></tr>
-            <tr><td><code>Home</code> / <code>End</code></td><td><span class="zh">跳到当前行首 / 行尾</span><span class="en">Jump to start / end of the current line</span></td></tr>
-            <tr><td><code>Backspace</code></td><td><span class="zh">删除前一个字符；在行首删除会把当前行合并到上一行</span><span class="en">Delete the previous rune; at a line start it merges the line into the one above</span></td></tr>
-          </tbody>
-        </table>
-        <p class="zh">列以 Unicode 字符（rune）计数，因此多字节字符（如中文、<code>café</code> 中的 <code>é</code>）的移动与删除都以整字符为单位。</p>
-        <p class="en">Columns are counted by Unicode runes, so movement and deletion over multi-byte characters (CJK text, the <code>é</code> in <code>café</code>) operate one whole character at a time.</p>
-
-        <h3><span class="zh">补全与历史</span><span class="en">Completion &amp; history</span></h3>
-        <ul class="zh">
-          <li><strong>Tab 补全</strong>——按 <code>Tab</code> 循环匹配的候选：斜杠命令（如 <code>/mod</code> → <code>/model</code>）、按最近使用与 basename 匹配的模型、以及历史输入。灰色（dim）提示仅在单行且光标位于行尾时显示。</li>
-          <li><strong>历史浏览</strong>——空行时按 <code>↑</code> 恢复最近一条输入；多行记录会原样复原为多行缓冲，可继续编辑后再提交，且整块仍作为一条消息。</li>
-        </ul>
-        <ul class="en">
-          <li><strong>Tab completion</strong> — press <code>Tab</code> to cycle matches: slash commands (e.g. <code>/mod</code> → <code>/model</code>), models matched by recent use and basename, and prior inputs. The dim inline hint shows only on a single line with the cursor at its end.</li>
-          <li><strong>History browsing</strong> — press <code>↑</code> on an empty line to restore the most recent input; a multi-line record comes back as a multi-line buffer you can keep editing, still submitted as one message.</li>
-        </ul>
-        <pre><code><span class="c"># <span class="zh">在 REPL 中用 Shift+Enter 输入多行（↵ 表示按下 Enter 提交）</span><span class="en">multi-line entry with Shift+Enter in the REPL (↵ = press Enter to submit)</span></span>
-<span class="p">pigo(openrouter/free)&gt;</span> <span class="zh">重构下面的函数：</span><span class="en">refactor the function below:</span>   <span class="c">← Shift+Enter</span>
-<span class="p">·</span> func add(a, b int) int { return a + b }        <span class="c">← Enter ↵</span></code></pre>
-      </section>
-
-      <section id="slash">
-        <h2><span class="zh">斜杠命令</span><span class="en">Slash Commands</span></h2>
-        <p class="zh">在 REPL 中，以 <code>/</code> 开头的输入被识别为斜杠命令。内置命令用于查看/切换模型、管理会话与上下文；此外还可加载 pi 生态安装的命令模板与技能。输入 <code>/help</code> 可列出全部可用命令。</p>
-        <p class="en">In the REPL, input starting with <code>/</code> is treated as a slash command. Built-ins view/switch models and manage the session and context; installed pi command templates and skills are available too. Type <code>/help</code> to list everything available.</p>
-        <table>
-          <thead><tr><th><span class="zh">命令</span><span class="en">Command</span></th><th><span class="zh">说明</span><span class="en">Description</span></th></tr></thead>
-          <tbody>
-            <tr><td><code>/help</code></td><td><span class="zh">列出全部可用斜杠命令</span><span class="en">List all available slash commands</span></td></tr>
-            <tr><td><code>/model [id]</code></td><td><span class="zh">查看或切换当前模型</span><span class="en">View or switch the active model</span></td></tr>
-            <tr><td><code>/models [provider]</code></td><td><span class="zh">列出可切换的预置 Provider 与模型</span><span class="en">List preset providers and models you can switch to</span></td></tr>
-            <tr><td><code>/session</code></td><td><span class="zh">查看会话统计：消息数、token、模型、压缩次数</span><span class="en">Show session stats: messages, tokens, model, compactions</span></td></tr>
-            <tr><td><code>/status</code></td><td><span class="zh">查看运行状态：运行配置、上下文、遥测、凭据、环境</span><span class="en">Show status: runtime config, context, telemetry, credentials, environment</span></td></tr>
-            <tr><td><code>/compact</code></td><td><span class="zh">立即总结并压缩当前上下文</span><span class="en">Summarize and compact the conversation context now</span></td></tr>
-            <tr><td><code>/copy</code></td><td><span class="zh">复制最近一条助手回复到剪贴板</span><span class="en">Copy the most recent assistant reply to the clipboard</span></td></tr>
-            <tr><td><code>/tree [n]</code></td><td><span class="zh">显示会话分支树；<code>/tree n</code> 切换活动分支</span><span class="en">Show the branch tree; <code>/tree n</code> switches the active branch</span></td></tr>
-            <tr><td><code>/fork [n]</code></td><td><span class="zh">从历史消息分叉出新会话</span><span class="en">Branch from a historical message into a new session</span></td></tr>
-            <tr><td><code>/clone</code></td><td><span class="zh">把当前会话复制为一个独立分支</span><span class="en">Duplicate the current session into an independent branch</span></td></tr>
-            <tr><td><code>/export [path]</code></td><td><span class="zh">导出会话到文件（<code>.jsonl</code> 或 <code>.html</code>）</span><span class="en">Export the session to a file (<code>.jsonl</code> or <code>.html</code>)</span></td></tr>
-            <tr><td><code>/import &lt;path&gt;</code></td><td><span class="zh">把 JSONL 导出作为新会话导入并切换</span><span class="en">Import a JSONL export as a new session and switch to it</span></td></tr>
-            <tr><td><code>/goal &lt;objective&gt;</code></td><td><span class="zh">朝目标自主运行：支持 <code>--tokens N</code> / <code>pause</code> / <code>resume</code> / <code>clear</code></span><span class="en">Run autonomously toward a goal: <code>--tokens N</code> / <code>pause</code> / <code>resume</code> / <code>clear</code></span></td></tr>
-            <tr><td><code>/btw &lt;question&gt;</code></td><td><span class="zh">不污染主对话，问一个临时的旁支问题（裸 <code>/btw</code> 重开上一个）</span><span class="en">Ask a side question without touching the main conversation (bare <code>/btw</code> reopens the last one)</span></td></tr>
-            <tr><td><code>/exit</code>, <code>/quit</code></td><td><span class="zh">退出 REPL</span><span class="en">Exit the REPL</span></td></tr>
-          </tbody>
-        </table>
-        <div class="callout ok">
-          <strong class="zh">分支与旁支</strong><strong class="en">Branches &amp; side threads</strong>
-          <span class="zh">　<code>/fork</code>、<code>/clone</code>、<code>/tree</code> 让会话成为可分叉的树，便于从任一历史节点探索不同走向；<code>/btw</code> 则在主对话之外开一条临时线程，问答不会写入或污染主上下文。</span>
-          <span class="en">　<code>/fork</code>, <code>/clone</code>, and <code>/tree</code> turn the session into a forkable tree so you can explore alternatives from any point in history; <code>/btw</code> opens an ephemeral thread outside the main conversation whose Q&amp;A never mutates the main context.</span>
-        </div>
-      </section>
-
-      <section id="pkg-overview">
-        <h2><span class="zh">包管理概览</span><span class="en">Package Manager Overview</span></h2>
-        <p class="zh">pigo 可安装 <a href="https://pi.dev/packages">pi 生态</a>发布到 npm 的四类包，并把内容分发到 pigo 现有发现机制能识别的目录，无需额外配置：</p>
-        <p class="en">pigo installs four kinds of packages from the <a href="https://pi.dev/packages">pi ecosystem</a> on npm, distributing their contents into the directories pigo already discovers — no extra config:</p>
-        <div class="cards">
-          <div class="card"><h4>extension <span class="pill zh">扩展</span><span class="pill en">extension</span></h4><p class="zh">可执行扩展，常见为 MCP adapter。落到 <code>plugins/</code>，由插件系统发现。</p><p class="en">Executable extensions (often MCP adapters). Land in <code>plugins/</code>, discovered by the plugin system.</p></div>
-          <div class="card"><h4>skill <span class="pill zh">技能</span><span class="pill en">skill</span></h4><p class="zh">含 <code>SKILL.md</code> 的技能包，落到技能目录（<code>~/.agents/skills</code>）。</p><p class="en">Skill packages with a <code>SKILL.md</code>. Land in the skills dir (<code>~/.agents/skills</code>).</p></div>
-          <div class="card"><h4>prompt <span class="pill zh">命令</span><span class="pill en">command</span></h4><p class="zh">命令/prompt 模板（<code>*.md</code>），落到 <code>commands/</code>。</p><p class="en">Command/prompt templates (<code>*.md</code>). Land in <code>commands/</code>.</p></div>
-          <div class="card"><h4>theme <span class="pill zh">主题</span><span class="pill en">theme</span></h4><p class="zh">主题包，存储到 <code>themes/</code>（暂无运行时消费者）。</p><p class="en">Theme packages, stored in <code>themes/</code> (no runtime consumer yet).</p></div>
-        </div>
-        <p class="zh">安装信息记录在 <strong>lockfile</strong>（<code>$PIGO_HOME/packages.json</code>）中，作为 list/uninstall/update 的事实来源。</p>
-        <p class="en">Install records live in a <strong>lockfile</strong> (<code>$PIGO_HOME/packages.json</code>), the source of truth for list/uninstall/update.</p>
-        <div class="callout info">
-          <strong class="zh">来源前缀</strong><strong class="en">Source prefix</strong>
-          <span class="zh">　当前仅支持 <code>npm:</code>，包括作用域包 <code>npm:@scope/name</code>，可选带版本 <code>npm:name@1.2.3</code>。</span>
-          <span class="en">　Only <code>npm:</code> is supported today, including scoped packages <code>npm:@scope/name</code> and optional versions <code>npm:name@1.2.3</code>.</span>
-        </div>
-      </section>
-
-      <section id="pkg-install">
-        <h2>install</h2>
-        <p class="zh">安装一个或多个 pi 包。流程为：解析引用 → <code>npm pack</code> 拉取并解压 → 分类 → 按类型分发 → 写 lockfile。</p>
-        <p class="en">Install one or more pi packages. Flow: resolve reference → <code>npm pack</code> fetch &amp; extract → classify → distribute by type → write lockfile.</p>
-        <pre><code><span class="c"># <span class="zh">安装最新版</span><span class="en">install the latest version</span></span>
-<span class="p">pigo</span> install npm:pi-mcp-adapter
-
-<span class="c"># <span class="zh">指定版本 / 作用域包</span><span class="en">pin a version / scoped package</span></span>
-<span class="p">pigo</span> install npm:pi-mcp-adapter@1.2.0
-<span class="p">pigo</span> install npm:@myscope/pi-theme
-
-<span class="c"># <span class="zh">一次安装多个（某个失败不影响其余）</span><span class="en">install several at once (one failure won't block the rest)</span></span>
-<span class="p">pigo</span> install npm:pi-mcp-adapter npm:pi-some-skill</code></pre>
-        <p class="zh">安装成功后打印 <code>Installed &lt;name&gt;@&lt;ver&gt; (&lt;types&gt;) — N file(s)</code>。多包安装时，若任一失败退出码为 <code>1</code>，但其余包照常安装。</p>
-        <p class="en">On success it prints <code>Installed &lt;name&gt;@&lt;ver&gt; (&lt;types&gt;) — N file(s)</code>. For multi-package installs, any failure yields exit code <code>1</code> while the others still install.</p>
-        <div class="callout ok">
-          <strong class="zh">幂等</strong><strong class="en">Idempotent</strong>
-          <span class="zh">　每个分发器会先清理自身旧目标再写入，因此重复安装可覆盖收敛；安装非 pi 包会失败且不写 lockfile。</span>
-          <span class="en">　Each distributor clears its old targets before writing, so re-installs converge; installing a non-pi package fails and never touches the lockfile.</span>
-        </div>
-      </section>
-
-      <section id="pkg-list">
-        <h2>list</h2>
-        <p class="zh">列出全部已安装的包，每行以制表符分隔 <code>名称　版本　类型　来源</code>，便于用 <code>cut -f</code> 等工具消费。</p>
-        <p class="en">List all installed packages, one per line, tab-separated as <code>name　version　type　source</code> — easy to pipe through <code>cut -f</code>.</p>
-        <pre><code><span class="p">pigo</span> list
-<span class="c"># pi-mcp-adapter    1.2.0    extension    npm:pi-mcp-adapter</span>
-<span class="c"># pi-demo-skill     0.3.1    skill        npm:pi-demo-skill</span>
-
-<span class="c"># <span class="zh">未安装任何包时</span><span class="en">when nothing is installed</span></span>
-<span class="p">pigo</span> list
-<span class="c"># no packages installed</span></code></pre>
-      </section>
-
-      <section id="pkg-uninstall">
-        <h2>uninstall</h2>
-        <p class="zh">卸载包：删除 lockfile 中记录的全部落地文件，再移除该条目。支持一次卸载多个。</p>
-        <p class="en">Uninstall a package: delete every file recorded in the lockfile, then remove the entry. Multiple names allowed.</p>
-        <pre><code><span class="p">pigo</span> uninstall pi-mcp-adapter
-<span class="p">pigo</span> uninstall pi-mcp-adapter pi-demo-skill</code></pre>
-        <ul class="zh">
-          <li>按路径长度降序删除，并对目录使用 <code>RemoveAll</code>，确保 payload 目录被整体清理。</li>
-          <li>某个记录文件若已不存在，跳过并继续，最终仍会移除 lockfile 条目（收敛到"已卸载"状态）。</li>
-          <li>卸载未安装的包会报错 <code>package not installed: &lt;name&gt;</code> 并以非零码退出。</li>
-        </ul>
-        <ul class="en">
-          <li>Deletes longest paths first and uses <code>RemoveAll</code> on directories, so payload dirs are cleared whole.</li>
-          <li>A missing recorded file is skipped; the lockfile entry is still removed (converges to "uninstalled").</li>
-          <li>Uninstalling a package that isn't installed errors with <code>package not installed: &lt;name&gt;</code> and exits non-zero.</li>
-        </ul>
-      </section>
-
-      <section id="pkg-update">
-        <h2>update</h2>
-        <p class="zh">把已安装的包更新到 npm 上的最新版本。</p>
-        <p class="en">Update installed packages to the latest version on npm.</p>
-        <pre><code><span class="c"># <span class="zh">更新指定包（可多个）</span><span class="en">update named packages (one or more)</span></span>
-<span class="p">pigo</span> update pi-mcp-adapter</code></pre>
-        <ul class="zh">
-          <li>先拉取并分类最新版本，仅当版本与已装不同才「卸旧文件 → 重新分发 → 更新 lockfile 版本」。</li>
-          <li>已是最新版时打印 <code>&lt;name&gt; is up to date</code>，不做无谓改动。</li>
-          <li><strong>失败安全</strong>：网络或分类失败发生在任何删除之前，原安装保持不变，不会留下损坏状态。</li>
-          <li>多包更新逐包尽力而为，任一失败则退出码非零。</li>
-          <li><strong>无参 <code>pigo update</code>（及仅带标志的调用）不再更新全部包，而是自更新 pigo 二进制</strong>（见下文「自更新」）。</li>
-        </ul>
-        <ul class="en">
-          <li>Fetches and classifies the latest first; only when the version differs does it "remove old files → redistribute → bump the lockfile version".</li>
-          <li>Already current prints <code>&lt;name&gt; is up to date</code> and makes no changes.</li>
-          <li><strong>Fail-safe</strong>: network or classification failures happen before any deletion, so the existing install stays intact.</li>
-          <li>Multi-package updates are best-effort per package; any failure yields a non-zero exit code.</li>
-          <li><strong>A no-argument <code>pigo update</code> (or a flags-only call) no longer updates every package — it self-updates the pigo binary</strong> (see "Self-update" below).</li>
-        </ul>
-      </section>
-
-      <section id="selfupdate">
-        <h2><span class="zh">自更新</span><span class="en">Self-update</span></h2>
-        <p class="zh">把 pigo 二进制升级到 GitHub Release 上的最新版本。参数决定路由：任一不以 <code>-</code> 开头的参数视为包名 → 走包更新；否则（无参数或仅带标志，如 <code>--check</code>）→ 走自更新。</p>
-        <p class="en">Upgrade the pigo binary to the latest GitHub Release. Arguments decide the route: any argument not starting with <code>-</code> is treated as a package name → package update; otherwise (no args, or flags-only like <code>--check</code>) → self-update.</p>
-        <pre><code><span class="c"># <span class="zh">检查并自更新 pigo 二进制到最新 Release</span><span class="en">check &amp; self-update the pigo binary to the latest Release</span></span>
-<span class="p">pigo</span> update</code></pre>
-        <ul class="zh">
-          <li>下载对应平台的最新二进制并原地替换当前可执行文件；目标路径需要更高权限时提示改用 <code>sudo</code> 重试。</li>
-          <li>进入交互式 TUI 时后台异步检查最新 Release（24h 缓存于 <code>$PIGO_HOME/update-check.json</code>），有新版时在启动横幅提示 <code>Run pigo update to upgrade</code>；<code>dev</code> 构建不检查。</li>
-        </ul>
-        <ul class="en">
-          <li>Downloads the latest binary for your platform and replaces the current executable in place; if the target path needs elevated permissions, it hints to retry with <code>sudo</code>.</li>
-          <li>On entering the interactive TUI, it checks the latest Release in the background (cached 24h at <code>$PIGO_HOME/update-check.json</code>) and shows <code>Run pigo update to upgrade</code> in the startup banner when a newer version exists; <code>dev</code> builds skip the check.</li>
-        </ul>
-      </section>
-
-      <section id="layout">
-        <h2><span class="zh">目录与环境变量</span><span class="en">Paths &amp; Environment Variables</span></h2>
-        <table>
-          <thead><tr><th><span class="zh">路径 / 变量</span><span class="en">Path / Variable</span></th><th><span class="zh">说明</span><span class="en">Description</span></th></tr></thead>
-          <tbody>
-            <tr><td><code>$PIGO_HOME</code></td><td><span class="zh">pigo 主目录，默认 <code>~/.pigo</code></span><span class="en">pigo home dir, default <code>~/.pigo</code></span></td></tr>
-            <tr><td><code>$PIGO_HOME/packages.json</code></td><td><span class="zh">lockfile，记录已安装包</span><span class="en">Lockfile recording installed packages</span></td></tr>
-            <tr><td><code>$PIGO_HOME/plugins/</code></td><td><span class="zh">扩展（extension）落地目录</span><span class="en">Extension landing dir</span></td></tr>
-            <tr><td><code>$PIGO_HOME/commands/</code></td><td><span class="zh">命令/prompt 模板落地目录</span><span class="en">Command/prompt template dir</span></td></tr>
-            <tr><td><code>$PIGO_HOME/themes/</code></td><td><span class="zh">主题存储目录</span><span class="en">Theme storage dir</span></td></tr>
-            <tr><td><code>~/.agents/skills</code></td><td><span class="zh">技能目录，可用 <code>PIGO_SKILLS_DIR</code> 覆盖</span><span class="en">Skills dir, override with <code>PIGO_SKILLS_DIR</code></span></td></tr>
-            <tr><td><code>&lt;PROVIDER&gt;_API_KEY</code></td><td><span class="zh">各 Provider 的 API Key，如 <code>OPENROUTER_API_KEY</code></span><span class="en">Per-provider API key, e.g. <code>OPENROUTER_API_KEY</code></span></td></tr>
-          </tbody>
-        </table>
-        <div class="callout">
-          <strong class="zh">注意</strong><strong class="en">Note</strong>
-          <span class="zh">　技能是 <code>$PIGO_HOME</code> 之外的唯一例外：pigo 从 <code>~/.agents/skills</code>（或 <code>PIGO_SKILLS_DIR</code>）加载技能，而非嵌套在主目录下。</span>
-          <span class="en">　Skills are the one exception outside <code>$PIGO_HOME</code>: pigo loads them from <code>~/.agents/skills</code> (or <code>PIGO_SKILLS_DIR</code>), not nested under the home dir.</span>
-        </div>
-      </section>
-
-      <section id="faq">
-        <h2><span class="zh">常见问题</span><span class="en">FAQ</span></h2>
-        <h3><span class="zh">提示找不到 npm？</span><span class="en">"npm not found"?</span></h3>
-        <p class="zh"><code>install</code>/<code>update</code> 依赖本机 <code>npm</code>。请先安装 Node.js（自带 npm），并确认 <code>npm</code> 在 <code>PATH</code> 中。</p>
-        <p class="en"><code>install</code>/<code>update</code> need <code>npm</code>. Install Node.js (which bundles npm) and make sure <code>npm</code> is on your <code>PATH</code>.</p>
-        <h3><span class="zh">安装报"unrecognized pi package"？</span><span class="en">"unrecognized pi package"?</span></h3>
-        <p class="zh">该包不含任何可识别的 pi 元数据或结构特征（如 <code>bin</code>、<code>SKILL.md</code>、<code>commands/</code>），因此不是 pi 包，pigo 拒绝安装且不写 lockfile。</p>
-        <p class="en">The package has no recognizable pi metadata or structure (like <code>bin</code>, <code>SKILL.md</code>, <code>commands/</code>), so it isn't a pi package; pigo refuses to install it and leaves the lockfile untouched.</p>
-        <h3><span class="zh">只支持 npm 来源吗？</span><span class="en">Is only npm supported?</span></h3>
-        <p class="zh">本版本仅支持 <code>npm:</code>（含作用域包）。<code>github:</code>/<code>file:</code> 等来源不在当前范围内。</p>
-        <p class="en">This version supports only <code>npm:</code> (including scoped packages). Sources like <code>github:</code>/<code>file:</code> are out of scope.</p>
-        <h3><span class="zh">update 会做版本大小比较吗？</span><span class="en">Does update compare version ordering?</span></h3>
-        <p class="zh">当前仅比较 <code>npm pack</code> 返回的版本字符串是否与已装版本相同，不做 semver 大小判断——即"更新到 latest"。</p>
-        <p class="en">It only checks whether the version string returned by <code>npm pack</code> differs from the installed one — no semver ordering. In other words, "update to latest".</p>
-      </section>
-
-      <footer>
-        <span class="zh">pigo 使用手册 · 生成于 2026-07-27 · 项目地址</span><span class="en">pigo Manual · updated 2026-07-27 · repo</span>
-        <a href="https://github.com/smallnest/pigo">github.com/smallnest/pigo</a>
-      </footer>
-    </main>
-  </div>
-  <script>
-    function setLang(lang) {
-      document.documentElement.setAttribute('data-lang', lang);
-      document.documentElement.setAttribute('lang', lang === 'zh' ? 'zh-CN' : 'en');
-      document.getElementById('btn-zh').classList.toggle('active', lang === 'zh');
-      document.getElementById('btn-en').classList.toggle('active', lang === 'en');
-      try { localStorage.setItem('pigo-lang', lang); } catch (e) {}
-    }
-    (function () {
-      var saved;
-      try { saved = localStorage.getItem('pigo-lang'); } catch (e) {}
-      if (!saved) {
-        saved = (navigator.language || 'en').toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
-      }
-      setLang(saved);
-    })();
-  </script>
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div>
+        <strong>pigo</strong> ·
+        <span data-en="A command-line coding agent in Go." data-zh="用 Go 打造的命令行编码 Agent。"></span>
+      </div>
+      <div class="footer-links">
+        <a href="web/quickstart.html" data-en="Quickstart" data-zh="快速开始"></a>
+        <a href="web/install.html" data-en="Install" data-zh="安装"></a>
+        <a href="web/features.html" data-en="Features" data-zh="特性"></a>
+        <a href="web/architecture.html" data-en="Architecture" data-zh="架构"></a>
+        <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </footer>
 </body>
 </html>
