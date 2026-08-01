@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-en="Features — pigo" data-zh="特性 — pigo">Features — pigo</title>
+  <meta name="description" content="pigo features: dual run modes, multi-provider, built-in tools, stream-json, layered prompts, project trust, session resume, context compaction, memory, packages, hooks, plugins.">
+  <link rel="stylesheet" href="assets/site.css">
+  <script defer src="assets/i18n.js"></script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="../index.html"><span class="nav-logo">p</span> pigo</a>
+      <div class="nav-links">
+        <a href="quickstart.html" data-en="Quickstart" data-zh="快速开始"></a>
+        <a href="features.html" data-en="Features" data-zh="特性"></a>
+        <a href="configuration.html" class="hide-sm" data-en="Config" data-zh="配置"></a>
+        <a href="slash-commands.html" class="hide-sm" data-en="Commands" data-zh="命令"></a>
+        <a href="architecture.html" class="hide-sm" data-en="Architecture" data-zh="架构"></a>
+        <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
+        <button class="nav-btn" data-lang-toggle aria-label="切换到中文">中文</button>
+        <button class="nav-btn" data-theme-toggle aria-label="Toggle theme">☀️</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="docs">
+    <aside class="doc-sidebar">
+      <h4 data-en="Docs" data-zh="文档"></h4>
+      <ul>
+        <li><a href="quickstart.html" data-en="Quickstart" data-zh="快速开始"></a></li>
+        <li><a href="install.html" data-en="Installation" data-zh="安装"></a></li>
+        <li><a href="features.html" class="active" data-en="Features" data-zh="特性"></a></li>
+        <li><a href="configuration.html" data-en="Configuration" data-zh="配置"></a></li>
+        <li><a href="slash-commands.html" data-en="Slash commands" data-zh="Slash 命令"></a></li>
+        <li><a href="architecture.html" data-en="Architecture" data-zh="架构"></a></li>
+      </ul>
+    </aside>
+
+    <main class="doc-content">
+      <h1 data-en="Features" data-zh="特性"></h1>
+      <p class="doc-sub" data-en="A complete tour of what pigo can do."
+         data-zh="pigo 能力的完整一览。"></p>
+
+      <h2 data-en="Dual run modes" data-zh="双运行模式"></h2>
+      <p data-en="Run headless with <code>-p</code> for one-shot prompts (scripts, CI), or start the interactive REPL with no prompt for multi-step conversational work."
+         data-zh="用 <code>-p</code> 无头执行单条提示（脚本、CI），或不带提示进入交互式 REPL 做多步对话式工作。"></p>
+      <pre><code>pigo -p "总结这个 diff" &lt; changes.patch   # 无头
+pigo                                        # REPL</code></pre>
+
+      <h2 data-en="Multiple providers" data-zh="多 Provider"></h2>
+      <p data-en="OpenRouter by default, plus Ollama, NVIDIA, Anthropic and any OpenAI-compatible endpoint. Choose per-run with <code>-m</code>/<code>-u</code> or switch live with <code>/model</code>."
+         data-zh="默认 OpenRouter，另支持 Ollama、NVIDIA、Anthropic 及任意 OpenAI 兼容端点。用 <code>-m</code>/<code>-u</code> 按次选择，或用 <code>/model</code> 实时切换。"></p>
+      <pre><code>pigo -m gpt-5
+pigo -u http://localhost:11434/v1 -m qwen3</code></pre>
+
+      <h2 data-en="Built-in tools" data-zh="内置工具"></h2>
+      <p data-en="A full toolset ships in the box — no plugins needed to get real work done:"
+         data-zh="开箱即带完整工具集 —— 无需插件即可完成真实工作："></p>
+      <table>
+        <thead><tr>
+          <th data-en="Tool" data-zh="工具"></th>
+          <th data-en="Purpose" data-zh="用途"></th>
+        </tr></thead>
+        <tbody>
+          <tr><td><code>read</code></td><td data-en="Read a file" data-zh="读取文件"></td></tr>
+          <tr><td><code>write</code></td><td data-en="Create/overwrite a file" data-zh="创建/覆盖文件"></td></tr>
+          <tr><td><code>edit</code></td><td data-en="Patch a file in place" data-zh="就地修改文件"></td></tr>
+          <tr><td><code>grep</code></td><td data-en="Search file contents" data-zh="搜索文件内容"></td></tr>
+          <tr><td><code>find</code></td><td data-en="Locate files by pattern" data-zh="按模式查找文件"></td></tr>
+          <tr><td><code>bash</code></td><td data-en="Run shell commands" data-zh="执行 shell 命令"></td></tr>
+          <tr><td><code>todo</code></td><td data-en="Track a task list" data-zh="跟踪任务清单"></td></tr>
+          <tr><td><code>webfetch</code></td><td data-en="Fetch a URL" data-zh="抓取网页"></td></tr>
+        </tbody>
+      </table>
+
+      <h2 data-en="stream-json output" data-zh="stream-json 输出"></h2>
+      <p data-en="Emit structured, streaming JSON with <code>-o json</code> — easy to pipe into other tools or parse in CI."
+         data-zh="用 <code>-o json</code> 输出结构化流式 JSON —— 便于管道传给其他工具或在 CI 中解析。"></p>
+      <pre><code>pigo -o json -p "列出仓库的 TODO" | jq .</code></pre>
+
+      <h2 data-en="Layered system prompts" data-zh="系统提示词分层组装"></h2>
+      <p data-en="The system prompt is assembled in layers: built-in base, provider tweaks, project <code>PIGO.md</code>/<code>CLAUDE.md</code>, and per-run flags. Closer layers win, so you can steer behavior without forking the core prompt."
+         data-zh="系统提示词按层组装：内置基座、Provider 微调、项目内的 <code>PIGO.md</code>/<code>CLAUDE.md</code>，以及单次运行参数。越靠近的层优先级越高，无需改动核心提示词即可定制行为。"></p>
+
+      <h2 data-en="Project trust" data-zh="项目信任"></h2>
+      <p data-en="The first time you run pigo in a directory, it asks you to trust the project before loading its <code>PIGO.md</code>, hooks, and local commands — so a cloned repo can't run code against your intent."
+         data-zh="首次在某目录运行 pigo 时，会先请求信任该项目，再加载其 <code>PIGO.md</code>、hooks 与本地命令 —— 避免克隆来的仓库擅自执行代码。"></p>
+
+      <h2 data-en="Session resume, fork &amp; clone" data-zh="会话续跑、Fork 与 Clone"></h2>
+      <p data-en="Every session is persisted. Resume the last one with <code>-r</code>, branch off with <code>/fork</code>, duplicate with <code>/clone</code>, and inspect the tree with <code>/tree</code>."
+         data-zh="每个会话都会持久化。用 <code>-r</code> 续跑上一个会话，用 <code>/fork</code> 分叉，用 <code>/clone</code> 复制，用 <code>/tree</code> 查看会话树。"></p>
+      <pre><code>pigo -r                # 续跑最近会话
+pigo /fork             # 从当前会话分叉</code></pre>
+
+      <h2 data-en="Automatic context compaction" data-zh="上下文自动压缩"></h2>
+      <p data-en="As the conversation approaches the context limit, pigo automatically summarizes older turns and continues — long tasks aren't cut short. Trigger it manually anytime with <code>/compact</code>."
+         data-zh="当对话接近上下文上限时，pigo 会自动摘要较早的轮次并继续 —— 长任务不会被截断。也可随时用 <code>/compact</code> 手动触发。"></p>
+
+      <h2 data-en="Persistent memory" data-zh="持久记忆"></h2>
+      <p data-en="pigo keeps a file-based memory across sessions and can recall it with the <code>memory_search</code> tool, so context from earlier work carries forward. Manage it with <code>/memory</code>."
+         data-zh="pigo 在会话之间维护基于文件的记忆，并可通过 <code>memory_search</code> 工具检索，让此前工作的上下文得以延续。用 <code>/memory</code> 管理记忆。"></p>
+
+      <h2 data-en="Package management" data-zh="包管理"></h2>
+      <p data-en="Bundle skills, commands, hooks, and prompts into packages, then install and share them across projects — reusable capability, not copy-paste."
+         data-zh="将 skills、命令、hooks 与提示词打包成 package，跨项目安装与共享 —— 可复用的能力，而非复制粘贴。"></p>
+
+      <h2 data-en="Hooks" data-zh="Hooks"></h2>
+      <p data-en="Run your own shell commands at 9 lifecycle points (session start, before/after tool calls, on prompt submit, and more) to enforce policy, inject context, or block risky actions."
+         data-zh="在 9 个生命周期节点（会话开始、工具调用前后、提示提交时等）运行你自己的 shell 命令，用于执行策略、注入上下文或拦截危险操作。"></p>
+
+      <h2 data-en="Plugins" data-zh="插件"></h2>
+      <p data-en="Extend pigo with plugins that add new tools, commands, and skills — compatible with the Claude Code plugin ecosystem, so existing plugins work out of the box."
+         data-zh="用插件为 pigo 扩展新的工具、命令与 skills —— 兼容 Claude Code 插件生态，现有插件开箱即用。"></p>
+
+      <div class="note" data-en="That's the full toolset. Next, wire it up in your config."
+           data-zh="以上是完整能力集。接下来，在配置中把它们组织起来。"></div>
+
+      <div class="doc-next">
+        <a href="install.html"><span data-en="Previous" data-zh="上一页"></span><strong data-en="← Installation" data-zh="← 安装"></strong></a>
+        <a href="configuration.html"><span data-en="Next" data-zh="下一页"></span><strong data-en="Configuration →" data-zh="配置 →"></strong></a>
+      </div>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div><strong>pigo</strong> · <span data-en="A command-line coding agent in Go." data-zh="用 Go 打造的命令行编码 Agent。"></span></div>
+      <div class="footer-links">
+        <a href="../index.html" data-en="Home" data-zh="首页"></a>
+        <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
