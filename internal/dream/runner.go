@@ -36,6 +36,12 @@ type ConsolidateInput struct {
 	Plan       Plan   `json:"plan"`
 	MemoryRoot string `json:"memory_root"`
 	ProjectDir string `json:"project_dir"`
+	// Transcripts is the collected, budget-truncated text of the current
+	// project's recent session JSONL, gathered deterministically by the Runner
+	// (SPEC §5.3). It is the input to the separate distillation pass; an empty
+	// string means there is nothing to distill (no matching sessions), so the
+	// Consolidator skips the distill call entirely (SPEC §5.5 no-op).
+	Transcripts string `json:"transcripts,omitempty"`
 }
 
 // NewEntry is a distilled memory file the Consolidator wants created. Path must
@@ -89,6 +95,11 @@ type Runner struct {
 	// resolve via ResolveMemoryRoot (PIGO_HOME / ~/.pigo). Tests set it to a temp
 	// dir; production leaves it empty.
 	MemoryRoot string
+	// Sessions is the source of recent session transcripts for the distillation
+	// pass (SPEC §5.3). nil resolves the default store at $PIGO_HOME/sessions (or
+	// ~/.pigo/sessions); tests inject a stub. If it cannot be resolved,
+	// distillation degrades to a no-op rather than failing the run.
+	Sessions SessionSource
 }
 
 // RunOptions are the per-invocation parameters mirroring the CLI flags. ProjectDir
@@ -97,6 +108,10 @@ type Runner struct {
 type RunOptions struct {
 	DryRun     bool
 	ProjectDir string
+	// RecentSessions is the first-run distillation window: when dream has never
+	// run, the most-recent RecentSessions project sessions are distilled (SPEC
+	// §5.3). Non-positive falls back to DefaultRecentSessions (20).
+	RecentSessions int
 }
 
 // Run executes one consolidation pass and returns the change Report. The flow is
@@ -145,10 +160,26 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (Report, error) {
 	if cons == nil {
 		cons = nopConsolidator{}
 	}
+
+	// Gather the current project's recent session transcripts for the distill
+	// pass (SPEC §5.3). This is deterministic Runner work, mirroring BuildPlan:
+	// the Consolidator runs the semantic distill call over these transcripts. A
+	// nil/unresolvable source or no matching session yields "" → the Consolidator
+	// skips distillation and Distilled stays 0 (SPEC §5.5 no-op).
+	src := r.Sessions
+	if src == nil {
+		if resolved, rerr := resolveSessionStore(); rerr == nil {
+			src = resolved
+		}
+	}
+	state, _ := LoadState(memoryRoot)
+	transcripts := collectTranscripts(src, state, opts.ProjectDir, opts.RecentSessions, defaultTranscriptBudget)
+
 	cres, err := cons.Consolidate(ctx, ConsolidateInput{
-		Plan:       plan,
-		MemoryRoot: memoryRoot,
-		ProjectDir: opts.ProjectDir,
+		Plan:        plan,
+		MemoryRoot:  memoryRoot,
+		ProjectDir:  opts.ProjectDir,
+		Transcripts: transcripts,
 	})
 	if err != nil {
 		// The runner surfaces the error; the parent/scheduler (node #8) maps a
@@ -164,6 +195,13 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (Report, error) {
 	rep.Pruned = cres.Pruned
 	rep.Distilled = cres.Distilled
 	rep.Notes = append(rep.Notes, cres.Notes...)
+
+	// Distillation no-op: no durable facts were added (no matching sessions or
+	// nothing worth keeping). Record the "无新增" note so the report reflects the
+	// step ran with no additions (SPEC §5.5, PRD FR-13).
+	if rep.Distilled == 0 {
+		rep.Notes = append(rep.Notes, "distill: 无新增")
+	}
 
 	if opts.DryRun {
 		// Predict the deterministic counters without touching disk or state, and

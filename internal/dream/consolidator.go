@@ -50,28 +50,103 @@ func (c *llmConsolidator) Consolidate(ctx context.Context, in ConsolidateInput) 
 	if c.complete == nil {
 		return ConsolidateResult{}, fmt.Errorf("dream: llmConsolidator has no completion function")
 	}
+
+	var res ConsolidateResult
 	eligible := eligibleFiles(in.Plan)
-	if len(eligible) == 0 {
-		// Nothing the model could act on (empty library, or only MEMORY.md /
-		// duplicates). Skip the call entirely.
-		return ConsolidateResult{}, nil
-	}
-	budget := c.bodyBudget
-	if budget <= 0 {
-		budget = defaultBodyBudget
-	}
-	prompt := buildConsolidatePrompt(in, eligible, budget)
+	if len(eligible) > 0 {
+		budget := c.bodyBudget
+		if budget <= 0 {
+			budget = defaultBodyBudget
+		}
+		prompt := buildConsolidatePrompt(in, eligible, budget)
 
-	raw, err := c.complete(ctx, dreamSystemPrompt, prompt)
+		raw, err := c.complete(ctx, dreamSystemPrompt, prompt)
+		if err != nil {
+			return ConsolidateResult{}, fmt.Errorf("dream: model completion: %w", err)
+		}
+
+		allowed := make(map[string]struct{}, len(eligible))
+		for _, f := range eligible {
+			allowed[filepath.Clean(f.Path)] = struct{}{}
+		}
+		res = parseConsolidateResponse(raw, allowed)
+	}
+
+	// Distillation pass (SPEC §5.3, PRD US-005/FR-13): a SEPARATE model call over
+	// the recent-session transcripts the Runner collected. It runs even when the
+	// library is empty (nothing to merge/prune) so a first-time distill can seed
+	// memory from sessions. A hard model failure aborts the run; a well-formed
+	// call yielding nothing simply adds no entries (Runner records the no-op).
+	if strings.TrimSpace(in.Transcripts) != "" {
+		if err := c.distill(ctx, in, &res); err != nil {
+			return ConsolidateResult{}, err
+		}
+	}
+	return res, nil
+}
+
+// distill runs the JSONL distillation model call and folds the resulting new
+// entries into res: it prompts the distiller with the transcripts plus a summary
+// of the existing library (so the model avoids re-proposing known facts), parses
+// the response into path-guarded NewEntry writes deduped against the existing
+// memory, and bumps res.Distilled by the number added. A hard model/transport
+// error is returned so the Runner marks the run failed (SPEC §5.5); an
+// unparseable or empty response adds nothing and is not an error (conservative
+// KEEP, PRD FR-14).
+func (c *llmConsolidator) distill(ctx context.Context, in ConsolidateInput, res *ConsolidateResult) error {
+	prompt := buildDistillPrompt(in)
+	raw, err := c.complete(ctx, dreamDistillSystemPrompt, prompt)
 	if err != nil {
-		return ConsolidateResult{}, fmt.Errorf("dream: model completion: %w", err)
+		return fmt.Errorf("dream: distill completion: %w", err)
+	}
+	entries, notes := parseDistillResponse(raw, in.Plan.Files, in.MemoryRoot, in.ProjectDir)
+	res.NewEntries = append(res.NewEntries, entries...)
+	res.Distilled += len(entries)
+	res.Notes = append(res.Notes, notes...)
+	return nil
+}
+
+// buildDistillPrompt renders the distiller's user prompt: the target scope, a
+// compact list of the titles/paths of existing memories (so the model does not
+// re-propose known facts), and the recent-session transcripts. Existing bodies
+// are summarized (path + leading text) rather than dumped in full to keep the
+// prompt bounded; the Go side still enforces near-duplicate rejection.
+func buildDistillPrompt(in ConsolidateInput) string {
+	var b strings.Builder
+	b.WriteString("# Memory distillation request\n\n")
+	if in.ProjectDir != "" {
+		b.WriteString("Current project: ")
+		b.WriteString(in.ProjectDir)
+		b.WriteByte('\n')
+	} else {
+		b.WriteString("Scope: global only\n")
 	}
 
-	allowed := make(map[string]struct{}, len(eligible))
-	for _, f := range eligible {
-		allowed[filepath.Clean(f.Path)] = struct{}{}
+	existing := eligibleFiles(in.Plan)
+	if len(existing) > 0 {
+		b.WriteString(fmt.Sprintf("\n## Existing memories (%d) — do NOT re-propose these\n\n", len(existing)))
+		for _, f := range existing {
+			b.WriteString("- ")
+			b.WriteString(clip(strings.TrimSpace(firstNonEmptyLine(f.Body)), 120))
+			b.WriteByte('\n')
+		}
 	}
-	return parseConsolidateResponse(raw, allowed), nil
+
+	b.WriteString("\n## Recent session transcripts\n\n")
+	b.WriteString(in.Transcripts)
+	b.WriteString("\n\nReturn the JSON object described in your instructions. Extract only genuinely new, durable facts. When in doubt, return no entries.\n")
+	return b.String()
+}
+
+// firstNonEmptyLine returns the first non-blank line of s (trimmed), or "" when
+// s is entirely blank. Used to label an existing memory in the distill prompt.
+func firstNonEmptyLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if t := strings.TrimSpace(line); t != "" {
+			return t
+		}
+	}
+	return ""
 }
 
 // eligibleFiles is the subset of plan files the model may act on: it excludes

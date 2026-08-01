@@ -75,6 +75,13 @@ type SessionHeader struct {
 	// (US-006, #122). Empty for a session created from scratch. It records
 	// lineage only; a fork is otherwise a fully independent session file.
 	ParentSession string `json:"parentSession,omitempty"`
+	// Cwd is the absolute working directory the session ran in, recorded so a
+	// session can be attributed to a project (its stable project id derives from
+	// this path). Used by /dream distillation to select the current project's
+	// recent sessions (SPEC §5.3 / §11.3). Optional and additive: older schemas
+	// omit it and still load; a session with an empty Cwd is treated as
+	// unattributed and never matches a project-scoped distill.
+	Cwd string `json:"cwd,omitempty"`
 	// ContextFrom is the id of the session this one inherited its collapsed
 	// context from (#480, "infinite context"). Empty when the session started
 	// with no inherited checkpoint. Optional and additive: older schemas (v1/v2/v3)

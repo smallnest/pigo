@@ -137,8 +137,22 @@ func openHeadlessSession(resumeID, model, providerName, sysPrompt string) (agent
 		Model:        model,
 		Provider:     providerName,
 		SystemPrompt: sysPrompt,
+		Cwd:          headlessCwd(),
 	}
 	return nil, headlessSession{store: store, header: header, curLeaf: "", persisted: 0, model: model, provider: providerName}, nil
+}
+
+// headlessCwd returns the absolute working directory the run executes in, used
+// to attribute the session to a project (SessionHeader.Cwd → project id) so a
+// later /dream pass can distill this session under the right project scope. An
+// unresolvable cwd yields "" (the session stays unattributed) rather than
+// aborting the run.
+func headlessCwd() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return wd
 }
 
 // persist appends the messages produced during the run — everything in
