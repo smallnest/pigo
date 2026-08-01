@@ -50,6 +50,22 @@ type FileConfig struct {
 	Memory     MemoryConfig     `toml:"memory"`
 	Checkpoint CheckpointConfig `toml:"checkpoint"`
 	Compaction CompactionConfig `toml:"compaction"`
+	// Dream is the [dream] TOML table for the /dream memory-consolidation
+	// feature. Pure config plumbing here; defaults/normalization live in
+	// internal/dream (Config). See tasks/spec-dream-memory-consolidation.md
+	// §3.3.
+	Dream DreamConfig `toml:"dream"`
+}
+
+// DreamConfig is the [dream] TOML table for /dream memory consolidation.
+// Enabled is a pointer so an absent key (nil) is distinguishable from an
+// explicit false: nil is treated as true, only enabled = false disables
+// auto-trigger. IntervalDays and RecentSessions use zero as "apply default"
+// (7 and 20 respectively); normalization lives in dream.Config.
+type DreamConfig struct {
+	Enabled        *bool `toml:"enabled"`
+	IntervalDays   int   `toml:"interval_days"`
+	RecentSessions int   `toml:"recent_sessions"`
 }
 
 // FileConfigPath returns the path to the user config file:

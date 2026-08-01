@@ -132,3 +132,45 @@ func TestGenericBaseURLEnvVar(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadFileConfig_DreamTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	content := `
+[dream]
+enabled = false
+interval_days = 14
+recent_sessions = 50
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadFileConfig(path)
+	if err != nil {
+		t.Fatalf("LoadFileConfig: %v", err)
+	}
+	if cfg.Dream.Enabled == nil || *cfg.Dream.Enabled {
+		t.Errorf("Dream.Enabled = %v, want explicit false", cfg.Dream.Enabled)
+	}
+	if cfg.Dream.IntervalDays != 14 {
+		t.Errorf("Dream.IntervalDays = %d, want 14", cfg.Dream.IntervalDays)
+	}
+	if cfg.Dream.RecentSessions != 50 {
+		t.Errorf("Dream.RecentSessions = %d, want 50", cfg.Dream.RecentSessions)
+	}
+}
+
+func TestLoadFileConfig_DreamTableAbsent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("model = \"foo\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadFileConfig(path)
+	if err != nil {
+		t.Fatalf("LoadFileConfig: %v", err)
+	}
+	// Absent [dream] table: Enabled pointer nil (→ default true downstream),
+	// ints zero (→ defaults downstream). Parsing must not error.
+	if cfg.Dream.Enabled != nil || cfg.Dream.IntervalDays != 0 || cfg.Dream.RecentSessions != 0 {
+		t.Errorf("absent dream table = %+v, want zero-value", cfg.Dream)
+	}
+}
