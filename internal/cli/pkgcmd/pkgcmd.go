@@ -115,17 +115,15 @@ func runInstall(refs []string, lockPath string, out, errOut io.Writer) int {
 	return 0
 }
 
-// runUpdate handles `pigo update [name...]`. With no names it updates every
-// installed package; otherwise it updates each named package, continuing past a
-// failure so one bad package does not abort the rest. The exit code is non-zero
-// if any update failed.
+// runUpdate handles `pigo update <name> [more...]`: it updates each named
+// package, continuing past a failure so one bad package does not abort the rest.
+// The exit code is non-zero if any update failed. A no-name `pigo update` is
+// binary self-update, routed away by main() before pkgcmd is reached (US-003),
+// so here an empty name list is a usage error rather than an update-all.
 func runUpdate(names []string, lockPath string, out, errOut io.Writer) int {
 	if len(names) == 0 {
-		if _, err := pkgmgr.UpdateAll(lockPath, out); err != nil {
-			fmt.Fprintf(errOut, "pigo: %v\n", err)
-			return 1
-		}
-		return 0
+		fmt.Fprintln(errOut, "pigo: update requires a package name, e.g. pigo update pi-mcp-adapter")
+		return 2
 	}
 	failed := false
 	for _, name := range names {

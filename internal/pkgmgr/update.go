@@ -84,27 +84,3 @@ func Update(name, lockfilePath string, logw io.Writer) (UpdateResult, error) {
 	logf("Updated %s %s -> %s\n", name, p.Version, newVersion)
 	return UpdateResult{Name: name, OldVersion: p.Version, NewVersion: newVersion, Updated: true}, nil
 }
-
-// UpdateAll updates every installed package in the lockfile, in sorted order.
-// It continues past a per-package failure, collecting results; the returned
-// error is non-nil (a joined summary) when any package failed to update.
-func UpdateAll(lockfilePath string, logw io.Writer) ([]UpdateResult, error) {
-	pkgs, err := ListInstalled(lockfilePath)
-	if err != nil {
-		return nil, err
-	}
-	var results []UpdateResult
-	var failures []string
-	for _, p := range pkgs {
-		res, uerr := Update(p.Name, lockfilePath, logw)
-		if uerr != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", p.Name, uerr))
-			continue
-		}
-		results = append(results, res)
-	}
-	if len(failures) > 0 {
-		return results, fmt.Errorf("pkgmgr: %d package(s) failed to update: %v", len(failures), failures)
-	}
-	return results, nil
-}

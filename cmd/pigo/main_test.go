@@ -137,6 +137,34 @@ func TestCwdChdirRootsEnv(t *testing.T) {
 	}
 }
 
+// TestUpdateIsSelfUpdate verifies the US-003 `pigo update` routing classifier:
+// no positional package name (including flags-only invocations like
+// `pigo update --check`) routes to binary self-update (true); any positional
+// package name routes to pkgmgr package-update (false). Tested directly so the
+// dispatch split needs no argv parsing or spawning either update path.
+func TestUpdateIsSelfUpdate(t *testing.T) {
+	tests := []struct {
+		name string
+		rest []string
+		want bool
+	}{
+		{name: "no args is self-update", rest: nil, want: true},
+		{name: "empty slice is self-update", rest: []string{}, want: true},
+		{name: "flags-only is self-update", rest: []string{"--check"}, want: true},
+		{name: "multiple flags is self-update", rest: []string{"--check", "-v"}, want: true},
+		{name: "single package name is package-update", rest: []string{"pi-mcp-adapter"}, want: false},
+		{name: "multiple package names is package-update", rest: []string{"a", "b"}, want: false},
+		{name: "flag then package name is package-update", rest: []string{"--check", "pkg"}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := updateIsSelfUpdate(tt.rest); got != tt.want {
+				t.Errorf("updateIsSelfUpdate(%v) = %v, want %v", tt.rest, got, tt.want)
+			}
+		})
+	}
+}
+
 // --- config.toml overlay ---
 
 // changedSet turns a set of flag names into a lookup func for applyFileConfig.

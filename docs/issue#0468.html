@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #468</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block; font-size: 0.6875rem; font-weight: 500;
+      padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/468">#468</a> &mdash; 保持 pigo update &lt;包名&gt; 包更新语义并分发无参数自更新 &mdash; 2026-08-01</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 用纯分类函数 updateIsSelfUpdate 判定路由,而非内联 argc 判断</h3>
+      <p><strong>Ambiguity:</strong> US-003 要求"仅当无位置参数时进入自更新",且"<code>pigo update --check</code> 等仅带标志、无包名"也归自更新;但 #466 的旧实现只用 <code>len(os.Args)==2</code> 判定,无法覆盖"带标志无包名"这一情形。</p>
+      <p><strong>Choice:</strong> 在 main 包新增 side-effect-free 的 <code>updateIsSelfUpdate(rest []string) bool</code>:遍历 <code>os.Args[2:]</code>,只要有任一参数不以 <code>-</code> 开头(即视为包名)就返回 false(走 pkgcmd),否则返回 true(走自更新)。</p>
+      <p><strong>Rationale:</strong> 与既有 <code>shouldUseTUI</code> 同款"纯谓词 + 直接单测"模式一致(见 <code>TestUpdateIsSelfUpdate</code>),无需解析 argv 或启动任一更新路径即可覆盖 7 种分类;把"什么算包名"的规则集中在一处,后续扩展标志不会散落。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 删除 pkgmgr.UpdateAll 与 pigo update 无参包全更新行为</h3>
+      <p><strong>Spec said:</strong> Issue 正文验收条件聚焦"保持 <code>pigo update &lt;包名&gt;</code> 语义、无参走自更新",未显式要求删除旧的 <code>UpdateAll</code>。</p>
+      <p><strong>Implemented instead:</strong> 删除 <code>internal/pkgmgr/update.go</code> 的 <code>UpdateAll</code> 及 <code>runUpdate</code> 中的无参分支;pkgcmd 无参 <code>update</code> 现返回用法错误(exit 2)而非更新全部包。</p>
+      <p><strong>Why:</strong> 遵循用户先前明确的绑定设计决策"无参=自更新,删除包全更新"。无参 <code>update</code> 被 main() 提前拦截走自更新,pkgcmd 永远收不到空名列表,旧 <code>UpdateAll</code> 成为死代码;唯一调用点已移除,一并删除避免误用。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 标志判定用简单 HasPrefix("-") vs 完整 flag 解析</h3>
+      <p><strong>Alternatives:</strong> (a) 简单启发式:任何不以 <code>-</code> 开头的参数即包名;(b) 引入 pflag 子集完整解析 <code>update</code> 的标志与值。</p>
+      <p><strong>Choice:</strong> (a) 简单启发式。</p>
+      <p><strong>Rationale:</strong> 自更新路径 <code>selfupdate.Run(ctx, current, out, errOut)</code> 目前不接受任何带值标志,唯一提及的标志是无值的 <code>--check</code>;简单前缀判定即可满足全部验收条件,零依赖、易读易测。真正需要 <code>--check</code> 只做检查而不更新时再引入解析,当前属过度设计。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> pigo update --check 目前仅路由,未实现"只检查不更新"</h3>
+      <p><strong>Assumption:</strong> 验收条件只要求 <code>--check</code> 归类到自更新路径,故本实现将其路由到 <code>selfupdate.Run</code>,但 <code>Run</code> 会执行完整自更新而非仅检查。</p>
+      <p><strong>Verify:</strong> 是否需要让 <code>--check</code> 真正做到"仅检查最新版本、不下载替换"?若需要,应在 <code>selfupdate.Run</code> 或其上层解析该标志并短路到只打印版本比较结果——属后续独立工作(PRD Open Questions 已列)。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 用户既有 pigo update(全更新)习惯的迁移</h3>
+      <p><strong>Assumption:</strong> 删除无参包全更新是破坏性变更;老用户敲 <code>pigo update</code> 现在会触发二进制自更新而非更新所有已装包。</p>
+      <p><strong>Verify:</strong> 是否需要在 README / 发布说明中显式提示这一行为变更,并告知"更新全部包请逐个 <code>pigo update &lt;包名&gt;</code>"?本 Issue 未改文档。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
