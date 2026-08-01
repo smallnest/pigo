@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -33,6 +34,7 @@ import (
 	"github.com/smallnest/pigo/internal/cli/run"
 	"github.com/smallnest/pigo/internal/cli/tui"
 	"github.com/smallnest/pigo/internal/cli/ui"
+	"github.com/smallnest/pigo/internal/dream"
 	"github.com/smallnest/pigo/internal/selfupdate"
 )
 
@@ -94,6 +96,15 @@ type cliOptions struct {
 	// #135): pigo reads JSON-RPC sub-agent run requests from stdin and writes
 	// results to stdout. Internal, used by SubAgentTool's process mode.
 	subagentRPC bool
+	// dream, when set, runs the process-isolated memory-consolidation pass and
+	// exits: pigo enumerates + consolidates the global/project memory scope, emits
+	// a single-line Report JSON on stdout, and exits 0/1. Internal, spawned by the
+	// dream scheduler (and usable headlessly by scripts). See internal/dream and
+	// SPEC §4.1/§4.2.
+	dream bool
+	// dreamDryRun pairs with --dream: analyze and report without writing files or
+	// updating dream state (the lock is still taken). SPEC §5.5 dry-run row.
+	dreamDryRun bool
 	// thinkingLevel, when non-empty, is the --thinking-level flag: the reasoning
 	// effort for requests (off|minimal|low|medium|high|xhigh). It is the highest-
 	// precedence layer in resolveThinkingLevel, overriding PIGO_THINKING_LEVEL, the
@@ -159,6 +170,8 @@ func main() {
 	flag.StringArrayVar(&opts.promptTemplates, "prompt-template", nil, "load a prompt template from a file or directory (non-recursive); repeatable (mirrors pi --prompt-template)")
 	flag.StringVar(&opts.thinkingLevel, "thinking-level", "", "reasoning effort: off|minimal|low|medium|high|xhigh (overrides PIGO_THINKING_LEVEL and config; default medium)")
 	flag.BoolVar(&opts.subagentRPC, "subagent-rpc", false, "internal: run as a process-isolated sub-agent JSON-RPC server over stdio (US-019)")
+	flag.BoolVar(&opts.dream, "dream", false, "internal: run a memory-consolidation pass over the global/project memory scope, emit a Report JSON on stdout, and exit (SPEC §4.1)")
+	flag.BoolVar(&opts.dreamDryRun, "dream-dry-run", false, "internal: with --dream, analyze and report without writing files or updating dream state (SPEC §5.5)")
 	flag.BoolVar(&opts.noTUI, "no-tui", false, "use the line-based REPL instead of the full-screen TUI")
 	flag.StringVarP(&opts.cwd, "cwd", "C", "", "run as if pigo was started in this directory (matches the Claude Agent SDK's cwd; like git -C): tool file access, trust, hooks, and project config all resolve against it")
 	flag.BoolVarP(&opts.showVersion, "version", "v", false, "print version information and exit")
@@ -269,6 +282,16 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 	// sub-agents and shares nothing with the interactive/headless paths.
 	if opts.subagentRPC {
 		return headless.RunSubAgentRPC(ctx, os.Stdin, out, errOut)
+	}
+
+	// --dream is the subprocess consolidation mode (SPEC §4.1/§4.2): run one
+	// memory-consolidation pass to completion, emit a single-line Report JSON on
+	// stdout (progress/logs go to stderr), and exit 0 on success / 1 on failure.
+	// It runs before any interactive/headless session assembly and honors -C/--cwd
+	// for the project scope (applied above via os.Chdir). It shares nothing with
+	// the REPL/headless paths.
+	if opts.dream {
+		return runDream(ctx, opts, out, errOut)
 	}
 
 	// --list-sessions is a standalone action: print and exit.
@@ -402,6 +425,37 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		ThinkingLevel: opts.thinkingLevel,
 		ResumeID:      resumeID,
 	}, out, errOut)
+}
+
+// runDream executes the subprocess memory-consolidation pass (SPEC §4.1/§4.2).
+// It runs dream.Runner to completion, marshals the resulting Report as a single
+// line of JSON on stdout (the parent/scheduler parses this), and returns the
+// process exit code: 0 on success (including a "skipped" run when another dream
+// holds the lock) or 1 on failure. Progress and diagnostics go to errOut. The
+// project scope comes from the working directory, which -C/--cwd already applied
+// via os.Chdir before dispatch, so an empty ProjectDir here resolves to cwd.
+func runDream(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
+	projectDir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(errOut, "pigo: dream: %v\n", err)
+		return 1
+	}
+	r := &dream.Runner{}
+	report, err := r.Run(ctx, dream.RunOptions{
+		DryRun:     opts.dreamDryRun,
+		ProjectDir: projectDir,
+	})
+	if err != nil {
+		fmt.Fprintf(errOut, "pigo: dream: %v\n", err)
+		return 1
+	}
+	// Single-line JSON on stdout is the stdout contract (SPEC §4.2). Encoder
+	// writes a trailing newline, keeping the report one line.
+	if err := json.NewEncoder(out).Encode(report); err != nil {
+		fmt.Fprintf(errOut, "pigo: dream: encode report: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 // shouldUseTUI is the pure entry-gating predicate for the no-prompt path
