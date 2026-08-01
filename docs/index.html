@@ -48,7 +48,119 @@
     </div>
   </header>
 
-  <!-- FEATURE-SECTIONS: populated in #499 -->
+  <!-- FEATURE-SECTIONS -->
+  <section class="features">
+    <div class="container">
+      <div class="section-head">
+        <h2 data-en="Everything you need in one binary" data-zh="一个二进制，带齐所需能力"></h2>
+        <p data-en="A pragmatic agent that meets you where you already work — the terminal."
+           data-zh="一个务实的 Agent，就在你日常工作的地方 —— 终端里。"></p>
+      </div>
+
+      <!-- 1. Multi-provider -->
+      <div class="feature-row">
+        <div class="feature-text">
+          <span class="tag" data-en="Any model" data-zh="任意模型"></span>
+          <h2 data-en="Bring your own provider" data-zh="自带 Provider"></h2>
+          <p data-en="OpenRouter by default, plus Ollama, NVIDIA, Anthropic and any OpenAI-compatible endpoint. Switch models mid-session with <code>/model</code>."
+             data-zh="默认 OpenRouter，同时支持 Ollama、NVIDIA、Anthropic 以及任意 OpenAI 兼容端点。会话中用 <code>/model</code> 随时切换模型。"></p>
+        </div>
+        <div class="feature-media">
+          <pre><code>$ pigo -m gpt-5 -p "重构这个函数"
+$ pigo -u http://localhost:11434/v1 \
+       -m qwen3
+# 或在 REPL 中：
+&gt; /models
+&gt; /model claude-opus-4-7</code></pre>
+        </div>
+      </div>
+
+      <!-- 2. Built-in tools -->
+      <div class="feature-row reverse">
+        <div class="feature-text">
+          <span class="tag" data-en="Built-in tools" data-zh="内置工具集"></span>
+          <h2 data-en="Reads, writes, and runs your code" data-zh="能读、能写、能跑你的代码"></h2>
+          <p data-en="A complete toolset ships in the box: <code>read</code>, <code>write</code>, <code>edit</code>, <code>grep</code>, <code>find</code>, <code>bash</code>, <code>todo</code> and <code>webfetch</code> — no plugins required to get real work done."
+             data-zh="开箱即带完整工具集：<code>read</code>、<code>write</code>、<code>edit</code>、<code>grep</code>、<code>find</code>、<code>bash</code>、<code>todo</code>、<code>webfetch</code> —— 无需插件即可完成真实工作。"></p>
+        </div>
+        <div class="feature-media">
+          <pre><code>edit   src/server.go      ✎ patch
+grep   "func Handle"       ⧉ 12 hits
+bash   go test ./...       ✓ ok
+todo   ▢ wire middleware
+       ▣ add auth check</code></pre>
+        </div>
+      </div>
+
+      <!-- 3. Headless / REPL -->
+      <div class="feature-row">
+        <div class="feature-text">
+          <span class="tag" data-en="Two modes" data-zh="双运行模式"></span>
+          <h2 data-en="Headless one-shot or interactive REPL" data-zh="无头一次性执行，或交互式 REPL"></h2>
+          <p data-en="Pipe a single prompt with <code>-p</code> for scripts and CI, or drop into a rich REPL for conversational, multi-step work. Same engine, same tools."
+             data-zh="用 <code>-p</code> 传入单条提示，适合脚本与 CI；或进入功能丰富的 REPL 做多步对话式工作。同一引擎，同一套工具。"></p>
+        </div>
+        <div class="feature-media">
+          <pre><code># 无头：脚本 / CI
+$ pigo -p "生成 CHANGELOG" -o json
+
+# 交互：进入 REPL
+$ pigo
+&gt; 帮我把测试补齐</code></pre>
+        </div>
+      </div>
+
+      <!-- 4. Session resume -->
+      <div class="feature-row reverse">
+        <div class="feature-text">
+          <span class="tag" data-en="Never lose context" data-zh="不丢上下文"></span>
+          <h2 data-en="Resume, fork, and branch sessions" data-zh="会话续跑、复刻与分支"></h2>
+          <p data-en="Every session is saved. Continue with <code>-r</code>, fork an alternate path with <code>/fork</code>, clone with <code>/clone</code>, and inspect the tree with <code>/tree</code>."
+             data-zh="每个会话都会保存。用 <code>-r</code> 续跑，用 <code>/fork</code> 复刻另一条路径，用 <code>/clone</code> 克隆，用 <code>/tree</code> 查看会话树。"></p>
+        </div>
+        <div class="feature-media">
+          <pre><code>$ pigo -r            # 续跑上次会话
+&gt; /tree
+● main
+├─ fork-a  尝试方案 A
+└─ fork-b  尝试方案 B ←</code></pre>
+        </div>
+      </div>
+
+      <!-- 5. Skills & plugins -->
+      <div class="feature-row">
+        <div class="feature-text">
+          <span class="tag" data-en="Extensible" data-zh="可扩展"></span>
+          <h2 data-en="Skills, plugins, and hooks" data-zh="技能、插件与 Hooks"></h2>
+          <p data-en="Teach pigo new workflows with skills, extend it with plugins, and wire custom behavior at 9 hook points. Prompt templates support <code>$1</code>, <code>$@</code> and <code>$ARGUMENTS</code>."
+             data-zh="用技能教会 pigo 新工作流，用插件扩展能力，在 9 个 Hook 点注入自定义行为。提示词模板支持 <code>$1</code>、<code>$@</code>、<code>$ARGUMENTS</code> 参数语法。"></p>
+        </div>
+        <div class="feature-media">
+          <pre><code>&gt; /review-it          # 技能
+&gt; /deploy staging     # 提示词模板
+# ~/.config/pigo/hooks/
+#   pre-tool-use.sh
+#   post-tool-use.sh</code></pre>
+        </div>
+      </div>
+
+      <!-- 6. Persistent memory -->
+      <div class="feature-row reverse">
+        <div class="feature-text">
+          <span class="tag" data-en="Persistent memory" data-zh="持久记忆"></span>
+          <h2 data-en="Memory and near-infinite context" data-zh="持久记忆与近乎无限的上下文"></h2>
+          <p data-en="pigo remembers across sessions and automatically compacts long conversations, so context never runs out mid-task. Search memory with <code>memory_search</code>."
+             data-zh="pigo 跨会话记忆，并自动压缩长对话，任务中途绝不耗尽上下文。用 <code>memory_search</code> 检索记忆。"></p>
+        </div>
+        <div class="feature-media">
+          <pre><code>&gt; /memory
+◆ 记住：本项目用 zsh + Go 1.27
+◆ 记住：偏好 squash 合并
+… 上下文自动压缩：128k → 12k</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <footer class="footer">
     <div class="container footer-inner">
