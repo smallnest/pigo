@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #466</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block; font-size: 0.6875rem; font-weight: 500;
+      padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/466">#466</a> &mdash; 内置自替换执行 pigo update &mdash; 2026-08-01</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Updater 结构体字段作为测试 seam，NewUpdater 填生产默认值</h3>
+      <p><strong>Ambiguity:</strong> PRD 要求"依据当前 GOOS/GOARCH 拼归档名""原子替换 os.Executable()"，但未定义如何在不真正替换运行中二进制、不真正联网的前提下做单测。</p>
+      <p><strong>Choice:</strong> <code>Updater</code> 暴露 <code>HTTPClient / ReleaseBaseURL / GOOS / GOARCH / ExecPath</code> 五个字段；测试用 httptest server 与临时文件注入，生产由 <code>NewUpdater()</code> 填默认值。</p>
+      <p><strong>Rationale:</strong> 纯依赖注入即可端到端覆盖下载→校验→解压→替换，无需 mock 框架，也不触碰真实可执行文件。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Run 复用 US-001 的 UpdateAvailable 做"已是最新"短路</h3>
+      <p><strong>Ambiguity:</strong> US-002 要求"已是最新版本时打印并退出 0，不做替换"，但未说明版本比较来源。</p>
+      <p><strong>Choice:</strong> <code>Run</code> 先 <code>LatestTag</code> 再 <code>UpdateAvailable(current, tag)</code>；<code>comparable && !avail</code> 时打印"已是最新版本"并 return 0，否则进入 <code>Apply</code>。dev 版 comparable=false，直接安装 latest。</p>
+      <p><strong>Rationale:</strong> 与 #465 单一事实来源，避免重复实现版本语义。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 无参 <code>pigo update</code> 的分发语义被改变(遗留 UpdateAll 变为死代码)</h3>
+      <p><strong>Spec said:</strong> US-003 要求"保持 <code>pigo update &lt;包名&gt;</code> 包更新语义"。</p>
+      <p><strong>Implemented instead:</strong> 在 <code>cmd/pigo/main.go</code> 分发处拦截 <code>update</code> 且无位置参数(<code>len(os.Args)==2</code>)的情况路由到 <code>selfupdate.Run</code>；带包名仍走 <code>pkgcmd.Run</code>。这使 pkgcmd 中"无参 = UpdateAll(全量更新包)"的旧路径成为不可达死代码。</p>
+      <p><strong>Why:</strong> 用户明确决策"无参=自更新，删除包全更新"。本 Issue 只做分发拦截;pkgcmd 内 <code>UpdateAll</code> 死代码的正式清理与分发分类测试归属 <a href="https://github.com/smallnest/pigo/issues/468">#468</a>。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 内置自替换 vs 复用第三方 selfupdate 库</h3>
+      <p><strong>Alternatives:</strong> (a) 引入 <code>minio/selfupdate</code> 或 <code>rhysd/go-github-selfupdate</code>;(b) 手写下载+校验+原子替换。</p>
+      <p><strong>Choice:</strong> 手写。归档命名严格对齐 <code>.goreleaser.yaml</code>,SHA256 对齐 <code>checksums.txt</code>,临时文件 + <code>os.Rename</code> 保证原子。</p>
+      <p><strong>Rationale:</strong> 归档命名/校验约定已由 install.sh 与 goreleaser 固定,第三方库反而要迁就其命名假设;手写零新增依赖且与发布工具单一事实来源。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> review 反馈:<code>string(archive)</code> 转换 vs <code>bytes.NewReader</code></h3>
+      <p><strong>Alternatives:</strong> 解压/校验时把 <code>[]byte</code> 转 <code>string</code> 再喂 <code>strings.NewReader</code>,或直接 <code>bytes.NewReader([]byte)</code>。</p>
+      <p><strong>Choice:</strong> 采纳 review 建议,三处(<code>extractFromTarGz / extractFromZip / checksumFor</code>)统一改 <code>bytes.NewReader</code>。</p>
+      <p><strong>Rationale:</strong> <code>string(archive)</code> 会整块拷贝归档字节;归档可达数十 MB,直接读切片零拷贝更省内存,且语义完全等价。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Windows 下替换正在运行的 .exe</h3>
+      <p><strong>Assumption:</strong> 当前实现对所有平台统一走"临时文件 + os.Rename"。Unix 覆盖已打开的可执行文件安全;Windows 上 <code>os.Rename</code> 覆盖正在运行的 .exe 可能因文件占用失败。</p>
+      <p><strong>Verify:</strong> 是否需要 Windows 专属"旧文件改名 + 写新文件"路径(PRD Open Question #5)。本期未实现,留待有 Windows 用户反馈后跟进。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 下载体积无上限</h3>
+      <p><strong>Assumption:</strong> <code>download</code> 用 <code>io.ReadAll</code> 读全量 body,无大小上限。因下载源固定为可信 GitHub Release,review 中判定不值得加限制。</p>
+      <p><strong>Verify:</strong> 若未来允许自定义 <code>ReleaseBaseURL</code> 指向不可信源,应加入 <code>io.LimitReader</code> 上限。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

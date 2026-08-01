@@ -33,6 +33,7 @@ import (
 	"github.com/smallnest/pigo/internal/cli/run"
 	"github.com/smallnest/pigo/internal/cli/tui"
 	"github.com/smallnest/pigo/internal/cli/ui"
+	"github.com/smallnest/pigo/internal/selfupdate"
 )
 
 // Build metadata, injected at release time via -ldflags by goreleaser
@@ -120,6 +121,12 @@ func main() {
 	// positional and distinct from the flag-driven agent modes, so peel them off
 	// before pflag parsing — the agent flags don't apply to them.
 	if len(os.Args) > 1 && pkgcmd.Subcommands[os.Args[1]] {
+		// `pigo update` with no positional package name is self-update (#466):
+		// download the latest release and replace this binary. With a package
+		// name it stays package-update (handled by pkgcmd).
+		if os.Args[1] == "update" && len(os.Args) == 2 {
+			os.Exit(selfupdate.Run(context.Background(), version, os.Stdout, os.Stderr))
+		}
 		os.Exit(pkgcmd.Run(os.Args[1], os.Args[2:], os.Stdout, os.Stderr))
 	}
 
