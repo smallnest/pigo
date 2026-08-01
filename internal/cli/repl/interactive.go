@@ -19,6 +19,7 @@ import (
 	"github.com/smallnest/pigo/internal/cli/headless"
 	"github.com/smallnest/pigo/internal/cli/prompts"
 	"github.com/smallnest/pigo/internal/cli/run"
+	"github.com/smallnest/pigo/internal/dream"
 	"github.com/smallnest/pigo/internal/plugin"
 	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
@@ -75,6 +76,11 @@ type Options struct {
 	// settings, CLI); built-in slash commands are unaffected. Independent of
 	// --no-skills.
 	NoPromptTemplates bool
+
+	// Dream is the resolved [dream] configuration (US-008). Run uses it to decide
+	// whether to launch the startup background consolidation; a zero value
+	// (Enabled false) disables the auto-trigger entirely.
+	Dream dream.Config
 }
 
 // Run starts the line-based REPL over a persisted session. It keeps
@@ -90,6 +96,14 @@ func Run(opts Options) error {
 	if err != nil {
 		return err
 	}
+
+	// Resolve the launch directory once (pigo does not cd during a session). It is
+	// the trust key, the directory side-effect tools are gated against, and — new
+	// for #526 — the value stamped onto a fresh SessionHeader.Cwd so the session is
+	// attributed to a project and a later /dream pass can distill it under the
+	// right scope (mirrors headless.headlessCwd). An unresolvable cwd yields ""
+	// (the session stays unattributed) rather than aborting the session.
+	cwd, cwdErr := os.Getwd()
 
 	// Establish the session: resume an existing one or create a fresh header.
 	now := time.Now().UTC()
@@ -129,6 +143,7 @@ func Run(opts Options) error {
 			Model:        opts.Model,
 			Provider:     opts.ProviderName,
 			SystemPrompt: opts.SysPrompt,
+			Cwd:          cwd,
 		}
 	}
 
@@ -150,9 +165,8 @@ func Run(opts Options) error {
 	// launch directory. A load failure (e.g. a corrupted trust.json) is
 	// non-fatal: trust is disabled (mgr stays nil) and the REPL still runs -
 	// the store is surfaced rather than silently overwritten. cwd is captured
-	// once since pigo does not cd during a session; if it cannot be resolved
+	// once above since pigo does not cd during a session; if it cannot be resolved
 	// trust is disabled too, since an empty cwd would silently never match.
-	cwd, cwdErr := os.Getwd()
 	mgr, mgrErr := trust.NewManager(trust.DefaultPath())
 	if mgrErr != nil {
 		fmt.Fprintf(os.Stderr, "pigo: trust store unavailable, trust disabled: %v\n", mgrErr)
@@ -196,6 +210,14 @@ func Run(opts Options) error {
 	if len(history) > 0 {
 		replayTranscript(os.Stdout, history)
 	}
+
+	// Startup background consolidation (US-008, FR-4/FR-17): if dream is enabled
+	// and due, spawn `pigo --dream` in a goroutine now so it runs while the user
+	// works — it never blocks the first prompt, and prints a one-line notice on
+	// completion. The dream state/lock live under dream.ResolveMemoryRoot (the
+	// same root the subprocess consolidates), independent of whether the memory
+	// tool is wired into this session. Not-due / disabled is a cheap no-op.
+	maybeStartBackgroundDream(os.Stdout, dream.ResolveMemoryRoot(), cwd, opts.Dream)
 
 	return runREPL(os.Stdin, os.Stdout, replDeps{
 		store:     store,

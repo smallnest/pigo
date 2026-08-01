@@ -142,6 +142,11 @@ func newRunSessionWithStore(store *session.Store, opts Options) (*runSession, []
 		history = msgs
 	} else {
 		agentCtx = &agentcore.AgentContext{SystemPrompt: opts.SysPrompt, Tools: opts.Tools}
+		// Stamp the launch directory onto a fresh session (#526/#524) so the
+		// session is attributed to a project and a later /dream pass can distill it
+		// under the right scope, mirroring headless/REPL. An unresolvable cwd
+		// yields "" (session stays unattributed) rather than aborting.
+		wd, _ := os.Getwd()
 		header = session.SessionHeader{
 			ID:           session.NewID(now),
 			CreatedAt:    now,
@@ -149,6 +154,7 @@ func newRunSessionWithStore(store *session.Store, opts Options) (*runSession, []
 			Model:        opts.Model,
 			Provider:     opts.ProviderName,
 			SystemPrompt: opts.SysPrompt,
+			Cwd:          wd,
 		}
 	}
 

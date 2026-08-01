@@ -131,6 +131,11 @@ type cliOptions struct {
 	// (defaults when the tables are absent) for downstream memory/checkpoint/
 	// compaction wiring to consume. See config.MemorySettings.
 	memory config.MemorySettings
+	// dreamCfg is the resolved [dream] configuration (enabled / interval /
+	// recent-sessions), populated by applyFileConfig from the [dream] table with
+	// defaults applied. The interactive REPL consumes it to decide the startup
+	// background auto-consolidation (US-008). Like memory it has no CLI flags.
+	dreamCfg dream.Config
 }
 
 func main() {
@@ -270,6 +275,10 @@ func applyFileConfig(opts *cliOptions, cfg config.FileConfig, changed func(strin
 	// are resolved (with defaults) and overlaid unconditionally — an absent set
 	// of tables yields the default-safe MemorySettings.
 	opts.memory = cfg.ResolveMemorySettings()
+	// The [dream] table also has no CLI flags; normalize it (defaults applied when
+	// the table is absent) so the interactive startup trigger has a resolved
+	// Config. NewConfig treats a nil enabled as true, so dream is on by default.
+	opts.dreamCfg = dream.NewConfig(cfg.Dream.Enabled, cfg.Dream.IntervalDays, cfg.Dream.RecentSessions)
 }
 
 // dispatch runs the resolved command and returns a process exit code, writing
@@ -392,6 +401,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			ConfigPrompts:     opts.configPrompts,
 			CliPrompts:        opts.promptTemplates,
 			NoPromptTemplates: opts.noPromptTemplates,
+			Dream:             opts.dreamCfg,
 		}); err != nil {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
 			return 1
