@@ -7,7 +7,7 @@
  * Attributes can be localized too: data-en-attr="placeholder|Search" etc. (optional, unused by default)
  *
  * Persistence: localStorage keys `pigo-lang` (en|zh) and `pigo-theme` (dark|light).
- * Default language follows navigator.language (zh* -> zh, else en). Default theme: dark.
+ * Default language follows navigator.language (zh* -> zh, else en). Default theme: light.
  */
 (function () {
   "use strict";
@@ -26,7 +26,7 @@
   function detectTheme() {
     var saved = null;
     try { saved = localStorage.getItem(THEME_KEY); } catch (e) {}
-    return saved === "light" ? "light" : "dark";
+    return saved === "dark" ? "dark" : "light";
   }
 
   function applyLang(lang) {
@@ -46,6 +46,7 @@
     }
     try { localStorage.setItem(LANG_KEY, lang); } catch (e) {}
     window.PIGO_LANG = lang;
+    try { window.dispatchEvent(new CustomEvent("pigo:lang", { detail: { lang: lang } })); } catch (e) {}
   }
 
   function applyTheme(theme) {

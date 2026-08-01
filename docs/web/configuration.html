@@ -1,17 +1,18 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title data-en="Configuration — pigo" data-zh="配置 — pigo">Configuration — pigo</title>
   <meta name="description" content="Configure pigo via ~/.config/pigo/config.toml: model, base_url, api_key, output_format, [memory]/[checkpoint] tables, and PROVIDER_API_KEY env vars. 配置 pigo。">
   <link rel="stylesheet" href="assets/site.css">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
   <script defer src="assets/i18n.js"></script>
 </head>
 <body>
   <nav class="nav">
     <div class="nav-inner">
-      <a class="nav-brand" href="../index.html"><span class="nav-logo">p</span> pigo</a>
+      <a class="nav-brand" href="../index.html"><span class="nav-logo">𝞹</span> pigo</a>
       <div class="nav-links">
         <a href="quickstart.html" data-en="Quickstart" data-zh="快速开始"></a>
         <a href="features.html" data-en="Features" data-zh="特性"></a>
@@ -20,7 +21,7 @@
         <a href="architecture.html" class="hide-sm" data-en="Architecture" data-zh="架构"></a>
         <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
         <button class="nav-btn" data-lang-toggle aria-label="切换到中文">中文</button>
-        <button class="nav-btn" data-theme-toggle aria-label="Toggle theme">☀️</button>
+        <button class="nav-btn" data-theme-toggle aria-label="Toggle theme">🌙</button>
       </div>
     </div>
   </nav>
@@ -75,6 +76,74 @@
           <tr><td><code>prompts</code></td><td data-en="Paths to prompt-template files/dirs" data-zh="提示词模板文件/目录路径"></td></tr>
         </tbody>
       </table>
+
+      <h2 data-en="Providers" data-zh="Provider"></h2>
+      <p data-en="pigo ships with a registry of ~38 built-in providers spanning two wire protocols — <strong>OpenAI-compatible</strong> and <strong>Anthropic</strong>. You rarely name a provider explicitly: pigo infers it from the model name and resolves the API key from that provider's environment variable at request time."
+         data-zh="pigo 内置约 38 个 provider 的注册表，覆盖两种通信协议 —— <strong>OpenAI 兼容</strong>与 <strong>Anthropic</strong>。你很少需要显式指定 provider：pigo 会根据模型名推断，并在请求时从该 provider 对应的环境变量解析 API Key。"></p>
+
+      <h3 data-en="How a model routes to a provider" data-zh="模型如何路由到 Provider"></h3>
+      <p data-en="Resolution runs top to bottom; the first match wins:"
+         data-zh="解析自上而下，命中即止："></p>
+      <pre><code>1. --provider &lt;name&gt;      # 显式指定，最高优先级
+2. --protocol openai|anthropic
+3. 预置目录 (preset catalog) 中的已知模型 id
+4. ollama/ 或 nvidia/ 前缀，或端口 11434 → 本地 / NVIDIA
+5. 按模型名前缀推断 (claude-* → anthropic, gpt-* → openai …)
+6. 兜底 → OpenRouter</code></pre>
+
+      <h3 data-en="Base-URL precedence" data-zh="Base-URL 优先级"></h3>
+      <pre><code>--base-url  &gt;  &lt;provider&gt; 专属 env  &gt;  &lt;PROVIDER&gt;_BASE_URL  &gt;  内置默认值</code></pre>
+
+      <h3 data-en="Built-in providers (selection)" data-zh="内置 Provider（节选）"></h3>
+      <table>
+        <thead><tr>
+          <th data-en="Provider" data-zh="Provider"></th>
+          <th data-en="API-key env var" data-zh="API Key 环境变量"></th>
+          <th data-en="Default base URL" data-zh="默认 base URL"></th>
+          <th data-en="Protocol" data-zh="协议"></th>
+        </tr></thead>
+        <tbody>
+          <tr><td><code>anthropic</code></td><td><code>ANTHROPIC_API_KEY</code></td><td><code>api.anthropic.com/v1</code></td><td>anthropic</td></tr>
+          <tr><td><code>openai</code></td><td><code>OPENAI_API_KEY</code></td><td><code>api.openai.com/v1</code></td><td>openai</td></tr>
+          <tr><td><code>openrouter</code></td><td><code>OPENROUTER_API_KEY</code></td><td><code>openrouter.ai/api/v1</code></td><td>openai</td></tr>
+          <tr><td><code>deepseek</code></td><td><code>DEEPSEEK_API_KEY</code></td><td><code>api.deepseek.com</code></td><td>openai</td></tr>
+          <tr><td><code>google</code></td><td><code>GEMINI_API_KEY</code></td><td><code>generativelanguage.googleapis.com</code></td><td>openai</td></tr>
+          <tr><td><code>groq</code></td><td><code>GROQ_API_KEY</code></td><td><code>api.groq.com/openai/v1</code></td><td>openai</td></tr>
+          <tr><td><code>xai</code></td><td><code>XAI_API_KEY</code></td><td><code>api.x.ai/v1</code></td><td>openai</td></tr>
+          <tr><td><code>nvidia</code></td><td><code>NVIDIA_API_KEY</code></td><td><code>integrate.api.nvidia.com/v1</code></td><td>openai</td></tr>
+          <tr><td><code>mistral</code></td><td><code>MISTRAL_API_KEY</code></td><td><code>api.mistral.ai</code></td><td>openai</td></tr>
+          <tr><td><code>moonshotai</code></td><td><code>MOONSHOT_API_KEY</code></td><td><code>api.moonshot.ai/v1</code></td><td>openai</td></tr>
+          <tr><td><code>zai</code></td><td><code>ZAI_API_KEY</code></td><td><code>api.z.ai/api/coding/paas/v4</code></td><td>openai</td></tr>
+          <tr><td><code>minimax</code></td><td><code>MINIMAX_API_KEY</code></td><td><code>api.minimax.io/anthropic</code></td><td>anthropic</td></tr>
+          <tr><td><code>dashscope</code></td><td><code>DASHSCOPE_API_KEY</code></td><td><code>dashscope.aliyuncs.com/…/v1</code></td><td>openai</td></tr>
+          <tr><td><code>qianfan</code></td><td><code>QIANFAN_API_KEY</code></td><td><code>qianfan.baidubce.com/v2</code></td><td>openai</td></tr>
+          <tr><td><code>volcengine</code></td><td><code>ARK_API_KEY</code></td><td><code>ark.cn-beijing.volces.com/api/v3</code></td><td>openai</td></tr>
+          <tr><td><code>hunyuan</code></td><td><code>HUNYUAN_API_KEY</code></td><td><code>api.hunyuan.cloud.tencent.com/v1</code></td><td>openai</td></tr>
+          <tr><td><code>xiaomi</code></td><td><code>XIAOMI_API_KEY</code></td><td><code>api.xiaomimimo.com/v1</code></td><td>openai</td></tr>
+          <tr><td><code>amazon-bedrock</code></td><td><code>AWS_BEARER_TOKEN_BEDROCK</code></td><td><code>bedrock-runtime.{region}.amazonaws.com</code></td><td>anthropic</td></tr>
+          <tr><td><code>azure-openai-responses</code></td><td><code>AZURE_OPENAI_API_KEY</code></td><td data-en="composed via AZURE_OPENAI_BASE_URL" data-zh="由 AZURE_OPENAI_BASE_URL 组合"></td><td>openai</td></tr>
+        </tbody>
+      </table>
+      <p data-en="Others include <code>cerebras</code>, <code>together</code>, <code>fireworks</code>, <code>huggingface</code>, <code>vercel-ai-gateway</code>, <code>opencode</code>, <code>kimi-coding</code>, <code>minimax-cn</code>, <code>moonshotai-cn</code>, <code>zai-coding-cn</code>, <code>google-vertex</code>, and the Cloudflare gateways. Run <code>pigo</code> and use <code>/models</code> to see what's reachable with your current keys."
+         data-zh="其余还包括 <code>cerebras</code>、<code>together</code>、<code>fireworks</code>、<code>huggingface</code>、<code>vercel-ai-gateway</code>、<code>opencode</code>、<code>kimi-coding</code>、<code>minimax-cn</code>、<code>moonshotai-cn</code>、<code>zai-coding-cn</code>、<code>google-vertex</code> 以及 Cloudflare 网关。运行 <code>pigo</code> 后用 <code>/models</code> 查看当前密钥可达的模型。"></p>
+
+      <h3 data-en="Selecting a provider" data-zh="选择 Provider"></h3>
+      <div class="copy-wrap">
+        <pre><code># 按模型名自动路由
+pigo -m claude-opus-4-7          # → anthropic
+pigo -m gpt-5                    # → openai
+pigo -m deepseek-chat            # → deepseek
+
+# 强制指定 provider 与协议
+pigo --provider groq -m llama-3.3-70b
+pigo --protocol anthropic -m my-custom-model
+
+# 指向任意 OpenAI 兼容端点（本地 Ollama）
+pigo -u http://localhost:11434/v1 -m qwen3</code></pre>
+        <button class="copy-btn" data-copy='pigo -m claude-opus-4-7
+pigo --provider groq -m llama-3.3-70b
+pigo -u http://localhost:11434/v1 -m qwen3'>Copy</button>
+      </div>
 
       <h2 data-en="Nested tables" data-zh="嵌套表"></h2>
       <p data-en="Three optional TOML tables tune memory, checkpointing, and compaction. All keys are optional and default-safe:"

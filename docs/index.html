@@ -1,18 +1,19 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>pigo — 用 Go 打造的命令行编码 Agent</title>
-  <meta name="description" content="pigo — a command-line coding agent written in Go: headless & REPL modes, multi-provider, built-in tools, skills, plugins and persistent memory. 用 Go 编写的命令行编码 Agent。">
+  <meta name="description" content="pigo — a command-line coding agent written in Go: headless & TUI modes, multi-provider, built-in tools, skills, plugins and persistent memory. 用 Go 编写的命令行编码 Agent。">
   <link rel="stylesheet" href="web/assets/site.css">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <script defer src="web/assets/i18n.js"></script>
 </head>
 <body>
   <nav class="nav">
     <div class="nav-inner">
       <a class="nav-brand" href="index.html">
-        <span class="nav-logo">p</span> pigo
+        <span class="nav-logo">𝞹</span> pigo
       </a>
       <div class="nav-links">
         <a href="web/quickstart.html" data-en="Quickstart" data-zh="快速开始"></a>
@@ -22,7 +23,7 @@
         <a href="web/architecture.html" class="hide-sm" data-en="Architecture" data-zh="架构"></a>
         <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
         <button class="nav-btn" data-lang-toggle aria-label="切换到中文">中文</button>
-        <button class="nav-btn" data-theme-toggle aria-label="Toggle theme">☀️</button>
+        <button class="nav-btn" data-theme-toggle aria-label="Toggle theme">🌙</button>
       </div>
     </div>
   </nav>
@@ -34,8 +35,8 @@
       <h1 data-en="The coding agent for your <span class='grad'>terminal</span>"
           data-zh="属于你终端的 <span class='grad'>编码 Agent</span>"></h1>
       <p class="lead"
-         data-en="pigo is a fast, hackable command-line coding agent written in Go. Headless one-shot or interactive REPL, any provider, built-in tools, skills, plugins and persistent memory."
-         data-zh="pigo 是一个用 Go 编写的、快速且可深度定制的命令行编码 Agent。无头一次性执行或交互式 REPL，兼容任意 Provider，内置工具、技能、插件与持久记忆。"></p>
+         data-en="pigo is a fast, hackable command-line coding agent written in Go. Headless one-shot or interactive TUI, any provider, built-in tools, skills, plugins and persistent memory."
+         data-zh="pigo 是一个用 Go 编写的、快速且可深度定制的命令行编码 Agent。headless 一次性执行或交互式 TUI，兼容任意 Provider，内置工具、技能、插件与持久记忆。"></p>
       <div class="hero-cta">
         <a class="btn btn-primary" href="web/quickstart.html" data-en="Get started →" data-zh="快速开始 →"></a>
         <a class="btn btn-ghost" href="https://github.com/smallnest/pigo" target="_blank" rel="noopener" data-en="View on GitHub" data-zh="在 GitHub 查看"></a>
@@ -45,6 +46,12 @@
         <span>curl -fsSL https://raw.githubusercontent.com/smallnest/pigo/master/install.sh | sh</span>
         <button class="copy-btn" data-copy="curl -fsSL https://raw.githubusercontent.com/smallnest/pigo/master/install.sh | sh">Copy</button>
       </div>
+      <div class="shot hero-shot">
+        <img src="pigo-tui.png" width="1280" height="720" loading="eager"
+             alt="pigo running in the terminal — an interactive TUI session generating Go code" />
+      </div>
+      <p class="shot-caption" data-en="pigo's interactive TUI — chat, tools, and code in one terminal."
+         data-zh="pigo 的交互式 TUI —— 对话、工具与代码，尽在一个终端。"></p>
     </div>
   </header>
 
@@ -60,6 +67,7 @@
       <!-- 1. Multi-provider -->
       <div class="feature-row">
         <div class="feature-text">
+          <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M9 2v6M15 2v6M7 8h10v3a5 5 0 0 1-10 0V8ZM12 16v6"/></svg></div>
           <span class="tag" data-en="Any model" data-zh="任意模型"></span>
           <h2 data-en="Bring your own provider" data-zh="自带 Provider"></h2>
           <p data-en="OpenRouter by default, plus Ollama, NVIDIA, Anthropic and any OpenAI-compatible endpoint. Switch models mid-session with <code>/model</code>."
@@ -69,7 +77,7 @@
           <pre><code>$ pigo -m gpt-5 -p "重构这个函数"
 $ pigo -u http://localhost:11434/v1 \
        -m qwen3
-# 或在 REPL 中：
+# 或在 TUI 中：
 &gt; /models
 &gt; /model claude-opus-4-7</code></pre>
         </div>
@@ -78,6 +86,7 @@ $ pigo -u http://localhost:11434/v1 \
       <!-- 2. Built-in tools -->
       <div class="feature-row reverse">
         <div class="feature-text">
+          <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4l-6 6a1.4 1.4 0 0 0 2 2l6-6a4 4 0 0 0 5.4-5.4l-2.5 2.5-2-2 2.5-2.5Z"/></svg></div>
           <span class="tag" data-en="Built-in tools" data-zh="内置工具集"></span>
           <h2 data-en="Reads, writes, and runs your code" data-zh="能读、能写、能跑你的代码"></h2>
           <p data-en="A complete toolset ships in the box: <code>read</code>, <code>write</code>, <code>edit</code>, <code>grep</code>, <code>find</code>, <code>bash</code>, <code>todo</code> and <code>webfetch</code> — no plugins required to get real work done."
@@ -92,19 +101,20 @@ todo   ▢ wire middleware
         </div>
       </div>
 
-      <!-- 3. Headless / REPL -->
+      <!-- 3. Headless / TUI -->
       <div class="feature-row">
         <div class="feature-text">
+          <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1ZM7 9l3 3-3 3M13 15h4"/></svg></div>
           <span class="tag" data-en="Two modes" data-zh="双运行模式"></span>
-          <h2 data-en="Headless one-shot or interactive REPL" data-zh="无头一次性执行，或交互式 REPL"></h2>
-          <p data-en="Pipe a single prompt with <code>-p</code> for scripts and CI, or drop into a rich REPL for conversational, multi-step work. Same engine, same tools."
-             data-zh="用 <code>-p</code> 传入单条提示，适合脚本与 CI；或进入功能丰富的 REPL 做多步对话式工作。同一引擎，同一套工具。"></p>
+          <h2 data-en="Headless one-shot or interactive TUI" data-zh="headless 一次性执行，或交互式 TUI"></h2>
+          <p data-en="Pipe a single prompt with <code>-p</code> for scripts and CI, or drop into a rich TUI for conversational, multi-step work. Same engine, same tools."
+             data-zh="用 <code>-p</code> 传入单条提示，适合脚本与 CI；或进入功能丰富的 TUI 做多步对话式工作。同一引擎，同一套工具。"></p>
         </div>
         <div class="feature-media">
-          <pre><code># 无头：脚本 / CI
+          <pre><code># headless：脚本 / CI
 $ pigo -p "生成 CHANGELOG" -o json
 
-# 交互：进入 REPL
+# 交互：进入 TUI
 $ pigo
 &gt; 帮我把测试补齐</code></pre>
         </div>
@@ -113,6 +123,7 @@ $ pigo
       <!-- 4. Session resume -->
       <div class="feature-row reverse">
         <div class="feature-text">
+          <div class="feature-icon"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M8.3 6.6C13 6.5 18 6 18 10.5"/></svg></div>
           <span class="tag" data-en="Never lose context" data-zh="不丢上下文"></span>
           <h2 data-en="Resume, fork, and branch sessions" data-zh="会话续跑、复刻与分支"></h2>
           <p data-en="Every session is saved. Continue with <code>-r</code>, fork an alternate path with <code>/fork</code>, clone with <code>/clone</code>, and inspect the tree with <code>/tree</code>."
@@ -130,6 +141,7 @@ $ pigo
       <!-- 5. Skills & plugins -->
       <div class="feature-row">
         <div class="feature-text">
+          <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M10 3h4a1 1 0 0 1 1 1v2a2 2 0 0 0 4 0V4h1a1 1 0 0 1 1 1v4h-2a2 2 0 0 0 0 4h2v4a1 1 0 0 1-1 1h-4v-2a2 2 0 0 0-4 0v2H5a1 1 0 0 1-1-1v-4h2a2 2 0 0 0 0-4H4V4a1 1 0 0 1 1-1h5v2a2 2 0 0 0 4 0V3Z"/></svg></div>
           <span class="tag" data-en="Extensible" data-zh="可扩展"></span>
           <h2 data-en="Skills, plugins, and hooks" data-zh="技能、插件与 Hooks"></h2>
           <p data-en="Teach pigo new workflows with skills, extend it with plugins, and wire custom behavior at 9 hook points. Prompt templates support <code>$1</code>, <code>$@</code> and <code>$ARGUMENTS</code>."
@@ -147,6 +159,7 @@ $ pigo
       <!-- 6. Persistent memory -->
       <div class="feature-row reverse">
         <div class="feature-text">
+          <div class="feature-icon"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg></div>
           <span class="tag" data-en="Persistent memory" data-zh="持久记忆"></span>
           <h2 data-en="Memory and near-infinite context" data-zh="持久记忆与近乎无限的上下文"></h2>
           <p data-en="pigo remembers across sessions and automatically compacts long conversations, so context never runs out mid-task. Search memory with <code>memory_search</code>."
@@ -177,5 +190,7 @@ $ pigo
       </div>
     </div>
   </footer>
+  <script defer src="web/assets/anime.min.js"></script>
+  <script defer src="web/assets/anim.js"></script>
 </body>
 </html>

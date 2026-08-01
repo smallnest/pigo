@@ -1,17 +1,18 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title data-en="Slash commands — pigo" data-zh="Slash 命令 — pigo">Slash commands — pigo</title>
   <meta name="description" content="pigo slash commands reference: built-ins (/help /model /compact /fork /clone /tree /session /memory ...), skill commands /skill-name, and prompt templates with $1/$@/$ARGUMENTS. pigo 斜杠命令参考。">
   <link rel="stylesheet" href="assets/site.css">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
   <script defer src="assets/i18n.js"></script>
 </head>
 <body>
   <nav class="nav">
     <div class="nav-inner">
-      <a class="nav-brand" href="../index.html"><span class="nav-logo">p</span> pigo</a>
+      <a class="nav-brand" href="../index.html"><span class="nav-logo">𝞹</span> pigo</a>
       <div class="nav-links">
         <a href="quickstart.html" data-en="Quickstart" data-zh="快速开始"></a>
         <a href="features.html" data-en="Features" data-zh="特性"></a>
@@ -20,7 +21,7 @@
         <a href="architecture.html" class="hide-sm" data-en="Architecture" data-zh="架构"></a>
         <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
         <button class="nav-btn" data-lang-toggle aria-label="切换到中文">中文</button>
-        <button class="nav-btn" data-theme-toggle aria-label="Toggle theme">☀️</button>
+        <button class="nav-btn" data-theme-toggle aria-label="Toggle theme">🌙</button>
       </div>
     </div>
   </nav>
@@ -40,8 +41,8 @@
 
     <main class="doc-content">
       <h1 data-en="Slash commands" data-zh="Slash 命令"></h1>
-      <p class="doc-sub" data-en="Type a slash at the REPL prompt to run a command instead of a message."
-         data-zh="在 REPL 提示符下输入斜杠即可运行命令，而非发送消息。"></p>
+      <p class="doc-sub" data-en="Type a slash at the TUI prompt to run a command instead of a message."
+         data-zh="在 TUI 提示符下输入斜杠即可运行命令，而非发送消息。"></p>
 
       <h2 data-en="Built-in commands" data-zh="内置命令"></h2>
       <table>
@@ -50,21 +51,26 @@
           <th data-en="What it does" data-zh="作用"></th>
         </tr></thead>
         <tbody>
-          <tr><td><code>/help</code></td><td data-en="List available commands" data-zh="列出可用命令"></td></tr>
-          <tr><td><code>/model</code></td><td data-en="Switch the active model live" data-zh="实时切换当前模型"></td></tr>
-          <tr><td><code>/models</code></td><td data-en="List selectable models" data-zh="列出可选模型"></td></tr>
-          <tr><td><code>/think</code></td><td data-en="Set reasoning effort level" data-zh="设置推理强度"></td></tr>
-          <tr><td><code>/compact</code></td><td data-en="Compact context now" data-zh="立即压缩上下文"></td></tr>
-          <tr><td><code>/fork</code></td><td data-en="Branch off the current session" data-zh="从当前会话分叉"></td></tr>
-          <tr><td><code>/clone</code></td><td data-en="Duplicate the current session" data-zh="复制当前会话"></td></tr>
-          <tr><td><code>/tree</code></td><td data-en="Show the session tree" data-zh="显示会话树"></td></tr>
-          <tr><td><code>/export</code></td><td data-en="Export the session to a file" data-zh="导出会话到文件"></td></tr>
-          <tr><td><code>/import</code></td><td data-en="Import a session from a file" data-zh="从文件导入会话"></td></tr>
-          <tr><td><code>/copy</code></td><td data-en="Copy the last reply to clipboard" data-zh="复制上一条回复到剪贴板"></td></tr>
-          <tr><td><code>/session</code></td><td data-en="Manage / switch sessions" data-zh="管理 / 切换会话"></td></tr>
-          <tr><td><code>/status</code></td><td data-en="Show current run status" data-zh="显示当前运行状态"></td></tr>
+          <tr><td><code>/help</code></td><td data-en="List available slash commands" data-zh="列出可用的斜杠命令"></td></tr>
+          <tr><td><code>/model</code></td><td data-en="View or switch the active model: /model [model-id]" data-zh="查看或切换当前模型：/model [model-id]"></td></tr>
+          <tr><td><code>/models</code></td><td data-en="List preset providers and models you can switch to" data-zh="列出可切换的预置 provider 与模型"></td></tr>
+          <tr><td><code>/think</code></td><td data-en="View or set reasoning-effort level: [off|minimal|low|medium|high|xhigh]; takes effect next turn" data-zh="查看或设置推理强度：[off|minimal|low|medium|high|xhigh]，下一轮生效"></td></tr>
+          <tr><td><code>/effect</code></td><td data-en="Alias of /think — view or set the reasoning-effort level" data-zh="/think 的别名 —— 查看或设置推理强度"></td></tr>
+          <tr><td><code>/compact</code></td><td data-en="Summarize and compact the conversation context now" data-zh="立即总结并压缩对话上下文"></td></tr>
+          <tr><td><code>/rebuild</code></td><td data-en="Rebuild context from the latest checkpoint + memory recall" data-zh="从最新检查点 + 记忆检索重建上下文"></td></tr>
           <tr><td><code>/memory</code></td><td data-en="Inspect &amp; manage persistent memory" data-zh="查看与管理持久记忆"></td></tr>
-          <tr><td><code>/exit</code></td><td data-en="Quit the REPL (alias /quit)" data-zh="退出 REPL（别名 /quit）"></td></tr>
+          <tr><td><code>/fork</code></td><td data-en="Branch from a historical message into a new session: /fork [n]" data-zh="从某条历史消息分叉出新会话：/fork [n]"></td></tr>
+          <tr><td><code>/clone</code></td><td data-en="Duplicate the current session into an independent branch" data-zh="将当前会话复制为一条独立分支"></td></tr>
+          <tr><td><code>/tree</code></td><td data-en="Show the session branch tree; switch branch: /tree [n]" data-zh="显示会话分支树；切换分支：/tree [n]"></td></tr>
+          <tr><td><code>/export</code></td><td data-en="Export the session to a file: /export [path.jsonl|path.html]" data-zh="导出会话到文件：/export [path.jsonl|path.html]"></td></tr>
+          <tr><td><code>/import</code></td><td data-en="Import a JSONL export as a new session: /import &lt;path.jsonl&gt;" data-zh="将 JSONL 导出导入为新会话：/import &lt;path.jsonl&gt;"></td></tr>
+          <tr><td><code>/copy</code></td><td data-en="Copy the most recent assistant reply to the clipboard" data-zh="复制最近一条助手回复到剪贴板"></td></tr>
+          <tr><td><code>/session</code></td><td data-en="Show session stats: messages, tokens, model, compactions" data-zh="显示会话统计：消息数、token、模型、压缩次数"></td></tr>
+          <tr><td><code>/status</code></td><td data-en="Show session status: config, context, telemetry, credentials, environment" data-zh="显示会话状态：配置、上下文、遥测、凭据、环境"></td></tr>
+          <tr><td><code>/goal</code></td><td data-en="Run autonomously toward a goal: /goal [--tokens N] &lt;objective&gt; | pause | resume | clear" data-zh="自主奔向目标：/goal [--tokens N] &lt;目标&gt; | pause | resume | clear"></td></tr>
+          <tr><td><code>/btw</code></td><td data-en="Ask a quick side question without touching the main conversation: /btw &lt;question&gt;" data-zh="不打扰主对话地问一个侧边问题：/btw &lt;问题&gt;（裸 /btw 重开上一个）"></td></tr>
+          <tr><td><code>/remote-control</code></td><td data-en="Mirror this session to a phone/browser on your LAN: /remote-control [stop|status]" data-zh="把本会话镜像到局域网内的手机/浏览器：/remote-control [stop|status]"></td></tr>
+          <tr><td><code>/exit</code></td><td data-en="Exit the TUI (alias /quit)" data-zh="退出 TUI（别名 /quit）"></td></tr>
         </tbody>
       </table>
 

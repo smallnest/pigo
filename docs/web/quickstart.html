@@ -1,17 +1,18 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title data-en="Quickstart — pigo" data-zh="快速开始 — pigo">Quickstart — pigo</title>
-  <meta name="description" content="Get pigo running in 5 minutes: install, configure a provider, run a headless prompt, then enter the REPL. 5 分钟跑起 pigo。">
+  <meta name="description" content="Get pigo running in 5 minutes: install, configure a provider, run a headless prompt, then enter the TUI. 5 分钟跑起 pigo。">
   <link rel="stylesheet" href="assets/site.css">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
   <script defer src="assets/i18n.js"></script>
 </head>
 <body>
   <nav class="nav">
     <div class="nav-inner">
-      <a class="nav-brand" href="../index.html"><span class="nav-logo">p</span> pigo</a>
+      <a class="nav-brand" href="../index.html"><span class="nav-logo">𝞹</span> pigo</a>
       <div class="nav-links">
         <a href="quickstart.html" data-en="Quickstart" data-zh="快速开始"></a>
         <a href="features.html" data-en="Features" data-zh="特性"></a>
@@ -20,7 +21,7 @@
         <a href="architecture.html" class="hide-sm" data-en="Architecture" data-zh="架构"></a>
         <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
         <button class="nav-btn" data-lang-toggle aria-label="切换到中文">中文</button>
-        <button class="nav-btn" data-theme-toggle aria-label="Toggle theme">☀️</button>
+        <button class="nav-btn" data-theme-toggle aria-label="Toggle theme">🌙</button>
       </div>
     </div>
   </nav>
@@ -42,6 +43,11 @@
       <h1 data-en="Quickstart" data-zh="快速开始"></h1>
       <p class="doc-sub" data-en="From zero to your first agent run in about 5 minutes."
          data-zh="从零到第一次 Agent 运行，约 5 分钟。"></p>
+
+      <div class="shot doc-shot">
+        <img src="../pigo-tui.png" width="1280" height="720" loading="lazy"
+             alt="pigo TUI running in a terminal" />
+      </div>
 
       <h2 data-en="1 · Install" data-zh="1 · 安装"></h2>
       <p data-en="The quickest way is the install script. See the <a href='install.html'>Installation</a> page for <code>go install</code> and building from source."
@@ -73,7 +79,7 @@ pigo -m gpt-5 -o json -p "解释这段代码" &lt; main.go</code></pre>
         <button class="copy-btn" data-copy='pigo -p "用 Go 写一个 FizzBuzz"'>Copy</button>
       </div>
 
-      <h2 data-en="4 · Enter the REPL" data-zh="4 · 进入交互式 REPL"></h2>
+      <h2 data-en="4 · Enter the TUI" data-zh="4 · 进入交互式 TUI"></h2>
       <p data-en="Run <code>pigo</code> with no prompt to start an interactive session. Type <code>/help</code> to list commands, <code>/exit</code> to leave. See all <a href='slash-commands.html'>slash commands</a>."
          data-zh="不带提示直接运行 <code>pigo</code> 进入交互式会话。输入 <code>/help</code> 查看命令，<code>/exit</code> 退出。全部命令见 <a href='slash-commands.html'>Slash 命令</a>。"></p>
       <div class="copy-wrap">

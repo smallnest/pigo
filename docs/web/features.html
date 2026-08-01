@@ -1,17 +1,18 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title data-en="Features — pigo" data-zh="特性 — pigo">Features — pigo</title>
   <meta name="description" content="pigo features: dual run modes, multi-provider, built-in tools, stream-json, layered prompts, project trust, session resume, context compaction, memory, packages, hooks, plugins.">
   <link rel="stylesheet" href="assets/site.css">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
   <script defer src="assets/i18n.js"></script>
 </head>
 <body>
   <nav class="nav">
     <div class="nav-inner">
-      <a class="nav-brand" href="../index.html"><span class="nav-logo">p</span> pigo</a>
+      <a class="nav-brand" href="../index.html"><span class="nav-logo">𝞹</span> pigo</a>
       <div class="nav-links">
         <a href="quickstart.html" data-en="Quickstart" data-zh="快速开始"></a>
         <a href="features.html" data-en="Features" data-zh="特性"></a>
@@ -20,7 +21,7 @@
         <a href="architecture.html" class="hide-sm" data-en="Architecture" data-zh="架构"></a>
         <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
         <button class="nav-btn" data-lang-toggle aria-label="切换到中文">中文</button>
-        <button class="nav-btn" data-theme-toggle aria-label="Toggle theme">☀️</button>
+        <button class="nav-btn" data-theme-toggle aria-label="Toggle theme">🌙</button>
       </div>
     </div>
   </nav>
@@ -31,7 +32,25 @@
       <ul>
         <li><a href="quickstart.html" data-en="Quickstart" data-zh="快速开始"></a></li>
         <li><a href="install.html" data-en="Installation" data-zh="安装"></a></li>
-        <li><a href="features.html" class="active" data-en="Features" data-zh="特性"></a></li>
+        <li><a href="features.html" class="active" data-en="Features" data-zh="特性"></a>
+          <ul class="doc-toc">
+            <li><a href="#modes" data-en="Dual run modes" data-zh="双运行模式"></a></li>
+            <li><a href="#providers" data-en="Multiple providers" data-zh="多 Provider"></a></li>
+            <li><a href="#tools" data-en="Built-in tools" data-zh="内置工具"></a></li>
+            <li><a href="#subagents" data-en="Sub-agents &amp; fan-out" data-zh="子 Agent 与并行"></a></li>
+            <li><a href="#images" data-en="Image input" data-zh="图片输入"></a></li>
+            <li><a href="#stream-json" data-en="stream-json output" data-zh="stream-json 输出"></a></li>
+            <li><a href="#prompts" data-en="Layered prompts" data-zh="提示词分层"></a></li>
+            <li><a href="#trust" data-en="Project trust" data-zh="项目信任"></a></li>
+            <li><a href="#sessions" data-en="Session fork &amp; clone" data-zh="会话 Fork/Clone"></a></li>
+            <li><a href="#compaction" data-en="Context compaction" data-zh="上下文压缩"></a></li>
+            <li><a href="#memory" data-en="Persistent memory" data-zh="持久记忆"></a></li>
+            <li><a href="#infinite" data-en="Infinite context" data-zh="无限上下文"></a></li>
+            <li><a href="#packages" data-en="Packages" data-zh="包管理"></a></li>
+            <li><a href="#hooks" data-en="Hooks" data-zh="Hooks"></a></li>
+            <li><a href="#plugins" data-en="Plugins" data-zh="插件"></a></li>
+          </ul>
+        </li>
         <li><a href="configuration.html" data-en="Configuration" data-zh="配置"></a></li>
         <li><a href="slash-commands.html" data-en="Slash commands" data-zh="Slash 命令"></a></li>
         <li><a href="architecture.html" data-en="Architecture" data-zh="架构"></a></li>
@@ -43,76 +62,208 @@
       <p class="doc-sub" data-en="A complete tour of what pigo can do."
          data-zh="pigo 能力的完整一览。"></p>
 
-      <h2 data-en="Dual run modes" data-zh="双运行模式"></h2>
-      <p data-en="Run headless with <code>-p</code> for one-shot prompts (scripts, CI), or start the interactive REPL with no prompt for multi-step conversational work."
-         data-zh="用 <code>-p</code> 无头执行单条提示（脚本、CI），或不带提示进入交互式 REPL 做多步对话式工作。"></p>
-      <pre><code>pigo -p "总结这个 diff" &lt; changes.patch   # 无头
-pigo                                        # REPL</code></pre>
+      <div class="shot doc-shot">
+        <img src="../pigo.png" width="1024" height="600" loading="lazy"
+             alt="pigo generating a quicksort implementation in Go" />
+      </div>
 
-      <h2 data-en="Multiple providers" data-zh="多 Provider"></h2>
-      <p data-en="OpenRouter by default, plus Ollama, NVIDIA, Anthropic and any OpenAI-compatible endpoint. Choose per-run with <code>-m</code>/<code>-u</code> or switch live with <code>/model</code>."
-         data-zh="默认 OpenRouter，另支持 Ollama、NVIDIA、Anthropic 及任意 OpenAI 兼容端点。用 <code>-m</code>/<code>-u</code> 按次选择，或用 <code>/model</code> 实时切换。"></p>
-      <pre><code>pigo -m gpt-5
-pigo -u http://localhost:11434/v1 -m qwen3</code></pre>
+      <h2 id="modes" data-en="Dual run modes" data-zh="双运行模式"></h2>
+      <p data-en="pigo runs the same engine two ways. <strong>Headless</strong> mode (<code>-p</code>) takes a single prompt, streams the answer, and exits — it reads piped stdin, so it slots into shell pipelines, git hooks, and CI jobs. <strong>TUI</strong> mode (no prompt) opens an interactive session for multi-step, conversational work where you refine, correct, and branch as you go."
+         data-zh="pigo 用同一套引擎提供两种运行方式。<strong>无头</strong>模式（<code>-p</code>）接收单条提示、流式输出结果后退出 —— 它会读取管道传入的 stdin，因此能无缝嵌入 shell 管道、git hook 与 CI 作业。<strong>TUI</strong> 模式（不带提示）开启交互式会话，适合边做边改、可纠偏、可分叉的多步对话式工作。"></p>
+      <pre><code># 无头：把 diff 从 stdin 喂进去，结果流式输出后退出
+git diff | pigo -p "总结这个 diff，指出潜在风险"
 
-      <h2 data-en="Built-in tools" data-zh="内置工具"></h2>
-      <p data-en="A full toolset ships in the box — no plugins needed to get real work done:"
-         data-zh="开箱即带完整工具集 —— 无需插件即可完成真实工作："></p>
+# 无头 + JSON，供 CI 解析
+pigo -o json -p "列出仓库里所有 TODO" | jq -r '.text'
+
+# 交互：不带提示进入 TUI
+pigo
+&gt; 帮我把 auth 中间件的测试补齐
+&gt; /think        # 开启深度思考
+&gt; /compact      # 手动压缩上下文</code></pre>
+      <div class="note" data-en="<strong>vs. competitors:</strong> Claude Code and Aider are TUI-first; pigo treats headless and TUI as equal first-class citizens sharing one engine, one toolset, and one config — so a prompt you debug in the TUI runs identically in CI."
+           data-zh="<strong>与竞品对比：</strong>Claude Code 与 Aider 以 TUI 为主；pigo 把无头与 TUI 视为同等的一等公民，共享同一引擎、同一套工具与同一份配置 —— 你在 TUI 里调好的提示，放到 CI 里跑结果完全一致。"></div>
+
+      <h2 id="providers" data-en="Multiple providers" data-zh="多 Provider"></h2>
+      <p data-en="pigo ships with a registry of ~35 providers and speaks two wire protocols (OpenAI-compatible and Anthropic). It picks the backend automatically from the model name — <code>claude-*</code> routes to Anthropic, <code>gpt-*</code>/<code>o1-*</code> to OpenAI, <code>gemini-*</code> to Google, <code>deepseek-*</code>, <code>qwen-*</code> to DashScope, <code>glm-*</code> to Zhipu, <code>kimi-*</code>/<code>moonshot-*</code>, <code>doubao-*</code> to Volcengine, <code>ernie-*</code> to Qianfan, <code>grok-*</code> to xAI, and more. Credentials resolve from <code>&lt;PROVIDER&gt;_API_KEY</code> env vars."
+         data-zh="pigo 内置约 35 个 provider 的注册表，并支持两种通信协议（OpenAI 兼容与 Anthropic）。它会根据模型名自动选择后端 —— <code>claude-*</code> 走 Anthropic，<code>gpt-*</code>/<code>o1-*</code> 走 OpenAI，<code>gemini-*</code> 走 Google，<code>deepseek-*</code>、<code>qwen-*</code> 走 DashScope，<code>glm-*</code> 走智谱，<code>kimi-*</code>/<code>moonshot-*</code>、<code>doubao-*</code> 走火山引擎，<code>ernie-*</code> 走千帆，<code>grok-*</code> 走 xAI 等等。凭据从 <code>&lt;PROVIDER&gt;_API_KEY</code> 环境变量解析。"></p>
+      <pre><code># 按模型名自动路由到对应 provider
+pigo -m claude-opus-4-7      # → Anthropic
+pigo -m gpt-5                # → OpenAI
+pigo -m deepseek-chat        # → DeepSeek
+
+# 指向任意 OpenAI 兼容端点（本地 Ollama）
+pigo -u http://localhost:11434/v1 -m qwen3
+
+# TUI 中实时切换，无需重启会话
+&gt; /models                    # 列出可用模型
+&gt; /model glm-4.6</code></pre>
+      <div class="note" data-en="<strong>vs. competitors:</strong> Cursor and most GUI agents lock you to a curated model list. pigo's name-based routing plus a raw <code>-u</code> base-URL override means any OpenAI-compatible endpoint — cloud or a local Ollama — works with zero config."
+           data-zh="<strong>与竞品对比：</strong>Cursor 及多数 GUI Agent 把你锁定在精选模型列表里。pigo 基于名称的路由加上原始 <code>-u</code> base-URL 覆盖，意味着任意 OpenAI 兼容端点 —— 无论云端还是本地 Ollama —— 零配置即可使用。"></div>
+
+      <h2 id="tools" data-en="Built-in tools" data-zh="内置工具"></h2>
+      <p data-en="A full toolset ships in the box — no plugins needed to get real work done. Each tool declares a JSON schema; AgentCore validates the model's arguments against it before running the executor, so malformed calls fail fast instead of corrupting your files:"
+         data-zh="开箱即带完整工具集 —— 无需插件即可完成真实工作。每个工具都声明 JSON schema；AgentCore 在运行执行器前先按 schema 校验模型给出的参数，因此非法调用会快速失败，而不会破坏你的文件："></p>
       <table>
         <thead><tr>
           <th data-en="Tool" data-zh="工具"></th>
           <th data-en="Purpose" data-zh="用途"></th>
         </tr></thead>
         <tbody>
-          <tr><td><code>read</code></td><td data-en="Read a file" data-zh="读取文件"></td></tr>
-          <tr><td><code>write</code></td><td data-en="Create/overwrite a file" data-zh="创建/覆盖文件"></td></tr>
-          <tr><td><code>edit</code></td><td data-en="Patch a file in place" data-zh="就地修改文件"></td></tr>
-          <tr><td><code>grep</code></td><td data-en="Search file contents" data-zh="搜索文件内容"></td></tr>
-          <tr><td><code>find</code></td><td data-en="Locate files by pattern" data-zh="按模式查找文件"></td></tr>
-          <tr><td><code>bash</code></td><td data-en="Run shell commands" data-zh="执行 shell 命令"></td></tr>
-          <tr><td><code>todo</code></td><td data-en="Track a task list" data-zh="跟踪任务清单"></td></tr>
-          <tr><td><code>webfetch</code></td><td data-en="Fetch a URL" data-zh="抓取网页"></td></tr>
+          <tr><td><code>read</code></td><td data-en="Read a file (with line ranges &amp; offsets)" data-zh="读取文件（支持行范围与偏移）"></td></tr>
+          <tr><td><code>write</code></td><td data-en="Create or overwrite a file" data-zh="创建或覆盖文件"></td></tr>
+          <tr><td><code>edit</code></td><td data-en="Patch a file in place via exact string replace" data-zh="以精确字符串替换就地修改文件"></td></tr>
+          <tr><td><code>grep</code></td><td data-en="Search file contents by regex" data-zh="按正则搜索文件内容"></td></tr>
+          <tr><td><code>find</code></td><td data-en="Locate files by glob pattern" data-zh="按 glob 模式查找文件"></td></tr>
+          <tr><td><code>bash</code></td><td data-en="Run shell commands (gated by approval policy)" data-zh="执行 shell 命令（受批准策略约束）"></td></tr>
+          <tr><td><code>todo</code></td><td data-en="Track a live task list across the turn" data-zh="跨轮次跟踪实时任务清单"></td></tr>
+          <tr><td><code>webfetch</code></td><td data-en="Fetch a URL and convert to text" data-zh="抓取网页并转为文本"></td></tr>
         </tbody>
       </table>
+      <p data-en="Tools carry an approval policy. By default pigo asks before running <code>bash</code> or writing files; pass <code>--approve</code> to auto-approve in trusted contexts, or <code>--no-tools</code> to run the model with no tools at all (pure chat)."
+         data-zh="工具带有批准策略。默认情况下 pigo 在执行 <code>bash</code> 或写文件前会先询问；在可信场景下用 <code>--approve</code> 自动批准，或用 <code>--no-tools</code> 让模型完全不带工具运行（纯对话）。"></p>
+      <div class="note" data-en="<strong>vs. competitors:</strong> Aider focuses on edit/commit; pigo's built-ins span search, shell, task tracking, and web fetch in one binary — and plugin- and skill-provided tools use the exact same schema-validated contract, so extensions are first-class, not bolted on."
+           data-zh="<strong>与竞品对比：</strong>Aider 聚焦于编辑与提交；pigo 的内置工具在单个二进制里覆盖搜索、shell、任务跟踪与网页抓取 —— 且插件与 skill 提供的工具遵循完全相同的 schema 校验契约，因此扩展是一等公民，而非外挂。"></div>
 
-      <h2 data-en="stream-json output" data-zh="stream-json 输出"></h2>
-      <p data-en="Emit structured, streaming JSON with <code>-o json</code> — easy to pipe into other tools or parse in CI."
-         data-zh="用 <code>-o json</code> 输出结构化流式 JSON —— 便于管道传给其他工具或在 CI 中解析。"></p>
-      <pre><code>pigo -o json -p "列出仓库的 TODO" | jq .</code></pre>
+      <h2 id="subagents" data-en="Sub-agents &amp; parallel fan-out" data-zh="子 Agent 与并行分发"></h2>
+      <p data-en="For work that fans out or needs an isolated context, the model can delegate to a <strong>sub-agent</strong> via the <code>task</code> tool. A sub-agent is a full agent loop with its own fresh context and the standard tool set; it runs to completion and returns a final report that comes back to the parent as an ordinary tool result. Because each call is an independent run, several <code>task</code> calls in a single message execute <strong>in parallel</strong> — the parent can dispatch a batch and gather the results. Concurrency is capped by <code>PIGO_MAX_SUBAGENTS</code> (default 4) so a fan-out never overruns the provider rate limit."
+         data-zh="面对需要分发、或需要隔离上下文的工作，模型可通过 <code>task</code> 工具委派给<strong>子 Agent</strong>。子 Agent 是一个完整的 agent loop，拥有自己全新的上下文与标准工具集；它运行到完成后返回一份最终报告，作为普通工具结果回喂给父 Agent。由于每次调用都是独立运行，一条消息里的多个 <code>task</code> 调用会<strong>并行</strong>执行 —— 父 Agent 可以批量分发再汇总结果。并发数由 <code>PIGO_MAX_SUBAGENTS</code> 限制（默认 4），使分发不会击穿 provider 的速率限制。"></p>
+      <p data-en="Two isolation modes are supported. <strong>Goroutine</strong> (default) runs the child loop in-process. <strong>Process</strong> isolation spawns a fresh pigo subprocess and drives it over stdio JSON-RPC, so a crash or resource leak in the child is surfaced to the parent as a tool error and can never take down the parent loop. A sub-agent shares none of the parent's conversation — its prompt must be self-contained — and it cannot spawn further sub-agents (a nesting guard). In the TUI a dedicated panel tracks each live sub-agent's progress."
+         data-zh="支持两种隔离模式。<strong>Goroutine</strong>（默认）在进程内运行子循环。<strong>进程</strong>隔离会拉起一个全新的 pigo 子进程并通过 stdio JSON-RPC 驱动，因此子进程的崩溃或资源泄漏会作为工具错误上报给父 Agent，绝不会拖垮父循环。子 Agent 不共享父对话 —— 其提示必须自包含 —— 且不能再派生子 Agent（嵌套护栏）。在 TUI 中有一个专门的面板跟踪每个运行中子 Agent 的进度。"></p>
+      <pre><code># 模型在一条消息里派发多个 task 子 Agent → 并行跑
+task  "审计 internal/auth 的越权风险，返回清单"
+task  "统计仓库里所有 TODO/FIXME 并按目录归类"
+task  "给 parser 包补齐表驱动测试"
 
-      <h2 data-en="Layered system prompts" data-zh="系统提示词分层组装"></h2>
-      <p data-en="The system prompt is assembled in layers: built-in base, provider tweaks, project <code>PIGO.md</code>/<code>CLAUDE.md</code>, and per-run flags. Closer layers win, so you can steer behavior without forking the core prompt."
-         data-zh="系统提示词按层组装：内置基座、Provider 微调、项目内的 <code>PIGO.md</code>/<code>CLAUDE.md</code>，以及单次运行参数。越靠近的层优先级越高，无需改动核心提示词即可定制行为。"></p>
+# 进程隔离由环境变量选择并发上限
+PIGO_MAX_SUBAGENTS=8 pigo -p "并行重构这三个模块"</code></pre>
+      <div class="note" data-en="<strong>Why it matters:</strong> sub-agents keep the parent context clean — a noisy search or a long build runs in a child and only the distilled report returns. Process isolation additionally makes a fan-out crash-safe, which a single-process agent can't offer."
+           data-zh="<strong>为何重要：</strong>子 Agent 让父上下文保持干净 —— 嘈杂的搜索或漫长的构建在子 Agent 里跑，只有提炼后的报告回到父 Agent。进程隔离进一步让分发具备崩溃安全性，这是单进程 Agent 无法提供的。"></div>
 
-      <h2 data-en="Project trust" data-zh="项目信任"></h2>
-      <p data-en="The first time you run pigo in a directory, it asks you to trust the project before loading its <code>PIGO.md</code>, hooks, and local commands — so a cloned repo can't run code against your intent."
-         data-zh="首次在某目录运行 pigo 时，会先请求信任该项目，再加载其 <code>PIGO.md</code>、hooks 与本地命令 —— 避免克隆来的仓库擅自执行代码。"></p>
+      <h2 id="images" data-en="Image input — paste &amp; reference" data-zh="图片输入 —— 粘贴与引用"></h2>
+      <p data-en="pigo is multimodal at the input. In the TUI, paste an image straight into the composer with <strong>Ctrl+V / Cmd+V</strong>: pigo pulls the raster image off the system clipboard (macOS <code>osascript</code>; Linux <code>wl-paste</code> or <code>xclip</code>), saves it to a temp PNG, and drops an <code>[Image #N]</code> placeholder into your input. At submit the placeholder expands into an <code>@image:&lt;path&gt;</code> reference that's attached as a multimodal content block. A text clipboard falls through to a normal paste, so the same shortcut always does the right thing."
+         data-zh="pigo 在输入侧支持多模态。在 TUI 里用 <strong>Ctrl+V / Cmd+V</strong> 直接把图片粘贴进输入框：pigo 从系统剪贴板取出位图（macOS 用 <code>osascript</code>；Linux 用 <code>wl-paste</code> 或 <code>xclip</code>），存为临时 PNG，并在输入框放入一个 <code>[Image #N]</code> 占位符。提交时占位符展开为 <code>@image:&lt;路径&gt;</code> 引用，作为多模态内容块附上。若剪贴板是文本，则回退到普通粘贴，因此同一快捷键始终做对的事。"></p>
+      <p data-en="You can also reference image files explicitly in any prompt — TUI or headless — with either <code>@image:&lt;path&gt;</code> or Markdown image syntax <code>![](path)</code>. pigo resolves the path and attaches the image, so screenshots and diagrams flow into the model without leaving the terminal."
+         data-zh="你也可以在任意提示中显式引用图片文件 —— TUI 或无头皆可 —— 用 <code>@image:&lt;路径&gt;</code> 或 Markdown 图片语法 <code>![](path)</code>。pigo 会解析路径并附上图片，因此截图与示意图无需离开终端即可送入模型。"></p>
+      <pre><code># TUI：Ctrl+V 粘贴截图 → 输入框出现 [Image #1]
+&gt; 这个报错截图是什么原因？ [Image #1]
 
-      <h2 data-en="Session resume, fork &amp; clone" data-zh="会话续跑、Fork 与 Clone"></h2>
-      <p data-en="Every session is persisted. Resume the last one with <code>-r</code>, branch off with <code>/fork</code>, duplicate with <code>/clone</code>, and inspect the tree with <code>/tree</code>."
-         data-zh="每个会话都会持久化。用 <code>-r</code> 续跑上一个会话，用 <code>/fork</code> 分叉，用 <code>/clone</code> 复制，用 <code>/tree</code> 查看会话树。"></p>
+# 任意提示里直接引用本地图片（无头也可用）
+pigo -p "照着 @image:./design.png 实现这个页面"
+pigo -p "解释这张架构图 ![](docs/arch.png)"</code></pre>
+      <div class="note" data-en="Image input requires a multimodal model. The <code>@image:</code> / <code>![]()</code> reference syntax is shared by the TUI and headless mode, so a prompt that attaches an image works identically in a script."
+           data-zh="图片输入需要多模态模型。<code>@image:</code> / <code>![]()</code> 引用语法在 TUI 与无头模式间共享，因此附带图片的提示在脚本里表现完全一致。"></div>
+
+      <h2 id="stream-json" data-en="stream-json output" data-zh="stream-json 输出"></h2>
+      <p data-en="Pass <code>-o json</code> and pigo emits a stream of structured JSON events instead of prose — one JSON object per line (JSONL). Each event carries a type (assistant text, tool call, tool result, final), so downstream tools can react to tool activity in real time rather than waiting for the whole run. Ideal for CI gates, log pipelines, and building your own UI on top of pigo."
+         data-zh="传入 <code>-o json</code>，pigo 会输出结构化 JSON 事件流而非散文 —— 每行一个 JSON 对象（JSONL）。每个事件带有类型（助手文本、工具调用、工具结果、最终结果），因此下游工具能实时响应工具活动，而不必等整个运行结束。非常适合 CI 门禁、日志管道，以及在 pigo 之上构建自己的 UI。"></p>
+      <pre><code># 提取最终回答文本
+pigo -o json -p "列出仓库的 TODO" | jq -r 'select(.type=="final").text'
+
+# 实时观察每一次工具调用
+pigo -o json -p "跑测试并修复失败" \
+  | jq -r 'select(.type=="tool_call") | .name + " " + (.args|tostring)'</code></pre>
+      <div class="note" data-en="<strong>vs. competitors:</strong> This mirrors Claude Code's stream-json contract, so tooling built for Claude Code's JSON output can consume pigo with minimal changes — a deliberate compatibility choice."
+           data-zh="<strong>与竞品对比：</strong>这与 Claude Code 的 stream-json 契约保持一致，因此为 Claude Code JSON 输出构建的工具几乎无需改动即可消费 pigo —— 这是刻意的兼容性设计。"></div>
+
+      <h2 id="prompts" data-en="Layered system prompts" data-zh="系统提示词分层组装"></h2>
+      <p data-en="pigo never hands the model a single monolithic prompt. It assembles the system prompt in layers, from general to specific: the built-in base prompt, an environment block (OS, shell, cwd, date, git state), and project instruction files (<code>PIGO.md</code>/<code>CLAUDE.md</code>/<code>AGENTS.md</code>) discovered from the repo root down to the current directory. Closer, more specific layers win, so a subdirectory can refine behavior without forking the core prompt."
+         data-zh="pigo 从不把单块整体提示词交给模型。它按从通用到具体的顺序分层组装系统提示词：内置基座提示词、环境信息块（操作系统、shell、当前目录、日期、git 状态），以及从仓库根目录向下到当前目录逐层发现的项目指令文件（<code>PIGO.md</code>/<code>CLAUDE.md</code>/<code>AGENTS.md</code>）。越靠近、越具体的层优先级越高，因此子目录可以细化行为而无需改动核心提示词。"></p>
+      <pre><code># 越靠近当前目录的指令文件优先级越高
+repo/PIGO.md              # 项目级：技术栈、约定
+repo/backend/CLAUDE.md    # 后端子目录：额外覆盖规则
+repo/backend/api/         # ← 在此运行 pigo，两份都会加载，api 最近者最优先</code></pre>
+      <div class="note" data-en="<strong>vs. competitors:</strong> pigo reads <code>CLAUDE.md</code> and <code>AGENTS.md</code> in addition to its own <code>PIGO.md</code>, so a repo already set up for Claude Code or the AGENTS.md convention works with pigo unchanged."
+           data-zh="<strong>与竞品对比：</strong>pigo 除自有的 <code>PIGO.md</code> 外，还读取 <code>CLAUDE.md</code> 与 <code>AGENTS.md</code>，因此已为 Claude Code 或 AGENTS.md 约定配置好的仓库无需改动即可用于 pigo。"></div>
+
+      <h2 id="trust" data-en="Project trust" data-zh="项目信任"></h2>
+      <p data-en="The first time you run pigo in a directory, it asks you to trust the project before loading anything executable from it — its <code>PIGO.md</code>, hooks, and local slash commands. A freshly cloned repo could otherwise smuggle a malicious hook or prompt-injection into your session; the trust gate stops that. Trust is remembered per-directory, so you confirm once."
+         data-zh="首次在某目录运行 pigo 时，它会在加载任何可执行内容之前先请求信任该项目 —— 包括其 <code>PIGO.md</code>、hooks 与本地 slash 命令。否则，刚克隆来的仓库可能夹带恶意 hook 或提示注入进入你的会话；信任门禁能拦住这种情况。信任按目录记忆，因此只需确认一次。"></p>
+      <div class="note" data-en="<strong>Security by default:</strong> instruction files and hooks are treated as untrusted code until you opt in — the same threat model Claude Code uses for workspace trust."
+           data-zh="<strong>默认安全：</strong>在你主动授信之前，指令文件与 hooks 都被视为不可信代码 —— 与 Claude Code 对工作区信任采用的威胁模型一致。"></div>
+
+      <h2 id="sessions" data-en="Session resume, fork &amp; clone" data-zh="会话续跑、Fork 与 Clone"></h2>
+      <p data-en="Every session is persisted to disk as it runs — the full message history, tool calls, and results. Resume the most recent one with <code>-r</code>, or manage sessions live from the TUI: <code>/fork</code> branches a new line of work from the current point (the original stays intact), <code>/clone</code> duplicates a session, and <code>/tree</code> shows the branch structure so you can compare alternate approaches side by side."
+         data-zh="每个会话在运行时都会持久化到磁盘 —— 完整的消息历史、工具调用与结果。用 <code>-r</code> 续跑最近的会话，或在 TUI 中实时管理会话：<code>/fork</code> 从当前节点分叉出一条新的工作线（原会话保持不变），<code>/clone</code> 复制会话，<code>/tree</code> 展示分支结构，方便你并排比较不同方案。"></p>
       <pre><code>pigo -r                # 续跑最近会话
-pigo /fork             # 从当前会话分叉</code></pre>
+&gt; /fork                # 从当前节点分叉：试方案 A
+&gt; /tree                # 查看会话树
+● main
+├─ fork-a  尝试重构为接口
+└─ fork-b  尝试保留 switch ←</code></pre>
+      <div class="note" data-en="<strong>vs. competitors:</strong> most CLI agents keep a flat, single-threaded history. pigo's fork/clone/tree turns a session into a versioned tree — explore a risky refactor on a branch, and if it doesn't pan out, jump back to the trunk without losing either path."
+           data-zh="<strong>与竞品对比：</strong>多数 CLI Agent 只保留扁平的单线程历史。pigo 的 fork/clone/tree 把会话变成一棵带版本的树 —— 在分支上探索有风险的重构，若行不通，随时跳回主干，两条路径都不丢失。"></div>
 
-      <h2 data-en="Automatic context compaction" data-zh="上下文自动压缩"></h2>
-      <p data-en="As the conversation approaches the context limit, pigo automatically summarizes older turns and continues — long tasks aren't cut short. Trigger it manually anytime with <code>/compact</code>."
-         data-zh="当对话接近上下文上限时，pigo 会自动摘要较早的轮次并继续 —— 长任务不会被截断。也可随时用 <code>/compact</code> 手动触发。"></p>
+      <h2 id="compaction" data-en="Automatic context compaction" data-zh="上下文自动压缩"></h2>
+      <p data-en="As a conversation approaches the model's context limit, pigo automatically summarizes older turns into a compact digest and continues — long tasks aren't cut short mid-flight. The compaction hooks directly into the agent loop, so it happens transparently between turns. Trigger it manually anytime with <code>/compact</code> when you want to reclaim window before a big step."
+         data-zh="当对话接近模型的上下文上限时，pigo 会自动把较早的轮次摘要成紧凑的摘要并继续 —— 长任务不会在中途被截断。压缩直接挂接在 agent loop 上，因此在轮次之间透明发生。想在大步骤前腾出窗口时，也可随时用 <code>/compact</code> 手动触发。"></p>
+      <pre><code>&gt; /compact             # 手动压缩
+… 上下文自动压缩：128k → 12k tokens，保留关键决策与文件状态</code></pre>
+      <div class="note" data-en="Paired with persistent memory below, compaction is what lets pigo run very long, multi-hour tasks without the window ever filling up — the &quot;near-infinite context&quot; story."
+           data-zh="与下方的持久记忆配合，压缩正是让 pigo 能运行数小时的超长任务而窗口永不撑满的关键 —— 即&quot;近乎无限上下文&quot;的由来。"></div>
 
-      <h2 data-en="Persistent memory" data-zh="持久记忆"></h2>
-      <p data-en="pigo keeps a file-based memory across sessions and can recall it with the <code>memory_search</code> tool, so context from earlier work carries forward. Manage it with <code>/memory</code>."
-         data-zh="pigo 在会话之间维护基于文件的记忆，并可通过 <code>memory_search</code> 工具检索，让此前工作的上下文得以延续。用 <code>/memory</code> 管理记忆。"></p>
+      <h2 id="memory" data-en="Persistent memory" data-zh="持久记忆"></h2>
+      <p data-en="pigo keeps a file-based memory that survives across sessions, configured under the <code>[memory]</code> table in <code>config.toml</code>. During a run the model can recall relevant past context with the <code>memory_search</code> tool, and checkpoint recall reloads earlier state so work carries forward even after you close the terminal. Manage and inspect it with <code>/memory</code>."
+         data-zh="pigo 维护一份基于文件、可跨会话存续的记忆，通过 <code>config.toml</code> 中的 <code>[memory]</code> 表配置。运行期间，模型可用 <code>memory_search</code> 工具检索相关的历史上下文，检查点恢复会重新载入较早的状态，因此即使关掉终端，工作也能延续。用 <code>/memory</code> 管理与查看。"></p>
+      <pre><code>&gt; /memory              # 查看/管理记忆
+◆ 记住：本项目用 zsh + Go 1.27，偏好 squash 合并
+◆ memory_search "上次我们怎么处理 auth 中间件的？"</code></pre>
+      <div class="note" data-en="<strong>vs. competitors:</strong> Aider and most CLI agents forget everything on exit. pigo's persistent memory plus checkpointing means it can pick up a task days later with the earlier reasoning and decisions still available — not just the git diff."
+           data-zh="<strong>与竞品对比：</strong>Aider 及多数 CLI Agent 退出即遗忘。pigo 的持久记忆加检查点意味着它能在数天后接着做同一任务，且此前的推理与决策仍然可用 —— 而不仅仅是 git diff。"></div>
 
-      <h2 data-en="Package management" data-zh="包管理"></h2>
-      <p data-en="Bundle skills, commands, hooks, and prompts into packages, then install and share them across projects — reusable capability, not copy-paste."
-         data-zh="将 skills、命令、hooks 与提示词打包成 package，跨项目安装与共享 —— 可复用的能力，而非复制粘贴。"></p>
+      <h2 id="infinite" data-en="Persistent memory + infinite context" data-zh="持久记忆系统 + 无限上下文"></h2>
+      <p data-en="The two features above — compaction and memory — are really one system with two halves. Together they let a single task span days and many sessions without the model ever losing the thread. Here's how the machinery fits together."
+         data-zh="上面两项能力 —— 压缩与记忆 —— 其实是同一套系统的两半。二者叠加，让一个任务能跨越数天、多次会话，而模型始终不丢线索。下面是这套机制的运作方式。"></p>
 
-      <h2 data-en="Hooks" data-zh="Hooks"></h2>
-      <p data-en="Run your own shell commands at 9 lifecycle points (session start, before/after tool calls, on prompt submit, and more) to enforce policy, inject context, or block risky actions."
-         data-zh="在 9 个生命周期节点（会话开始、工具调用前后、提示提交时等）运行你自己的 shell 命令，用于执行策略、注入上下文或拦截危险操作。"></p>
+      <h3 data-en="Half 1 · A searchable memory store" data-zh="其一 · 可检索的记忆库"></h3>
+      <p data-en="Memory lives as Markdown files on disk (the same <code>MEMORY.md</code> index + typed memory files pigo already uses), but they're also indexed into a pure-Go <strong>SQLite FTS5</strong> database. Queries are tokenized (Unicode, CJK-aware), OR-joined as phrase lookups, and ranked by <strong>BM25</strong> relevance with a score floor that drops common-word noise. Memories are scoped — <code>global</code> (cross-project preferences), <code>projects</code>, and <code>sessions</code> — and typed as <code>user</code> / <code>feedback</code> / <code>project</code> / <code>reference</code>, plus <code>checkpoint</code>, <code>progress</code>, and <code>notes</code>."
+         data-zh="记忆以磁盘上的 Markdown 文件存在（就是 pigo 已在用的 <code>MEMORY.md</code> 索引 + 类型化记忆文件），但同时被索引进一个纯 Go 的 <strong>SQLite FTS5</strong> 数据库。查询会被分词（Unicode，兼容 CJK）、以短语形式 OR 连接，并用 <strong>BM25</strong> 相关度排序，配合分数下限剔除常见词噪声。记忆带作用域 —— <code>global</code>（跨项目偏好）、<code>projects</code>、<code>sessions</code> —— 并按 <code>user</code> / <code>feedback</code> / <code>project</code> / <code>reference</code> 及 <code>checkpoint</code>、<code>progress</code>、<code>notes</code> 分类。"></p>
+      <p data-en="Before each search, pigo lazily <em>reconciles</em> the index against disk — new and edited files get re-indexed, deleted ones pruned — using a size-mtime fingerprint to skip unchanged files. So hand-edits outside the tool are picked up automatically. On session start or resume, the most relevant memories are injected through the per-turn reminder channel under a token budget, so the agent doesn't relearn the project each time."
+         data-zh="每次检索前，pigo 会对索引做懒<em>重建</em>（reconcile）—— 新增与修改的文件重新索引、删除的剪除 —— 用 size-mtime 指纹跳过未变更文件。因此工具之外的手工编辑也会被自动纳入。会话开始或恢复时，最相关的记忆通过 per-turn reminder 通道在 token 预算内注入，agent 无需每次重学项目。"></p>
+      <pre><code>&gt; /memory                           # 查看记忆库状态：条目数、窗口、占用
+◆ memory_search "auth 中间件上次怎么改的？"
+  → projects/auth.md   (score 0.82)  近三次改动的决策与踩坑
+  → feedback/testing.md (score 0.41) 集成测试必须打真实数据库</code></pre>
 
-      <h2 data-en="Plugins" data-zh="插件"></h2>
-      <p data-en="Extend pigo with plugins that add new tools, commands, and skills — compatible with the Claude Code plugin ecosystem, so existing plugins work out of the box."
-         data-zh="用插件为 pigo 扩展新的工具、命令与 skills —— 兼容 Claude Code 插件生态，现有插件开箱即用。"></p>
+      <h3 data-en="Half 2 · Context that doesn't overflow" data-zh="其二 · 永不溢出的上下文"></h3>
+      <p data-en="When a conversation approaches the model's window, pigo doesn't just do a one-shot lossy summary. Three mechanisms combine:"
+         data-zh="当对话逼近模型窗口时，pigo 不是简单做一次有损摘要，而是三种机制叠加："></p>
+      <ul>
+        <li data-en="<strong>Checkpointing</strong> — at fill thresholds (default <code>40% / 60% / 80%</code>) the conversation is distilled into a checkpoint summary written to <code>checkpoint.md</code>, recording the message watermark it covers. Checkpoint failure is non-fatal — it logs and falls back without interrupting the run."
+            data-zh="<strong>检查点</strong> —— 在填充阈值（默认 <code>40% / 60% / 80%</code>）把对话蒸馏为检查点摘要写入 <code>checkpoint.md</code>，并记录其覆盖的消息水位（watermark）。检查点失败非致命 —— 记录并回退，不中断运行。"></li>
+        <li data-en="<strong>Rebuild</strong> — as the window fills, pigo inserts a boundary at the latest checkpoint: everything before it collapses into the summary, while recent turns are kept verbatim. Trigger it manually with <code>/rebuild</code>. With no usable checkpoint, it falls back to the existing lossy compaction."
+            data-zh="<strong>重建</strong> —— 窗口填满时，pigo 在最近检查点处插入边界：边界之前坍缩为摘要，近期若干轮次逐字保留。可用 <code>/rebuild</code> 手动触发。无可用检查点时，回退到既有的有损压缩。"></li>
+        <li data-en="<strong>Retrieval recall</strong> — after compaction or rebuild, pigo re-queries the memory store for fragments relevant to the current task and re-injects them (deduplicated), so key details that were collapsed can still be recalled on demand."
+            data-zh="<strong>检索召回</strong> —— 压缩或重建后，pigo 按当前任务再次检索记忆库，把相关片段去重后回注，因此被坍缩掉的关键细节仍可按需召回。"></li>
+      </ul>
+      <pre><code>&gt; /rebuild              # 手动在最近检查点处重建上下文
+… Preparing conversation context…      # 等待进行中的检查点写入
+● 边界前 96k tokens → 检查点摘要；近 8 轮逐字保留；召回 2 段相关记忆</code></pre>
+      <div class="note" data-en="<strong>The payoff:</strong> checkpoint rebuild preserves recent detail verbatim (not a lossy blur), retrieval recall brings back older specifics on demand, and persistent memory carries decisions across sessions entirely. That combination is what &quot;near-infinite context&quot; means here — a long task keeps its reasoning, not just its git diff. All of it is default-on with zero migration; set <code>memory.enabled = false</code> to fall back to plain file memory + lossy compaction."
+           data-zh="<strong>收益：</strong>检查点重建逐字保留近期细节（而非有损模糊），检索召回按需带回更早的具体信息，持久记忆则完整地把决策带过多次会话。三者结合，正是这里&quot;近乎无限上下文&quot;的含义 —— 长任务保住的是它的推理，而不仅是 git diff。全部默认开启、零迁移；设 <code>memory.enabled = false</code> 即回退到纯文件记忆 + 有损压缩。"></div>
+
+      <h2 id="packages" data-en="Package management" data-zh="包管理"></h2>
+      <p data-en="Bundle skills, slash commands, hooks, and prompt templates into a <strong>package</strong>, then install and share it across projects and teammates — reusable capability instead of copy-pasting dotfiles. A package is just a directory with a manifest, so it version-controls and reviews like any other code."
+         data-zh="把 skills、slash 命令、hooks 与提示词模板打包成一个 <strong>package</strong>，然后跨项目、跨同事安装与共享 —— 是可复用的能力，而非到处复制 dotfiles。package 就是一个带清单的目录，因此像其他代码一样可版本管理、可评审。"></p>
+      <div class="note" data-en="Packages are how a team standardizes its agent workflow: ship one package and everyone gets the same review skill, deploy command, and safety hooks."
+           data-zh="package 是团队统一 Agent 工作流的方式：发布一个 package，所有人就都拥有同一套 review 技能、部署命令与安全 hooks。"></div>
+
+      <h2 id="hooks" data-en="Hooks" data-zh="Hooks"></h2>
+      <p data-en="Run your own shell commands at 9 lifecycle points — session start, before/after each tool call, on prompt submit, and more — to enforce policy, inject context, or block risky actions. Hooks match by tool name and communicate back through exit codes: a non-zero exit from a pre-tool-use hook <em>blocks</em> the tool call, letting you build hard guardrails (e.g., refuse any <code>bash</code> that contains <code>rm -rf</code>)."
+         data-zh="在 9 个生命周期节点运行你自己的 shell 命令 —— 会话开始、每次工具调用前/后、提示提交时等 —— 用于执行策略、注入上下文或拦截危险操作。Hooks 按工具名匹配，并通过退出码回传结果：pre-tool-use hook 返回非零会<em>拦截</em>该工具调用，让你构建硬性护栏（例如拒绝任何含 <code>rm -rf</code> 的 <code>bash</code>）。"></p>
+      <pre><code># ~/.config/pigo/hooks/pre-tool-use.sh
+# 退出码非 0 → 拦截该工具调用
+case "$PIGO_TOOL_ARGS" in
+  *"rm -rf"*) echo "拒绝：危险删除" &gt;&amp;2; exit 1 ;;
+esac</code></pre>
+      <div class="note" data-en="<strong>vs. competitors:</strong> pigo's hook system is modeled directly on Claude Code's — same 9 lifecycle points, same exit-code blocking protocol — so Claude Code hook scripts port over with little to no change."
+           data-zh="<strong>与竞品对比：</strong>pigo 的 hook 系统直接对标 Claude Code —— 相同的 9 个生命周期节点、相同的退出码拦截协议 —— 因此 Claude Code 的 hook 脚本几乎无需改动即可迁移。"></div>
+
+      <h2 id="plugins" data-en="Plugins" data-zh="插件"></h2>
+      <p data-en="Extend pigo with plugins that add new tools, commands, and skills. Plugins are compatible with the Claude Code plugin ecosystem, so a large body of existing plugins works out of the box — and anything new you build for pigo is portable back."
+         data-zh="用插件为 pigo 扩展新的工具、命令与 skills。插件兼容 Claude Code 插件生态，因此大量现有插件开箱即用 —— 你为 pigo 新写的东西也能反向移植回去。"></p>
+      <div class="note" data-en="<strong>The through-line:</strong> stream-json, layered prompts (CLAUDE.md/AGENTS.md), hooks, and plugins are all deliberately Claude-Code-compatible. pigo is a fast, hackable Go binary that drops into an ecosystem you may already use."
+           data-zh="<strong>贯穿主线：</strong>stream-json、分层提示词（CLAUDE.md/AGENTS.md）、hooks 与插件都刻意兼容 Claude Code。pigo 是一个快速、可深度定制的 Go 二进制，能直接融入你可能已在使用的生态。"></div>
 
       <div class="note" data-en="That's the full toolset. Next, wire it up in your config."
            data-zh="以上是完整能力集。接下来，在配置中把它们组织起来。"></div>

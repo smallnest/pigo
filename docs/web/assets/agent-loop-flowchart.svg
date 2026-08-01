@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 1040" font-family="'Geist', -apple-system, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#78716c"/>
+    </marker>
+    <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#d97706"/>
+    </marker>
+    <marker id="arrow-loop" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#b45309"/>
+    </marker>
+    <marker id="arrow-exc" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#c05621"/>
+    </marker>
+    <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="0.9" fill="rgba(28,25,23,0.10)"/>
+    </pattern>
+  </defs>
+
+  <rect width="100%" height="100%" fill="#faf6f0"/>
+  <rect width="100%" height="100%" fill="url(#dots)" opacity="0.6"/>
+
+  <!-- ===== Loop boundaries ===== -->
+  <rect x="64" y="100" width="648" height="860" rx="14" fill="rgba(120,113,108,0.04)" stroke="#78716c" stroke-width="1.2" stroke-dasharray="7,5"/>
+  <text x="82" y="122" fill="#78716c" font-size="10" font-weight="600" font-family="'Geist Mono', monospace" letter-spacing="0.1em">外层循环 · for { } · 后续消息驱动</text>
+
+  <rect x="112" y="150" width="380" height="560" rx="12" fill="rgba(217,119,6,0.04)" stroke="#b45309" stroke-width="1.2" stroke-dasharray="7,5"/>
+  <text x="128" y="170" fill="#b45309" font-size="10" font-weight="600" font-family="'Geist Mono', monospace" letter-spacing="0.1em">内层循环 · for { } · turns until no tool calls</text>
+
+  <!-- ===== ARROWS ===== -->
+  <line x1="290" y1="66" x2="290" y2="176" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+  <line x1="290" y1="216" x2="290" y2="256" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+  <line x1="290" y1="304" x2="290" y2="340" stroke="#d97706" stroke-width="1.3" marker-end="url(#arrow-accent)"/>
+  <line x1="290" y1="414" x2="290" y2="456" stroke="#d97706" stroke-width="1.3" marker-end="url(#arrow-accent)"/>
+  <rect x="256" y="426" width="70" height="14" rx="2" fill="#faf6f0"/>
+  <text x="291" y="437" fill="#b45309" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">tool_use · 有工具</text>
+  <line x1="290" y1="504" x2="290" y2="544" stroke="#d97706" stroke-width="1.3" marker-end="url(#arrow-accent)"/>
+  <line x1="290" y1="586" x2="290" y2="614" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+
+  <path d="M218,650 H160 V196 H190" fill="none" stroke="#b45309" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow-loop)"/>
+  <rect x="132" y="418" width="56" height="30" rx="3" fill="#faf6f0" stroke="rgba(180,83,9,0.4)" stroke-width="0.8"/>
+  <text x="160" y="431" fill="#b45309" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">否 · 继续</text>
+  <text x="160" y="442" fill="#b45309" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">下一 turn</text>
+
+  <line x1="290" y1="686" x2="290" y2="900" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+  <rect x="298" y="778" width="80" height="14" rx="2" fill="#faf6f0"/>
+  <text x="338" y="789" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">是 · shouldStop</text>
+
+  <path d="M362,377 H590 V686" fill="none" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+  <rect x="404" y="362" width="98" height="14" rx="2" fill="#faf6f0"/>
+  <text x="453" y="373" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">无工具 · 自然结束 → break</text>
+
+  <path d="M218,377 H126 V923 H190" fill="none" stroke="#c05621" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow-exc)"/>
+  <rect x="98" y="352" width="56" height="14" rx="2" fill="#faf6f0"/>
+  <text x="126" y="363" fill="#c05621" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">error/abort</text>
+
+  <path d="M524,720 H90 V196 H190" fill="none" stroke="#b45309" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow-loop)"/>
+  <rect x="250" y="700" width="96" height="14" rx="2" fill="#faf6f0"/>
+  <text x="298" y="711" fill="#b45309" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">有 · 追加后续消息</text>
+
+  <path d="M590,754 V923 H390" fill="none" stroke="#78716c" stroke-width="1" marker-end="url(#arrow)"/>
+  <rect x="566" y="812" width="48" height="14" rx="2" fill="#faf6f0"/>
+  <text x="590" y="823" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.04em">无 · 收尾</text>
+
+  <!-- ===== NODES ===== -->
+  <rect x="190" y="26" width="200" height="40" rx="20" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+  <text x="290" y="51" fill="#1c1917" font-size="12" font-weight="600" text-anchor="middle">agent_start · session</text>
+
+  <rect x="190" y="176" width="200" height="40" rx="6" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+  <text x="290" y="201" fill="#1c1917" font-size="12" font-weight="600" text-anchor="middle">emit turn_start</text>
+
+  <rect x="190" y="256" width="200" height="48" rx="6" fill="#faf6f0"/>
+  <rect x="190" y="256" width="200" height="48" rx="6" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="1.2"/>
+  <rect x="198" y="262" width="96" height="12" rx="2" fill="transparent" stroke="rgba(217,119,6,0.40)" stroke-width="0.8"/>
+  <text x="246" y="271" fill="rgba(180,83,9,0.85)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">streamAssistantResponse</text>
+  <text x="290" y="293" fill="#1c1917" font-size="12" font-weight="600" text-anchor="middle">流式回复 · message_update</text>
+
+  <polygon points="290,340 362,377 290,414 218,377" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+  <text x="290" y="374" fill="#1c1917" font-size="11" font-weight="600" text-anchor="middle">停止原因?</text>
+  <text x="290" y="388" fill="#78716c" font-size="7.5" font-family="'Geist Mono', monospace" text-anchor="middle">StopReason</text>
+
+  <rect x="190" y="456" width="200" height="48" rx="6" fill="#faf6f0"/>
+  <rect x="190" y="456" width="200" height="48" rx="6" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="1.2"/>
+  <rect x="198" y="462" width="82" height="12" rx="2" fill="transparent" stroke="rgba(217,119,6,0.40)" stroke-width="0.8"/>
+  <text x="239" y="471" fill="rgba(180,83,9,0.85)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">ExecuteToolCalls</text>
+  <text x="290" y="493" fill="#1c1917" font-size="12" font-weight="600" text-anchor="middle">执行工具 · 串行/并发</text>
+
+  <rect x="190" y="544" width="200" height="42" rx="6" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+  <text x="290" y="570" fill="#1c1917" font-size="12" font-weight="600" text-anchor="middle">回填 tool_result · turn_end</text>
+
+  <polygon points="290,614 362,650 290,686 218,650" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+  <text x="290" y="647" fill="#1c1917" font-size="11" font-weight="600" text-anchor="middle">afterTurn</text>
+  <text x="290" y="661" fill="#78716c" font-size="7.5" font-family="'Geist Mono', monospace" text-anchor="middle">压缩+钩子·停止?</text>
+
+  <polygon points="590,686 656,720 590,754 524,720" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+  <text x="590" y="717" fill="#1c1917" font-size="11" font-weight="600" text-anchor="middle">后续消息?</text>
+  <text x="590" y="731" fill="#78716c" font-size="7.5" font-family="'Geist Mono', monospace" text-anchor="middle">FollowUp</text>
+
+  <rect x="190" y="900" width="200" height="46" rx="8" fill="#1c1917"/>
+  <text x="290" y="921" fill="#faf6f0" font-size="12" font-weight="600" text-anchor="middle">finish()</text>
+  <text x="290" y="936" fill="rgba(250,246,240,0.7)" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle">agent_end · SetResult · 关流</text>
+
+  <!-- ===== LEGEND ===== -->
+  <line x1="30" y1="982" x2="750" y2="982" stroke="rgba(28,25,23,0.10)" stroke-width="0.8"/>
+  <text x="30" y="1006" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+  <rect x="100" y="996" width="24" height="14" rx="4" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+  <text x="132" y="1007" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">步骤</text>
+
+  <polygon points="196,996 208,1003 196,1010 184,1003" fill="#faf6f0" stroke="#1c1917" stroke-width="1"/>
+  <text x="216" y="1007" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">判断</text>
+
+  <rect x="272" y="996" width="24" height="14" rx="4" fill="rgba(217,119,6,0.08)" stroke="#d97706" stroke-width="1"/>
+  <text x="304" y="1007" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">主路径步骤</text>
+
+  <line x1="392" y1="1003" x2="416" y2="1003" stroke="#b45309" stroke-width="1.2" stroke-dasharray="5,4"/>
+  <text x="424" y="1007" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">循环回边</text>
+
+  <line x1="500" y1="1003" x2="524" y2="1003" stroke="#c05621" stroke-width="1" stroke-dasharray="5,4"/>
+  <text x="532" y="1007" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">异常/终态</text>
+
+  <rect x="620" y="996" width="24" height="14" rx="4" fill="#1c1917"/>
+  <text x="652" y="1007" fill="#78716c" font-size="8" font-family="'Geist Mono', monospace">唯一出口</text>
+</svg>
