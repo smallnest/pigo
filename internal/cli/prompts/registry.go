@@ -317,6 +317,7 @@ func RegisterLiveCommands(reg *runtime.SlashRegistry, live *cli.LiveConfig) {
 		{"status", "show session status: runtime config, context, telemetry, credentials, environment"},
 		{"goal", "run autonomously toward a goal: /goal [--tokens N] <objective> | pause | resume | clear"},
 		{"btw", "ask a quick side question without touching the main conversation: /btw <question> (bare /btw reopens the last one)"},
+		{"dream", "consolidate memory now (dedupe, merge, prune, distill); /dream --dry-run previews without writing"},
 		{"remote-control", "mirror this session to a phone/browser on your LAN: /remote-control [stop|status]"},
 	} {
 		reg.AddBuiltin(runtime.SlashCommand{

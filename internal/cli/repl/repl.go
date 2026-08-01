@@ -439,6 +439,17 @@ func runREPL(in io.Reader, out io.Writer, deps replDeps) error {
 				deps.agentCtx.Messages, deps.live.ContextWindow)
 			continue
 		}
+		if line == "/dream" || strings.HasPrefix(line, "/dream ") {
+			// /dream is intercepted here (like /memory/status) because it spawns the
+			// process-isolated consolidation subprocess (pigo --dream) and renders the
+			// returned Report against live state (deps.cwd / deps.memoryRoot) — work a
+			// string→string Action closure cannot do. It never mutates the shared
+			// context, so no session re-save/leaf reset is needed. The
+			// exact-or-space-prefix guard keeps "/dreamer" from matching, and
+			// "/dream --dry-run" runs the same analysis without writing.
+			runDream(out, deps, line)
+			continue
+		}
 		if line == "/goal" || strings.HasPrefix(line, "/goal ") {
 			// /goal is intercepted here (like /compact) because it must run one or
 			// more agent streams and mutate the shared context/goal state — none of
