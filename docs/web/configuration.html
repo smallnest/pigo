@@ -146,8 +146,8 @@ pigo -u http://localhost:11434/v1 -m qwen3'>Copy</button>
       </div>
 
       <h2 data-en="Nested tables" data-zh="嵌套表"></h2>
-      <p data-en="Three optional TOML tables tune memory, checkpointing, and compaction. All keys are optional and default-safe:"
-         data-zh="三个可选 TOML 表用于调节记忆、检查点与压缩。所有键都可选且带安全默认值："></p>
+      <p data-en="Four optional TOML tables tune memory, checkpointing, compaction, and memory consolidation. All keys are optional and default-safe:"
+         data-zh="四个可选 TOML 表用于调节记忆、检查点、压缩与记忆固结。所有键都可选且带安全默认值："></p>
       <ul>
         <li data-en="<code>[memory]</code> — <code>enabled</code> (default true), <code>reconcile_on_search</code> (default true), <code>search_score_floor</code> (0–1, default 0.15), <code>cc_index</code> (default false)."
             data-zh="<code>[memory]</code> —— <code>enabled</code>（默认 true）、<code>reconcile_on_search</code>（默认 true）、<code>search_score_floor</code>（0–1，默认 0.15）、<code>cc_index</code>（默认 false）。"></li>
@@ -155,6 +155,8 @@ pigo -u http://localhost:11434/v1 -m qwen3'>Copy</button>
             data-zh="<code>[checkpoint]</code> —— <code>thresholds</code>（百分比字符串，如 <code>\"80%\"</code>）、<code>reserved</code>（整数 token 或百分比字符串），以及嵌套的 <code>[checkpoint.push_caps]</code> 分区 token 上限。"></li>
         <li data-en="<code>[compaction]</code> — <code>max_context</code> lowers the auto-compaction trigger (absolute tokens or a fraction of the window)."
             data-zh="<code>[compaction]</code> —— <code>max_context</code> 降低自动压缩触发点（绝对 token 数，或窗口的一个比例）。"></li>
+        <li data-en="<code>[dream]</code> — <code>enabled</code> (default true), <code>interval_days</code> (default 7), <code>recent_sessions</code> (default 20). Controls periodic memory consolidation: when due, dream merges, dedups, validates paths, and prunes stale entries in the background."
+            data-zh="<code>[dream]</code> —— <code>enabled</code>（默认 true）、<code>interval_days</code>（默认 7）、<code>recent_sessions</code>（默认 20）。控制周期性记忆固结：到期时 dream 在后台合并、去重、校验路径并剔除过期条目。"></li>
       </ul>
 
       <h2 data-en="API keys via environment" data-zh="通过环境变量提供 API Key"></h2>
@@ -184,7 +186,12 @@ memory = 800
 recall = 1200
 
 [compaction]
-max_context = "60%"</code></pre>
+max_context = "60%"
+
+[dream]
+enabled = true
+interval_days = 7
+recent_sessions = 20</code></pre>
         <button class="copy-btn" data-copy='model = "gpt-5"
 base_url = "https://openrouter.ai/api/v1"
 output_format = "text"
@@ -204,7 +211,12 @@ memory = 800
 recall = 1200
 
 [compaction]
-max_context = "60%"'>Copy</button>
+max_context = "60%"
+
+[dream]
+enabled = true
+interval_days = 7
+recent_sessions = 20'>Copy</button>
       </div>
 
       <div class="note" data-en="Keep secrets out of the file — use <code>&lt;PROVIDER&gt;_API_KEY</code> env vars. Next, see the slash commands."
