@@ -201,6 +201,18 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (Report, error) {
 		return Report{}, fmt.Errorf("dream: apply consolidation: %w", err)
 	}
 
+	// Keep each affected scope's MEMORY.md index consistent with the entries on
+	// disk: drop any link to a file removed by dedupe or by the Consolidator so
+	// no dangling references survive (PRD US-003). The full removed set is the
+	// deterministic dedupe deletions plus the Consolidator's own deletions
+	// (merged-away + pruned entries).
+	for _, p := range cres.Deletions {
+		deleted[filepath.Clean(p)] = struct{}{}
+	}
+	if err := updateScopeIndexes(memoryRoot, opts.ProjectDir, deleted); err != nil {
+		return Report{}, fmt.Errorf("dream: update scope index: %w", err)
+	}
+
 	res, err := store.Reconcile()
 	if err != nil {
 		return Report{}, fmt.Errorf("dream: reconcile: %w", err)

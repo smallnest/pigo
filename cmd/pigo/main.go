@@ -440,7 +440,21 @@ func runDream(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "pigo: dream: %v\n", err)
 		return 1
 	}
-	r := &dream.Runner{}
+	// The dream pass reuses the main-session model (SPEC Q3): resolve the same
+	// model/provider/api-key tuple cmd/pigo already overlaid from flags+config,
+	// and inject a real LLM-backed Consolidator so `pigo --dream` performs the
+	// semantic merge/prune step (not just the deterministic dedup/path-clean).
+	thinking, err := run.ResolveThinkingLevel(opts.thinkingLevel)
+	if err != nil {
+		fmt.Fprintf(errOut, "pigo: dream: %v\n", err)
+		return 1
+	}
+	cons, err := dream.NewLLMConsolidator(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.apiKey, thinking)
+	if err != nil {
+		fmt.Fprintf(errOut, "pigo: dream: %v\n", err)
+		return 1
+	}
+	r := &dream.Runner{Consolidator: cons}
 	report, err := r.Run(ctx, dream.RunOptions{
 		DryRun:     opts.dreamDryRun,
 		ProjectDir: projectDir,
