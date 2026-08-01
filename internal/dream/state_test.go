@@ -1,17 +1,15 @@
 package dream
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 	"time"
 )
 
 func TestStateRoundTrip(t *testing.T) {
 	root := t.TempDir()
-	report := json.RawMessage(`{"merged":3,"deduped":1}`)
+	report := &Report{Merged: 3, Deduped: 1, DryRun: false}
 	want := State{
 		LastRunAt:  time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC),
 		LastStatus: "ok",
@@ -30,17 +28,11 @@ func TestStateRoundTrip(t *testing.T) {
 	if got.LastStatus != want.LastStatus {
 		t.Errorf("LastStatus = %q, want %q", got.LastStatus, want.LastStatus)
 	}
-	// LastReport round-trips as raw JSON; compare semantically since
-	// re-marshaling may reformat whitespace.
-	var gotObj, wantObj map[string]any
-	if err := json.Unmarshal(got.LastReport, &gotObj); err != nil {
-		t.Fatalf("unmarshal got.LastReport: %v", err)
+	if got.LastReport == nil {
+		t.Fatalf("LastReport = nil, want %+v", want.LastReport)
 	}
-	if err := json.Unmarshal(want.LastReport, &wantObj); err != nil {
-		t.Fatalf("unmarshal want.LastReport: %v", err)
-	}
-	if !reflect.DeepEqual(gotObj, wantObj) {
-		t.Errorf("LastReport = %v, want %v", gotObj, wantObj)
+	if got.LastReport.Merged != report.Merged || got.LastReport.Deduped != report.Deduped {
+		t.Errorf("LastReport = %+v, want %+v", got.LastReport, report)
 	}
 }
 

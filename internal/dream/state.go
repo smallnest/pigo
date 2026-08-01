@@ -14,12 +14,8 @@ type State struct {
 	LastRunAt  time.Time `json:"last_run_at"`
 	LastStatus string    `json:"last_status"` // "ok" | "failed" | "skipped"
 	// LastReport holds the structured change report from the last run. It is
-	// kept as json.RawMessage here so this foundation layer stays decoupled
-	// from the Report struct, which is defined by a later node
-	// (report.go). The raw bytes round-trip losslessly; the later node can
-	// decode them into a typed Report or migrate this field.
-	// TODO(#521): replace json.RawMessage with *Report once report.go lands.
-	LastReport json.RawMessage `json:"last_report,omitempty"`
+	// nil until dream has completed at least one non-dry-run pass.
+	LastReport *Report `json:"last_report,omitempty"`
 }
 
 // statePath is the state file location under the memory root.
