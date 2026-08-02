@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0541</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/541">#541</a> &mdash; Responses 驱动 — 工具/函数调用 &mdash; 2026-08-02</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Terminal tool calls parsed from <code>response.completed</code>; stream events only drive incremental partials</h3>
+      <p><strong>Ambiguity:</strong> A streamed tool call surfaces both as an <code>output_item.done</code> event (per finalized function_call) and inside the final <code>response.completed</code> envelope. The spec doesn't say which is authoritative for the terminal message.</p>
+      <p><strong>Choice:</strong> <code>mapResponse</code> re-parses tool calls from <code>resp.Output</code> for the terminal <code>StreamDoneEvent</code>; the accumulated <code>toolCalls</code> slice from <code>output_item.done</code> only feeds interim <code>StreamToolCallEvent</code> partials (and a fallback when no completed event arrives).</p>
+      <p><strong>Rationale:</strong> Reusing <code>mapResponse</code> keeps the streamed terminal message byte-identical to the non-streamed path, and both interim and terminal tool calls derive from one <code>toolCallContent</code> mapper so they can't diverge.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Tool-result backfill keyed on the model's <code>call_id</code></h3>
+      <p><strong>Ambiguity:</strong> The Responses API pairs a request and its result across turns; the spec doesn't prescribe the pairing key.</p>
+      <p><strong>Choice:</strong> A prior <code>AssistantMessage</code>'s <code>ToolCallContent</code> replays as a <code>function_call</code> input item (id/name/arguments), and the following <code>ToolResultMessage</code> replays as a <code>function_call_output</code> item — both keyed by the same <code>call_id</code>.</p>
+      <p><strong>Rationale:</strong> <code>call_id</code> is the API's own correlation handle, so replaying it verbatim lets the model pair request and result without pigo inventing an id scheme.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Message replay dispatched by type via <code>appendInputItems</code></h3>
+      <p><strong>Ambiguity:</strong> #539/#540 replayed every message as plain text; tool turns need structured items instead.</p>
+      <p><strong>Choice:</strong> A type switch replays <code>ToolResultMessage</code> → function_call_output, <code>AssistantMessage</code> → text + function_call items, and everything else → a role-tagged text message (the prior behavior).</p>
+      <p><strong>Rationale:</strong> Localizes the tool wire format in one function and leaves the text path unchanged for non-tool turns.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None — implementation followed the issue spec (tools sent as Responses functions, tool calls parsed to pigo types, results backfilled, multi-turn round-trip covered by stub tests).</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> <code>strict:false</code> for function tools</h3>
+      <p><strong>Alternatives:</strong> Enable Responses strict-function mode for schema-validated arguments.</p>
+      <p><strong>Chosen:</strong> Pass <code>strict=false</code> to <code>ToolParamOfFunction</code>.</p>
+      <p><strong>Why:</strong> pigo tool JSON Schemas aren't authored against the strict contract (which demands <code>additionalProperties:false</code>, all fields required, etc.); enabling strict would reject valid pigo tools at the wire.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Malformed/empty tool schema falls back to an empty object schema</h3>
+      <p><strong>Alternatives:</strong> Error out, or drop the tool, when its schema is empty or not a JSON object.</p>
+      <p><strong>Chosen:</strong> Fall back to <code>{}</code> so the tool still reaches the wire with a valid (if permissive) parameter schema.</p>
+      <p><strong>Why:</strong> A tool with a degenerate schema is still callable; silently dropping it would make the model unaware of a capability the user registered.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Function-call argument delta events are ignored</h3>
+      <p>The stream switch handles <code>output_item.done</code> (finalized call) but not <code>ResponseFunctionCallArgumentsDeltaEvent</code>. Incremental argument text isn't shown token-by-token — the pending call surfaces only once it finalizes. Acceptable for this milestone; confirm whether live argument streaming is wanted later.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Tool-result content is text-only</h3>
+      <p><code>function_call_output</code> is built from <code>contentText</code>, so non-text tool results (images/structured blocks) are flattened to their text portion. Rich tool-result content depends on the image work in #542.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

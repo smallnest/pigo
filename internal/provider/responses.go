@@ -23,6 +23,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -112,6 +113,7 @@ func (d *responsesDriver) pump(ctx context.Context, stream *AssistantMessageEven
 	defer sse.Close()
 
 	var text strings.Builder
+	var toolCalls []agentcore.ToolCallContent
 	var completed *responses.Response
 	for sse.Next() {
 		if ctx.Err() != nil {
@@ -123,8 +125,24 @@ func (d *responsesDriver) pump(ctx context.Context, stream *AssistantMessageEven
 			text.WriteString(variant.Delta)
 			partial := d.newPartial()
 			partial.Content = append(partial.Content, agentcore.NewTextContent(text.String()))
+			partial.Content = appendToolCalls(partial.Content, toolCalls)
 			if err := stream.Emit(ctx, StreamTextEvent{Partial: partial}); err != nil {
 				return
+			}
+		case responses.ResponseOutputItemDoneEvent:
+			// A finalized function_call item carries the model's tool request
+			// (name + arguments + call_id). Accumulate it and surface a tool-call
+			// partial so the TUI can show the pending call before the run ends.
+			if fc := variant.Item.AsFunctionCall(); fc.Type == "function_call" {
+				toolCalls = append(toolCalls, toolCallContent(fc))
+				partial := d.newPartial()
+				if t := text.String(); t != "" {
+					partial.Content = append(partial.Content, agentcore.NewTextContent(t))
+				}
+				partial.Content = appendToolCalls(partial.Content, toolCalls)
+				if err := stream.Emit(ctx, StreamToolCallEvent{Partial: partial}); err != nil {
+					return
+				}
 			}
 		case responses.ResponseCompletedEvent:
 			r := variant.Response
@@ -150,6 +168,10 @@ func (d *responsesDriver) pump(ctx context.Context, stream *AssistantMessageEven
 		msg.StopReason = agentcore.StopReasonEndTurn
 		if t := text.String(); t != "" {
 			msg.Content = append(msg.Content, agentcore.NewTextContent(t))
+		}
+		msg.Content = appendToolCalls(msg.Content, toolCalls)
+		if len(toolCalls) > 0 {
+			msg.StopReason = agentcore.StopReasonToolUse
 		}
 	}
 	stream.Emit(ctx, StreamDoneEvent{Message: msg})
@@ -181,8 +203,9 @@ func (d *responsesDriver) newPartial() agentcore.AssistantMessage {
 }
 
 // mapResponse materializes a completed Responses API result into pigo's
-// AssistantMessage: text content, usage (when present), diagnostics, and a
-// natural end_turn stop (this milestone has no tool/length stops yet).
+// AssistantMessage: text content, tool calls, usage (when present),
+// diagnostics, and a stop reason (tool_use when the model requested a tool,
+// otherwise end_turn).
 func (d *responsesDriver) mapResponse(resp *responses.Response) agentcore.AssistantMessage {
 	msg := d.newPartial()
 	msg.StopReason = agentcore.StopReasonEndTurn
@@ -190,6 +213,16 @@ func (d *responsesDriver) mapResponse(resp *responses.Response) agentcore.Assist
 	msg.ResponseModel = string(resp.Model)
 	if text := resp.OutputText(); text != "" {
 		msg.Content = append(msg.Content, agentcore.NewTextContent(text))
+	}
+	var sawToolCall bool
+	for _, item := range resp.Output {
+		if fc := item.AsFunctionCall(); fc.Type == "function_call" {
+			msg.Content = append(msg.Content, toolCallContent(fc))
+			sawToolCall = true
+		}
+	}
+	if sawToolCall {
+		msg.StopReason = agentcore.StopReasonToolUse
 	}
 	if resp.Usage.InputTokens != 0 || resp.Usage.OutputTokens != 0 {
 		msg.Usage = &agentcore.Usage{
@@ -200,10 +233,29 @@ func (d *responsesDriver) mapResponse(resp *responses.Response) agentcore.Assist
 	return msg
 }
 
-// buildResponsesParams maps a CompletionRequest onto Responses API params. For
-// this milestone the system prompt becomes Instructions and each message's text
-// becomes an input item with the matching role; non-text content is deferred to
-// later milestones (tools #541, images #542).
+// toolCallContent maps a Responses function_call item into a pigo
+// ToolCallContent, keyed by the model's call_id so the tool result can be
+// backfilled against it on the next turn. Arguments ride verbatim as raw JSON.
+func toolCallContent(fc responses.ResponseFunctionToolCall) agentcore.ToolCallContent {
+	return agentcore.NewToolCallContent(fc.CallID, fc.Name, json.RawMessage(fc.Arguments))
+}
+
+// appendToolCalls appends each accumulated tool call to a content list. Kept
+// separate so the streaming partial and the terminal message build identical
+// content from the same source.
+func appendToolCalls(content agentcore.ContentList, calls []agentcore.ToolCallContent) agentcore.ContentList {
+	for _, c := range calls {
+		content = append(content, c)
+	}
+	return content
+}
+
+// buildResponsesParams maps a CompletionRequest onto Responses API params. The
+// system prompt becomes Instructions; pigo tools become Responses function
+// tools; and each message is replayed as the matching input item(s): assistant
+// tool calls as function_call items, tool results as function_call_output
+// items, and text as a role-tagged message. Non-text message content (images)
+// is deferred to #542.
 func buildResponsesParams(req CompletionRequest) responses.ResponseNewParams {
 	params := responses.ResponseNewParams{
 		Model: shared.ResponsesModel(req.Model),
@@ -211,17 +263,68 @@ func buildResponsesParams(req CompletionRequest) responses.ResponseNewParams {
 	if sp := strings.TrimSpace(req.Context.SystemPrompt); sp != "" {
 		params.Instructions = openai.String(sp)
 	}
+	if tools := buildResponsesTools(req.Context.Tools); len(tools) > 0 {
+		params.Tools = tools
+	}
 
 	items := make(responses.ResponseInputParam, 0, len(req.Context.Messages))
 	for _, m := range req.Context.Messages {
-		text := messageText(m)
-		if text == "" {
-			continue
-		}
-		items = append(items, responses.ResponseInputItemParamOfMessage(text, responsesRole(m.Role())))
+		items = appendInputItems(items, m)
 	}
 	params.Input = responses.ResponseNewParamsInputUnion{OfInputItemList: items}
 	return params
+}
+
+// buildResponsesTools converts pigo tools into Responses function tools. Each
+// tool's JSON Schema becomes the function parameters; a schema that is empty or
+// not a JSON object falls back to an empty object schema so the wire stays
+// valid. Strict mode is off: pigo schemas are not authored against the Responses
+// strict-function contract (which requires additionalProperties:false etc.).
+func buildResponsesTools(tools []agentcore.AgentTool) []responses.ToolUnionParam {
+	if len(tools) == 0 {
+		return nil
+	}
+	out := make([]responses.ToolUnionParam, 0, len(tools))
+	for _, t := range tools {
+		params := map[string]any{}
+		if raw := t.Schema(); len(raw) > 0 {
+			if err := json.Unmarshal(raw, &params); err != nil {
+				params = map[string]any{}
+			}
+		}
+		tool := responses.ToolParamOfFunction(t.Name(), params, false)
+		if desc := t.Description(); desc != "" {
+			tool.OfFunction.Description = openai.String(desc)
+		}
+		out = append(out, tool)
+	}
+	return out
+}
+
+// appendInputItems replays one pigo message as its Responses input item(s).
+func appendInputItems(items responses.ResponseInputParam, m agentcore.Message) responses.ResponseInputParam {
+	switch msg := m.(type) {
+	case agentcore.ToolResultMessage:
+		// A tool result is backfilled against the model's call_id so the model
+		// can pair it with the request it issued the previous turn.
+		items = append(items, responses.ResponseInputItemParamOfFunctionCallOutput(
+			msg.ToolCallID, contentText(msg.Content)))
+	case agentcore.AssistantMessage:
+		if text := contentText(msg.Content); text != "" {
+			items = append(items, responses.ResponseInputItemParamOfMessage(
+				text, responses.EasyInputMessageRoleAssistant))
+		}
+		for _, call := range msg.ToolCalls() {
+			items = append(items, responses.ResponseInputItemParamOfFunctionCall(
+				string(call.Arguments), call.ID, call.Name))
+		}
+	default:
+		if text := messageText(m); text != "" {
+			items = append(items, responses.ResponseInputItemParamOfMessage(
+				text, responsesRole(m.Role())))
+		}
+	}
+	return items
 }
 
 // responsesRole maps a pigo message role to the Responses API input role. Tool
@@ -256,4 +359,11 @@ func collectText(b *strings.Builder, content agentcore.ContentList) {
 			b.WriteString(tc.Text)
 		}
 	}
+}
+
+// contentText concatenates the text blocks of a content list.
+func contentText(content agentcore.ContentList) string {
+	var b strings.Builder
+	collectText(&b, content)
+	return b.String()
 }
