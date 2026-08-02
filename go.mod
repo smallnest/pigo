@@ -12,6 +12,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/coder/websocket v1.8.13
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
+	github.com/openai/openai-go v1.12.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/spf13/pflag v1.0.10
@@ -50,6 +51,10 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/tidwall/gjson v1.14.4 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.1 // indirect
+	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yuin/goldmark v1.8.2 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect

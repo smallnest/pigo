@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0539</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/539">#539</a> &mdash; Responses API driver — non-streaming text &mdash; 2026-08-02</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Non-streaming call still produces a full <code>AssistantMessageEventStream</code></h3>
+      <p><strong>Ambiguity:</strong> This milestone is explicitly non-streaming, but the <code>Provider</code> interface only speaks streams.</p>
+      <p><strong>Choice:</strong> A goroutine runs the blocking <code>client.Responses.New</code> and emits <code>start → text → done</code> onto an unbuffered stream, mirroring <code>transport.go</code>'s <code>pump</code>.</p>
+      <p><strong>Rationale:</strong> <code>StreamCompletion</code> returns promptly and the streaming milestone (#540) layers on without touching the interface or its callers.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Only a missing API key is an early returned error</h3>
+      <p><strong>Ambiguity:</strong> The SDK's <code>New</code> returns a Go error for any non-2xx; the dual failure model (FR-13) reserves the returned error for "cannot build the stream".</p>
+      <p><strong>Choice:</strong> Pre-flight key check returns an error; every SDK/HTTP failure (401, 5xx, transport) is emitted as a terminal <code>StreamErrorEvent</code> with <code>StopReason=error</code>.</p>
+      <p><strong>Rationale:</strong> Matches the Chat Completions driver's observable behavior exactly, so exit-code mapping is identical across protocols.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Reuse the OpenAIDecoder identity tags</h3>
+      <p><strong>Choice:</strong> Mapped messages carry <code>API:"openai"</code>, <code>Provider: d.name</code>, <code>ResponseID</code>/<code>ResponseModel</code>, and <code>Usage</code> when non-zero — identical to <code>OpenAIDecoder.partial()</code>.</p>
+      <p><strong>Rationale:</strong> Downstream observability/replay treats resp_api and chat responses uniformly.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None — implementation followed the spec as written.</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Text partial derived from the final message, not a second <code>OutputText()</code> call</h3>
+      <p><strong>Alternatives:</strong> Call <code>resp.OutputText()</code> independently for the text event and the done message.</p>
+      <p><strong>Chosen:</strong> Build the terminal message once, then derive the interim text partial from its content (single source of truth).</p>
+      <p><strong>Why:</strong> A streamed delta that can diverge from the terminal message is a latent bug class; deriving both from one value removes it. (Accepted review finding.)</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Text-only message mapping this milestone</h3>
+      <p><strong>Alternatives:</strong> Map tool calls and images now.</p>
+      <p><strong>Chosen:</strong> Concatenate text blocks per message; skip non-text content.</p>
+      <p><strong>Why:</strong> Scope is US-003 (non-streaming text); tools land in #541 and images/reasoning in #542. Role mapping is exercised end-to-end by those multi-turn tests.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Empty <code>base_url</code> behavior</h3>
+      <p>The driver only omits <code>WithBaseURL</code> when empty, so the SDK would fall back to <code>api.openai.com</code>. #543 owns the agreed rule (resp_api with no base_url must error), so the driver itself stays permissive.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
