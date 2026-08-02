@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0542</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/542">#542</a> &mdash; Responses 驱动 — 图片/reasoning &mdash; 2026-08-02</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> All streaming partials built through one <code>buildPartial</code> helper</h3>
+      <p><strong>Ambiguity:</strong> Adding a reasoning (thinking) block means every partial-emit site must now assemble thinking + text + tool calls in a consistent order. The spec says reasoning should render "like the chat driver" but doesn't prescribe how partials are constructed.</p>
+      <p><strong>Choice:</strong> Introduced <code>buildPartial(thinking, text, toolCalls)</code> and routed all four emit sites (text delta, reasoning delta, tool-call done, and the no-<code>completed</code> fallback) through it.</p>
+      <p><strong>Rationale:</strong> A single builder guarantees every cumulative snapshot orders content identically (thinking → text → tool calls) and can't drift as new event types are added; it also collapsed the three previously-duplicated inline partial constructions.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> <code>minimal</code> thinking level collapses to reasoning effort <code>low</code></h3>
+      <p><strong>Ambiguity:</strong> pigo's <code>ThinkingLevel</code> enum has six values (off/minimal/low/medium/high/xhigh); the Responses API <code>reasoning.effort</code> field accepts only low/medium/high.</p>
+      <p><strong>Choice:</strong> <code>responsesReasoningEffort</code> maps minimal→low, low→low, medium→medium, high/xhigh→high, and off/unset→"" (no reasoning param emitted).</p>
+      <p><strong>Rationale:</strong> The chat driver forwards "minimal" verbatim, but the Responses API would reject it; low is the nearest supported floor. Emitting "" for off/unset keeps a non-reasoning request byte-identical to before this change.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Reasoning enabled ⇒ request an <code>auto</code> summary</h3>
+      <p><strong>Ambiguity:</strong> The Responses API only returns a reasoning summary if one is requested; the spec says "reasoning 输出（若返回）与 chat 驱动一致地呈现" but doesn't say to request it.</p>
+      <p><strong>Choice:</strong> When effort is non-empty, set <code>Reasoning{Effort: effort, Summary: ReasoningSummaryAuto}</code>.</p>
+      <p><strong>Rationale:</strong> Without a summary request the model reasons but returns nothing to render; <code>auto</code> lets the API pick an appropriate summary granularity so a thinking block actually appears — satisfying the "presented like the chat driver" criterion.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Images replayed only on non-assistant (user) messages</h3>
+      <p><strong>Ambiguity:</strong> The issue says "图片 content part 映射为 Responses-API input items" without naming which message roles carry images.</p>
+      <p><strong>Choice:</strong> Image handling lives in the <code>default</code> (user) branch of <code>appendInputItems</code> via <code>imageInputParts</code>; the assistant and tool-result branches are unchanged.</p>
+      <p><strong>Rationale:</strong> Images flow in on user turns in pigo, matching the chat driver's <code>openAIUserContent</code> which only builds multimodal parts for user content. Assistant/tool-result image replay is not a real path today.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None — implementation followed the issue spec (image content parts mapped to input_image data URIs, thinking level mapped to reasoning.effort, reasoning output surfaced as a thinking block, and unit tests covering one image-input request and one reasoning-enabled request).</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> <code>image_url</code> data URI vs. file upload / hosted URL</h3>
+      <p><strong>Alternatives:</strong> Upload the image via the Files API and reference a <code>file_id</code>, or pass a hosted <code>image_url</code>.</p>
+      <p><strong>Chosen:</strong> Inline <code>data:&lt;mime&gt;;base64,&lt;data&gt;</code> URI on an <code>input_image</code> part, with detail <code>auto</code>.</p>
+      <p><strong>Why:</strong> pigo already holds image bytes as base64 in <code>ImageContent</code>; a data URI is a stateless single-request mapping that matches the chat driver's <code>image_url</code> approach and needs no extra upload round-trip or lifecycle management.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Reasoning parsed from <code>response.completed</code>, deltas only feed interim partials</h3>
+      <p><strong>Alternatives:</strong> Aggregate the terminal thinking block from the accumulated <code>reasoning_summary_text.delta</code> events.</p>
+      <p><strong>Chosen:</strong> <code>mapResponse</code> re-reads reasoning from <code>resp.Output</code> (via <code>item.AsReasoning()</code>) for the terminal message; the delta events only drive interim <code>StreamThinkingEvent</code> partials.</p>
+      <p><strong>Why:</strong> Same principle as #540/#541 — the completed envelope is authoritative, so the streamed terminal message stays byte-identical to a non-streamed one. Delta accumulation would risk drift between the two paths.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Streaming reasoning-delta path not covered by a dedicated test</h3>
+      <p>The <code>ResponseReasoningSummaryTextDeltaEvent</code> case shares <code>buildPartial</code> with the (tested) text-delta path, and the reasoning <em>output parse</em> is tested via <code>response.completed</code>. But no test asserts a mid-stream <code>StreamThinkingEvent</code> fires from a reasoning delta frame. Acceptable for this milestone; confirm whether a streaming-thinking assertion is wanted.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Tool-result and assistant messages still flatten images to text</h3>
+      <p>Only user-role messages emit image parts. A <code>ToolResultMessage</code> carrying an image is still serialized text-only via <code>function_call_output</code> (inherited from #541), and assistant messages replay text + tool calls only. Confirm no flow needs image round-tripping on those roles.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Image detail hard-coded to <code>auto</code></h3>
+      <p>Every <code>input_image</code> part uses detail <code>auto</code>; pigo's <code>ImageContent</code> carries no detail hint. If callers need <code>high</code>/<code>low</code> control (cost vs. fidelity), a mapping would need to be added upstream. Verify <code>auto</code> is an acceptable default.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

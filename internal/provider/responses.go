@@ -113,6 +113,7 @@ func (d *responsesDriver) pump(ctx context.Context, stream *AssistantMessageEven
 	defer sse.Close()
 
 	var text strings.Builder
+	var thinking strings.Builder
 	var toolCalls []agentcore.ToolCallContent
 	var completed *responses.Response
 	for sse.Next() {
@@ -123,10 +124,17 @@ func (d *responsesDriver) pump(ctx context.Context, stream *AssistantMessageEven
 		switch variant := sse.Current().AsAny().(type) {
 		case responses.ResponseTextDeltaEvent:
 			text.WriteString(variant.Delta)
-			partial := d.newPartial()
-			partial.Content = append(partial.Content, agentcore.NewTextContent(text.String()))
-			partial.Content = appendToolCalls(partial.Content, toolCalls)
+			partial := d.buildPartial(thinking.String(), text.String(), toolCalls)
 			if err := stream.Emit(ctx, StreamTextEvent{Partial: partial}); err != nil {
+				return
+			}
+		case responses.ResponseReasoningSummaryTextDeltaEvent:
+			// The model's reasoning summary streams as its own text deltas, distinct
+			// from the answer text; accumulate it into a thinking block so the TUI
+			// renders reasoning the same way the chat driver does.
+			thinking.WriteString(variant.Delta)
+			partial := d.buildPartial(thinking.String(), text.String(), toolCalls)
+			if err := stream.Emit(ctx, StreamThinkingEvent{Partial: partial}); err != nil {
 				return
 			}
 		case responses.ResponseOutputItemDoneEvent:
@@ -135,11 +143,7 @@ func (d *responsesDriver) pump(ctx context.Context, stream *AssistantMessageEven
 			// partial so the TUI can show the pending call before the run ends.
 			if fc := variant.Item.AsFunctionCall(); fc.Type == "function_call" {
 				toolCalls = append(toolCalls, toolCallContent(fc))
-				partial := d.newPartial()
-				if t := text.String(); t != "" {
-					partial.Content = append(partial.Content, agentcore.NewTextContent(t))
-				}
-				partial.Content = appendToolCalls(partial.Content, toolCalls)
+				partial := d.buildPartial(thinking.String(), text.String(), toolCalls)
 				if err := stream.Emit(ctx, StreamToolCallEvent{Partial: partial}); err != nil {
 					return
 				}
@@ -164,17 +168,30 @@ func (d *responsesDriver) pump(ctx context.Context, stream *AssistantMessageEven
 	if completed != nil {
 		msg = d.mapResponse(completed)
 	} else {
-		msg = d.newPartial()
+		msg = d.buildPartial(thinking.String(), text.String(), toolCalls)
 		msg.StopReason = agentcore.StopReasonEndTurn
-		if t := text.String(); t != "" {
-			msg.Content = append(msg.Content, agentcore.NewTextContent(t))
-		}
-		msg.Content = appendToolCalls(msg.Content, toolCalls)
 		if len(toolCalls) > 0 {
 			msg.StopReason = agentcore.StopReasonToolUse
 		}
 	}
 	stream.Emit(ctx, StreamDoneEvent{Message: msg})
+}
+
+// buildPartial assembles a cumulative snapshot message for a streaming partial:
+// an optional thinking block (reasoning summary so far), the accumulated answer
+// text, then any finalized tool calls — in the order the TUI should render them.
+// All four emit sites in pump build partials through this one helper so they
+// can't diverge.
+func (d *responsesDriver) buildPartial(thinking, text string, toolCalls []agentcore.ToolCallContent) agentcore.AssistantMessage {
+	msg := d.newPartial()
+	if thinking != "" {
+		msg.Content = append(msg.Content, agentcore.NewThinkingContent(thinking))
+	}
+	if text != "" {
+		msg.Content = append(msg.Content, agentcore.NewTextContent(text))
+	}
+	msg.Content = appendToolCalls(msg.Content, toolCalls)
+	return msg
 }
 
 // emitError emits a terminal StreamErrorEvent tagged for this provider. Uses a
@@ -203,14 +220,17 @@ func (d *responsesDriver) newPartial() agentcore.AssistantMessage {
 }
 
 // mapResponse materializes a completed Responses API result into pigo's
-// AssistantMessage: text content, tool calls, usage (when present),
-// diagnostics, and a stop reason (tool_use when the model requested a tool,
-// otherwise end_turn).
+// AssistantMessage: a reasoning summary (as a thinking block, when present),
+// text content, tool calls, usage (when present), diagnostics, and a stop reason
+// (tool_use when the model requested a tool, otherwise end_turn).
 func (d *responsesDriver) mapResponse(resp *responses.Response) agentcore.AssistantMessage {
 	msg := d.newPartial()
 	msg.StopReason = agentcore.StopReasonEndTurn
 	msg.ResponseID = resp.ID
 	msg.ResponseModel = string(resp.Model)
+	if thinking := reasoningText(resp); thinking != "" {
+		msg.Content = append(msg.Content, agentcore.NewThinkingContent(thinking))
+	}
 	if text := resp.OutputText(); text != "" {
 		msg.Content = append(msg.Content, agentcore.NewTextContent(text))
 	}
@@ -240,6 +260,23 @@ func toolCallContent(fc responses.ResponseFunctionToolCall) agentcore.ToolCallCo
 	return agentcore.NewToolCallContent(fc.CallID, fc.Name, json.RawMessage(fc.Arguments))
 }
 
+// reasoningText concatenates the summary text of every reasoning item in a
+// completed response. The Responses API returns the model's reasoning as one or
+// more reasoning items, each carrying summary parts; pigo surfaces the joined
+// text as a single thinking block, mirroring how the chat driver renders
+// accumulated reasoning_content.
+func reasoningText(resp *responses.Response) string {
+	var b strings.Builder
+	for _, item := range resp.Output {
+		if r := item.AsReasoning(); r.Type == "reasoning" {
+			for _, s := range r.Summary {
+				b.WriteString(s.Text)
+			}
+		}
+	}
+	return b.String()
+}
+
 // appendToolCalls appends each accumulated tool call to a content list. Kept
 // separate so the streaming partial and the terminal message build identical
 // content from the same source.
@@ -251,17 +288,23 @@ func appendToolCalls(content agentcore.ContentList, calls []agentcore.ToolCallCo
 }
 
 // buildResponsesParams maps a CompletionRequest onto Responses API params. The
-// system prompt becomes Instructions; pigo tools become Responses function
-// tools; and each message is replayed as the matching input item(s): assistant
-// tool calls as function_call items, tool results as function_call_output
-// items, and text as a role-tagged message. Non-text message content (images)
-// is deferred to #542.
+// system prompt becomes Instructions; the thinking level becomes a reasoning
+// effort (with an auto summary so reasoning is returned); pigo tools become
+// Responses function tools; and each message is replayed as the matching input
+// item(s): assistant tool calls as function_call items, tool results as
+// function_call_output items, and text (plus any images) as a role-tagged
+// message.
 func buildResponsesParams(req CompletionRequest) responses.ResponseNewParams {
 	params := responses.ResponseNewParams{
 		Model: shared.ResponsesModel(req.Model),
 	}
 	if sp := strings.TrimSpace(req.Context.SystemPrompt); sp != "" {
 		params.Instructions = openai.String(sp)
+	}
+	if effort := responsesReasoningEffort(req.Config.ThinkingLevel); effort != "" {
+		// Requesting a summary makes the API return the model's reasoning so pigo
+		// can render it as a thinking block, matching the chat driver.
+		params.Reasoning = shared.ReasoningParam{Effort: effort, Summary: shared.ReasoningSummaryAuto}
 	}
 	if tools := buildResponsesTools(req.Context.Tools); len(tools) > 0 {
 		params.Tools = tools
@@ -319,12 +362,67 @@ func appendInputItems(items responses.ResponseInputParam, m agentcore.Message) r
 				string(call.Arguments), call.ID, call.Name))
 		}
 	default:
-		if text := messageText(m); text != "" {
+		// A user (or other non-assistant) message with images is replayed as a
+		// content-part list (input_text + input_image data URIs); a text-only
+		// message stays a plain string.
+		if parts, ok := imageInputParts(m); ok {
+			items = append(items, responses.ResponseInputItemParamOfMessage(parts, responsesRole(m.Role())))
+		} else if text := messageText(m); text != "" {
 			items = append(items, responses.ResponseInputItemParamOfMessage(
 				text, responsesRole(m.Role())))
 		}
 	}
 	return items
+}
+
+// imageInputParts builds a Responses content-part list for a message that
+// carries at least one image: leading input_text (the concatenated text, if
+// any) followed by one input_image per image, each as a data URI. It returns
+// ok=false when the message has no images, so the caller keeps the plain-text
+// path.
+func imageInputParts(m agentcore.Message) (responses.ResponseInputMessageContentListParam, bool) {
+	content := messageContent(m)
+	var hasImage bool
+	for _, c := range content {
+		if _, ok := c.(agentcore.ImageContent); ok {
+			hasImage = true
+			break
+		}
+	}
+	if !hasImage {
+		return nil, false
+	}
+	parts := make(responses.ResponseInputMessageContentListParam, 0, len(content)+1)
+	if text := contentText(content); text != "" {
+		parts = append(parts, responses.ResponseInputContentParamOfInputText(text))
+	}
+	for _, c := range content {
+		img, ok := c.(agentcore.ImageContent)
+		if !ok {
+			continue
+		}
+		part := responses.ResponseInputContentParamOfInputImage(responses.ResponseInputImageDetailAuto)
+		part.OfInputImage.ImageURL = openai.String(fmt.Sprintf("data:%s;base64,%s", img.MimeType, img.Data))
+		parts = append(parts, part)
+	}
+	return parts, true
+}
+
+// responsesReasoningEffort maps pigo's thinking level to a Responses API
+// reasoning effort. The Responses reasoning field supports only low/medium/high,
+// so "minimal" collapses to "low" (unlike the chat driver, which forwards
+// "minimal" verbatim). off/unset yields "", signalling no reasoning param.
+func responsesReasoningEffort(level agentcore.ThinkingLevel) shared.ReasoningEffort {
+	switch level {
+	case agentcore.ThinkingMinimal, agentcore.ThinkingLow:
+		return shared.ReasoningEffortLow
+	case agentcore.ThinkingMedium:
+		return shared.ReasoningEffortMedium
+	case agentcore.ThinkingHigh, agentcore.ThinkingXHigh:
+		return shared.ReasoningEffortHigh
+	default:
+		return ""
+	}
 }
 
 // responsesRole maps a pigo message role to the Responses API input role. Tool
@@ -338,18 +436,25 @@ func responsesRole(role string) responses.EasyInputMessageRole {
 	}
 }
 
+// messageContent returns the content list of a message regardless of its
+// concrete role type, so callers can inspect it for images.
+func messageContent(m agentcore.Message) agentcore.ContentList {
+	switch msg := m.(type) {
+	case agentcore.UserMessage:
+		return msg.Content
+	case agentcore.AssistantMessage:
+		return msg.Content
+	case agentcore.ToolResultMessage:
+		return msg.Content
+	}
+	return nil
+}
+
 // messageText concatenates the text blocks of a message, ignoring non-text
 // content (handled in later milestones).
 func messageText(m agentcore.Message) string {
 	var b strings.Builder
-	switch msg := m.(type) {
-	case agentcore.UserMessage:
-		collectText(&b, msg.Content)
-	case agentcore.AssistantMessage:
-		collectText(&b, msg.Content)
-	case agentcore.ToolResultMessage:
-		collectText(&b, msg.Content)
-	}
+	collectText(&b, messageContent(m))
 	return b.String()
 }
 

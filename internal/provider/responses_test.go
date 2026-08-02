@@ -595,3 +595,162 @@ func TestResponsesDriverBackfillsToolResult(t *testing.T) {
 		t.Error("wire input missing the function_call_output item")
 	}
 }
+
+// completedReasoningFrame is a response.completed frame whose output carries a
+// reasoning item (summary text) followed by the assistant message text.
+func completedReasoningFrame(id, model, summary, text string) string {
+	frame := map[string]any{
+		"type":            "response.completed",
+		"sequence_number": 99,
+		"response": map[string]any{
+			"id":    id,
+			"model": model,
+			"output": []any{
+				map[string]any{
+					"type": "reasoning",
+					"id":   "rs_1",
+					"summary": []any{map[string]any{
+						"type": "summary_text",
+						"text": summary,
+					}},
+				},
+				map[string]any{
+					"type":   "message",
+					"role":   "assistant",
+					"status": "completed",
+					"content": []any{map[string]any{
+						"type": "output_text",
+						"text": text,
+					}},
+				},
+			},
+			"usage": map[string]any{
+				"input_tokens":          3,
+				"output_tokens":         4,
+				"input_tokens_details":  map[string]any{"cached_tokens": 0},
+				"output_tokens_details": map[string]any{"reasoning_tokens": 2},
+			},
+		},
+	}
+	b, _ := json.Marshal(frame)
+	return string(b)
+}
+
+// A user message carrying an image must reach the wire as a message whose
+// content is a part list: an input_text part plus an input_image part whose
+// image_url is the base64 data URI.
+func TestResponsesDriverSendsImageInput(t *testing.T) {
+	var gotBody string
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Body != nil {
+			b, _ := io.ReadAll(r.Body)
+			gotBody = string(b)
+		}
+		return sseResponse(completedFrame("ok", "resp_1", "gpt-4o", 1, 1)), nil
+	})
+	d := newResponsesTestDriver("https://api.openai.test/v1", rt)
+
+	imgMsg := agentcore.UserMessage{
+		RoleField: agentcore.RoleUser,
+		Content: agentcore.ContentList{
+			agentcore.NewTextContent("what is this?"),
+			agentcore.NewImageContent("aGVsbG8=", "image/png"),
+		},
+	}
+	stream, err := d.StreamCompletion(context.Background(), CompletionRequest{
+		Model:   "gpt-4o",
+		Context: LlmContext{Messages: agentcore.MessageList{imgMsg}},
+		Config:  StreamConfig{APIKey: "sk-test"},
+	})
+	if err != nil {
+		t.Fatalf("StreamCompletion returned early error: %v", err)
+	}
+	drain(t, stream)
+
+	var payload struct {
+		Input []struct {
+			Type    string           `json:"type"`
+			Role    string           `json:"role"`
+			Content []map[string]any `json:"content"`
+		} `json:"input"`
+	}
+	if err := json.Unmarshal([]byte(gotBody), &payload); err != nil {
+		t.Fatalf("request body not valid JSON: %v", err)
+	}
+	if len(payload.Input) != 1 {
+		t.Fatalf("got %d input items, want 1", len(payload.Input))
+	}
+	parts := payload.Input[0].Content
+	var sawText, sawImage bool
+	for _, p := range parts {
+		switch p["type"] {
+		case "input_text":
+			sawText = true
+			if p["text"] != "what is this?" {
+				t.Errorf("input_text = %v, want %q", p["text"], "what is this?")
+			}
+		case "input_image":
+			sawImage = true
+			if p["image_url"] != "data:image/png;base64,aGVsbG8=" {
+				t.Errorf("input_image image_url = %v, want the data URI", p["image_url"])
+			}
+		}
+	}
+	if !sawText {
+		t.Error("wire input missing the input_text part")
+	}
+	if !sawImage {
+		t.Error("wire input missing the input_image part")
+	}
+}
+
+// A request with a thinking level must set the reasoning.effort (and an auto
+// summary) on the wire, and a reasoning item in the completed response must be
+// parsed into a leading ThinkingContent block.
+func TestResponsesDriverReasoning(t *testing.T) {
+	var gotBody string
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Body != nil {
+			b, _ := io.ReadAll(r.Body)
+			gotBody = string(b)
+		}
+		return sseResponse(completedReasoningFrame("resp_9", "gpt-4o", "let me think", "the answer")), nil
+	})
+	d := newResponsesTestDriver("https://api.openai.test/v1", rt)
+
+	stream, err := d.StreamCompletion(context.Background(), CompletionRequest{
+		Model:   "gpt-4o",
+		Context: LlmContext{Messages: agentcore.MessageList{userMsg("solve it")}},
+		Config:  StreamConfig{APIKey: "sk-test", ThinkingLevel: agentcore.ThinkingMedium},
+	})
+	if err != nil {
+		t.Fatalf("StreamCompletion returned early error: %v", err)
+	}
+	msg := drain(t, stream)
+
+	var payload struct {
+		Reasoning struct {
+			Effort  string `json:"effort"`
+			Summary string `json:"summary"`
+		} `json:"reasoning"`
+	}
+	if err := json.Unmarshal([]byte(gotBody), &payload); err != nil {
+		t.Fatalf("request body not valid JSON: %v", err)
+	}
+	if payload.Reasoning.Effort != "medium" {
+		t.Errorf("reasoning.effort = %q, want medium", payload.Reasoning.Effort)
+	}
+	if payload.Reasoning.Summary != "auto" {
+		t.Errorf("reasoning.summary = %q, want auto", payload.Reasoning.Summary)
+	}
+
+	var thinking string
+	for _, c := range msg.Content {
+		if tc, ok := c.(agentcore.ThinkingContent); ok {
+			thinking = tc.Thinking
+		}
+	}
+	if thinking != "let me think" {
+		t.Errorf("thinking content = %q, want %q", thinking, "let me think")
+	}
+}
