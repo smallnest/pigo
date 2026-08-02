@@ -46,3 +46,32 @@ func NormalizeProtocol(raw string) (string, error) {
 		return "", fmt.Errorf("unknown --protocol %q (want openai|openai/chat|openai/resp_api|anthropic)", raw)
 	}
 }
+
+// ProtocolLabel maps a raw --protocol value to the human-facing label shown in
+// the startup banner's Protocol row, so the displayed wire format matches what
+// pigo actually speaks. It differs from NormalizeProtocol in one deliberate way:
+// the bare "openai" input is surfaced as "openai/chat", making the Chat
+// Completions variant explicit rather than ambiguous. "openai/resp_api" and
+// "anthropic" pass through as themselves.
+//
+// An empty input returns empty (the banner then falls back to "—" or the
+// provider name, so an unset protocol on a named/inferred provider is not
+// mislabeled). An unrecognized value returns the trimmed input verbatim — the
+// label is presentation-only and must never fail; a real typo is already
+// rejected upstream by NormalizeProtocol during resolution.
+func ProtocolLabel(raw string) string {
+	canonical, err := NormalizeProtocol(raw)
+	if err != nil {
+		return strings.TrimSpace(raw)
+	}
+	switch canonical {
+	case ProtocolOpenAI:
+		return "openai/chat"
+	case ProtocolOpenAIResponses:
+		return ProtocolOpenAIResponses
+	case ProtocolAnthropic:
+		return ProtocolAnthropic
+	default:
+		return ""
+	}
+}

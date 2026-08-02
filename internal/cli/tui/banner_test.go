@@ -64,3 +64,27 @@ func TestRenderBannerUpToDate(t *testing.T) {
 		t.Error("up-to-date build must not show an upgrade hint")
 	}
 }
+
+// TestRenderBannerProtocolLabel verifies the Protocol row shows the concrete
+// OpenAI wire variant: a bare "openai" is surfaced as "openai/chat" (explicit
+// Chat Completions), "openai/resp_api" passes through, and an unset protocol
+// falls back to the em dash rather than showing an empty row.
+func TestRenderBannerProtocolLabel(t *testing.T) {
+	cases := []struct {
+		protocol string
+		want     string
+	}{
+		{"openai", "openai/chat"},
+		{"openai/chat", "openai/chat"},
+		{"openai/resp_api", "openai/resp_api"},
+		{"anthropic", "anthropic"},
+		{"", "—"},
+	}
+	for _, c := range cases {
+		t.Setenv("PIGO_HOME", t.TempDir())
+		out := renderBanner(DefaultTheme(), Options{Version: "dev", Protocol: c.protocol}, "/tmp/proj")
+		if !strings.Contains(out, c.want) {
+			t.Errorf("protocol %q: banner should show %q, got: %q", c.protocol, c.want, out)
+		}
+	}
+}

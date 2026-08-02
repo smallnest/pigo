@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/selfupdate"
 )
 
@@ -61,7 +62,7 @@ func renderBanner(theme Theme, opts Options, cwd string) string {
 		{"Version", firstNonEmpty(opts.Version, "dev")},
 		{"Model", firstNonEmpty(opts.Model, "—")},
 		{"Provider", firstNonEmpty(opts.ProviderName, "—")},
-		{"Protocol", firstNonEmpty(opts.Protocol, "—")},
+		{"Protocol", firstNonEmpty(provider.ProtocolLabel(opts.Protocol), "—")},
 		{"Thinking", firstNonEmpty(string(opts.ThinkingLevel), "off")},
 		{"Directory", firstNonEmpty(cwd, "—")},
 	}

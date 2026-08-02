@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0544</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    code { background: #F0EEE9; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.8em; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/544">#544</a> &mdash; Banner 显示所选 OpenAI wire 变体 (US-008) &mdash; 2026-08-02</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Presentation-only <code>ProtocolLabel</code>, separate from <code>NormalizeProtocol</code></h3>
+      <p><strong>Ambiguity:</strong> The spec said the banner should show <code>openai/chat</code> or <code>openai/resp_api</code>, but the functional protocol string (fed to <code>LiveConfig.Protocol</code> and subagent provider resolution) must remain the raw user value.</p>
+      <p><strong>Choice:</strong> Added a new pure function <code>ProtocolLabel(raw string) string</code> in <code>protocol.go</code> that reuses <code>NormalizeProtocol</code> internally, and called it only at the banner render site — the functional value stays untouched.</p>
+      <p><strong>Rationale:</strong> Mutating the protocol string in <code>Options</code> would leak a display concern into functional resolution (subagent.go reads <code>cfg.Protocol</code>). Keeping label mapping presentation-only isolates the change to display and cannot regress wire selection.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Bare <code>openai</code> surfaces as <code>openai/chat</code></h3>
+      <p><strong>Ambiguity:</strong> The spec asked that input <code>openai</code> "still display meaningfully (normalized label documented)".</p>
+      <p><strong>Choice:</strong> <code>ProtocolLabel</code> maps both <code>openai</code> and <code>openai/chat</code> to the label <code>openai/chat</code>, making the Chat Completions wire variant explicit rather than ambiguous.</p>
+      <p><strong>Rationale:</strong> A user who typed the shorthand <code>openai</code> still sees exactly which wire protocol is in use, matching the actual <code>/chat/completions</code> endpoint pigo speaks.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Empty input returns empty, banner falls back to em dash</h3>
+      <p><strong>Ambiguity:</strong> How to render the Protocol row when no protocol is set (named/inferred provider path).</p>
+      <p><strong>Choice:</strong> <code>ProtocolLabel("")</code> returns <code>""</code>; the banner's existing <code>firstNonEmpty(..., "—")</code> then shows the em dash, exactly as before.</p>
+      <p><strong>Rationale:</strong> Preserves the prior no-protocol display; anthropic and provider-name rows do not regress.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None — implementation followed the spec as written.</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Unrecognized value returns verbatim rather than erroring</h3>
+      <p><strong>Alternatives:</strong> (a) return the trimmed raw string for unknown input; (b) propagate an error / show a placeholder.</p>
+      <p><strong>Chosen:</strong> (a) — the label is presentation-only and must never fail. A genuine typo is already rejected upstream by <code>NormalizeProtocol</code> during resolution, long before the banner renders.</p>
+      <p><strong>Why:</strong> The banner should never panic or block startup on a display concern; duplicating the error path here would be redundant.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should the banner also reflect a heuristically-inferred protocol?</h3>
+      <p><strong>Assumption:</strong> When protocol is unset and the provider is resolved by model-id heuristics, the Protocol row shows the em dash (or provider name context is enough).</p>
+      <p><strong>Verify:</strong> Whether users want the banner to display the <em>effective</em> wire protocol even when it was inferred rather than explicitly passed — out of scope for this issue but a possible follow-up.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
