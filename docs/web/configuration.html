@@ -66,7 +66,7 @@
           <tr><td><code>base_url</code></td><td data-en="OpenAI-compatible endpoint" data-zh="OpenAI 兼容端点"></td></tr>
           <tr><td><code>api_key</code></td><td data-en="Inline key (prefer env vars)" data-zh="内联密钥（建议改用环境变量）"></td></tr>
           <tr><td><code>provider</code></td><td data-en="Force a named provider" data-zh="强制指定 provider"></td></tr>
-          <tr><td><code>protocol</code></td><td data-en="Wire protocol (openai / anthropic)" data-zh="通信协议（openai / anthropic）"></td></tr>
+          <tr><td><code>protocol</code></td><td data-en="Wire protocol (openai / openai/chat / openai/resp_api / anthropic)" data-zh="通信协议（openai / openai/chat / openai/resp_api / anthropic）"></td></tr>
           <tr><td><code>output_format</code></td><td data-en="text or json" data-zh="text 或 json"></td></tr>
           <tr><td><code>thinking_level</code></td><td data-en="Reasoning effort" data-zh="推理强度"></td></tr>
           <tr><td><code>approve</code></td><td data-en="Auto-approve tool calls" data-zh="自动批准工具调用"></td></tr>
@@ -85,7 +85,7 @@
       <p data-en="Resolution runs top to bottom; the first match wins:"
          data-zh="解析自上而下，命中即止："></p>
       <pre><code>1. --provider &lt;name&gt;      # 显式指定，最高优先级
-2. --protocol openai|anthropic
+2. --protocol openai|openai/chat|openai/resp_api|anthropic
 3. 预置目录 (preset catalog) 中的已知模型 id
 4. ollama/ 或 nvidia/ 前缀，或端口 11434 → 本地 / NVIDIA
 5. 按模型名前缀推断 (claude-* → anthropic, gpt-* → openai …)
@@ -143,6 +143,32 @@ pigo -u http://localhost:11434/v1 -m qwen3</code></pre>
         <button class="copy-btn" data-copy='pigo -m claude-opus-4-7
 pigo --provider groq -m llama-3.3-70b
 pigo -u http://localhost:11434/v1 -m qwen3'>Copy</button>
+      </div>
+
+      <h3 data-en="OpenAI wire variants" data-zh="OpenAI 通信变体"></h3>
+      <p data-en="The <code>--protocol</code> / <code>protocol</code> value accepts three OpenAI wire variants in addition to <code>anthropic</code>. They select which HTTP endpoint pigo speaks to against your <code>--base-url</code>:"
+         data-zh="<code>--protocol</code> / <code>protocol</code> 除 <code>anthropic</code> 外还接受三个 OpenAI 通信变体，它们决定 pigo 针对你的 <code>--base-url</code> 调用哪个 HTTP 端点："></p>
+      <table>
+        <thead><tr>
+          <th data-en="Value" data-zh="取值"></th>
+          <th data-en="Wire format / endpoint" data-zh="通信格式 / 端点"></th>
+        </tr></thead>
+        <tbody>
+          <tr><td><code>openai</code></td><td data-en="Chat Completions — POST <code>{base_url}/chat/completions</code> (alias of <code>openai/chat</code>)" data-zh="Chat Completions —— POST <code>{base_url}/chat/completions</code>（<code>openai/chat</code> 的别名）"></td></tr>
+          <tr><td><code>openai/chat</code></td><td data-en="Chat Completions — POST <code>{base_url}/chat/completions</code>" data-zh="Chat Completions —— POST <code>{base_url}/chat/completions</code>"></td></tr>
+          <tr><td><code>openai/resp_api</code></td><td data-en="Responses API — POST <code>{base_url}/responses</code> (official openai-go SDK)" data-zh="Responses API —— POST <code>{base_url}/responses</code>（官方 openai-go SDK）"></td></tr>
+        </tbody>
+      </table>
+      <p data-en="<strong>When to choose which:</strong> use <code>openai</code> / <code>openai/chat</code> for the widely-supported Chat Completions endpoint — it works with virtually every OpenAI-compatible gateway. Choose <code>openai/resp_api</code> only when your endpoint implements OpenAI's newer Responses API (<code>/responses</code>), e.g. to use server-side reasoning or the stateful response object. Both <code>openai</code> and <code>openai/resp_api</code> require an explicit <code>--base-url</code>."
+         data-zh="<strong>如何选择：</strong>面向广泛支持的 Chat Completions 端点时用 <code>openai</code> / <code>openai/chat</code>，几乎所有 OpenAI 兼容网关都支持它。仅当你的端点实现了 OpenAI 较新的 Responses API（<code>/responses</code>）时才选 <code>openai/resp_api</code>，例如需要服务端 reasoning 或有状态的 response 对象。<code>openai</code> 与 <code>openai/resp_api</code> 都要求显式提供 <code>--base-url</code>。"></p>
+      <div class="copy-wrap">
+        <pre><code># Chat Completions（默认 OpenAI 变体）
+pigo --protocol openai -u https://my-gateway/v1 -m my-model
+
+# Responses API（官方 SDK，需端点支持 /responses）
+pigo --protocol openai/resp_api -u https://my-gateway/v1 -m my-model</code></pre>
+        <button class="copy-btn" data-copy='pigo --protocol openai -u https://my-gateway/v1 -m my-model
+pigo --protocol openai/resp_api -u https://my-gateway/v1 -m my-model'>Copy</button>
       </div>
 
       <h2 data-en="Nested tables" data-zh="嵌套表"></h2>
