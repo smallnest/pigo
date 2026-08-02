@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0543</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; } .dot.deviation { background: #D97757; } .dot.tradeoff { background: #4A6FA5; } .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+    code { background: #F0EEE9; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/543">#543</a> &mdash; 将 resp_api 变体接入 ResolveProvider &mdash; 2026-08-02</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> resp_api with no <code>--base-url</code> errors (Open Question resolved: option B)</h3>
+      <p><strong>Ambiguity:</strong> The issue's Open Question asks whether <code>--protocol openai/resp_api</code> with no base-url should mirror <code>anthropic</code> (target the public <code>api.openai.com/v1</code>) or mirror <code>openai</code> (require an explicit <code>--base-url</code>).</p>
+      <p><strong>Choice:</strong> Require <code>--base-url</code>; an empty base-url returns <code>--protocol openai/resp_api requires --base-url</code>, exactly like the plain <code>openai</code> Chat Completions path.</p>
+      <p><strong>Rationale:</strong> The Responses driver (<code>NewOpenAIResponsesProvider</code>) carries no public default endpoint and is designed as a "point pigo at an endpoint that speaks this protocol" selector. Silently defaulting to a public OpenAI host would surprise self-hosted/gateway users and diverge from the sibling <code>openai</code> rule.</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Normalize the protocol once, switch on the canonical selector</h3>
+      <p><strong>Ambiguity:</strong> The pre-existing switch matched the raw surface value (<code>"openai"</code>, <code>"anthropic"</code>), so <code>"openai/chat"</code> and <code>"openai/resp_api"</code> had no path and fell into the unknown-protocol error.</p>
+      <p><strong>Choice:</strong> Call <code>NormalizeProtocol(protocol)</code> (from #538) at the top of the explicit-protocol block and switch on <code>ProtocolOpenAI</code> / <code>ProtocolOpenAIResponses</code> / <code>ProtocolAnthropic</code> / <code>""</code>.</p>
+      <p><strong>Rationale:</strong> <code>NormalizeProtocol</code> already owns the surface-syntax parsing (trim, lower-case, alias collapse) and the unknown-value error, so reusing it collapses <code>openai</code>+<code>openai/chat</code> to one Chat Completions path and gives resp_api its own branch without duplicating parsing. The redundant <code>default</code> error was dropped because <code>NormalizeProtocol</code> now emits it earlier with a fuller message (lists all four accepted values).</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None — implementation followed the issue spec (resp_api routed to the Responses driver against base_url, openai/chat unchanged as Chat Completions, empty base-url handled by the resolved convention, --provider path untouched, resolve_test.go covers the new and unchanged paths).</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Heuristic and <code>--provider</code> paths still receive the raw protocol string</h3>
+      <p><strong>Alternatives:</strong> Thread the canonical value through <code>ResolveNamedProvider</code> and the model-id heuristic calls too.</p>
+      <p><strong>Chosen:</strong> Only the explicit-protocol switch consumes the canonical selector; <code>ResolveNamedProvider</code> still gets the raw <code>protocol</code> for its <code>--provider</code>/<code>--protocol</code> conflict check.</p>
+      <p><strong>Why:</strong> Selecting the Responses driver via a <code>--provider</code> name is explicitly out of scope for this issue. A <code>--provider foo --protocol openai/resp_api</code> pair therefore raises the existing conflict error (raw <code>"openai/resp_api"</code> ≠ the spec's <code>"openai"</code> protocol), which is acceptable and avoids widening the registry's protocol vocabulary in this change.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> No registry/provider-name route to the Responses driver</h3>
+      <p>A built-in provider spec whose <code>Protocol</code> is <code>openai</code> always builds the Chat Completions driver via <code>ResolveNamedProvider</code>; there is no way to say "this named provider speaks the Responses API." If a first-party provider ever needs resp_api by name (not just by <code>--protocol</code>), the registry would need a third protocol value and a matching branch. Confirm that <code>--protocol openai/resp_api</code> is the only intended entry point for now.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

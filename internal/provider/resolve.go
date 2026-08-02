@@ -45,19 +45,32 @@ func ResolveProvider(model, baseURL, protocol, providerName string, env func(str
 		return ResolveNamedProvider(providerName, model, baseURL, protocol, env)
 	}
 
-	// 0. Explicit protocol selection wins over every heuristic.
-	switch protocol {
-	case "openai":
+	// 0. Explicit protocol selection wins over every heuristic. Normalize the
+	// surface value first so "openai" and "openai/chat" collapse to the same
+	// Chat Completions selector and "openai/resp_api" routes to the Responses
+	// driver; an unknown value surfaces as an error for exit-code mapping.
+	canonical, err := NormalizeProtocol(protocol)
+	if err != nil {
+		return nil, "", err
+	}
+	switch canonical {
+	case ProtocolOpenAI:
 		if strings.TrimSpace(baseURL) == "" {
 			return nil, "", fmt.Errorf("--protocol openai requires --base-url")
 		}
 		return NewOpenAICompatibleProvider(baseURL, []Model{{Provider: "openai", ID: model, SupportsImages: true}}), "openai", nil
-	case "anthropic":
+	case ProtocolOpenAIResponses:
+		// The Responses driver has no public default endpoint here: unlike the
+		// anthropic path (which targets the public API), resp_api mirrors the
+		// Chat Completions requirement and demands an explicit --base-url.
+		if strings.TrimSpace(baseURL) == "" {
+			return nil, "", fmt.Errorf("--protocol openai/resp_api requires --base-url")
+		}
+		return NewOpenAIResponsesProvider("openai", baseURL, []Model{{Provider: "openai", ID: model, SupportsImages: true}}), "openai", nil
+	case ProtocolAnthropic:
 		return NewAnthropicProvider(baseURL, []Model{{Provider: "anthropic", ID: model, SupportsImages: true}}), "anthropic", nil
 	case "":
 		// fall through to heuristic resolution
-	default:
-		return nil, "", fmt.Errorf("unknown --protocol %q (want openai|anthropic)", protocol)
 	}
 
 	// 1. Preset catalog wins: a curated id knows its own provider.

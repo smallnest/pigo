@@ -82,6 +82,37 @@ func TestResolveProviderExplicitProtocol(t *testing.T) {
 	}
 }
 
+// TestResolveProviderResponsesProtocol verifies the openai/resp_api selector
+// routes to the Responses driver (against an explicit base-url), that the
+// "openai/chat" alias resolves identically to "openai", and that resp_api with
+// no base-url errors like the plain openai path (mirroring the base-url
+// requirement rather than defaulting to a public endpoint).
+func TestResolveProviderResponsesProtocol(t *testing.T) {
+	// openai/resp_api → "openai" provider name, backed by the Responses driver.
+	p, name, err := ResolveProvider("any-model", "https://example.com/v1", "openai/resp_api", "", os.Getenv)
+	if err != nil || name != "openai" {
+		t.Fatalf("protocol=openai/resp_api = (%q, %v), want (openai, nil)", name, err)
+	}
+	if _, ok := p.(*responsesDriver); !ok {
+		t.Errorf("protocol=openai/resp_api built %T, want *responsesDriver", p)
+	}
+	// resp_api with no base-url errors, mirroring the openai requirement.
+	if _, _, err := ResolveProvider("any-model", "", "openai/resp_api", "", os.Getenv); err == nil {
+		t.Error("protocol=openai/resp_api with no base-url should error")
+	}
+	// "openai/chat" is an alias of "openai": same driver, same base-url rule.
+	p, name, err = ResolveProvider("any-model", "https://example.com/v1", "openai/chat", "", os.Getenv)
+	if err != nil || name != "openai" {
+		t.Fatalf("protocol=openai/chat = (%q, %v), want (openai, nil)", name, err)
+	}
+	if _, ok := p.(*responsesDriver); ok {
+		t.Error("protocol=openai/chat should build the Chat Completions driver, not *responsesDriver")
+	}
+	if _, _, err := ResolveProvider("any-model", "", "openai/chat", "", os.Getenv); err == nil {
+		t.Error("protocol=openai/chat with no base-url should error")
+	}
+}
+
 // TestResolveProviderExplicitProvider verifies that --provider selects a
 // built-in provider from the registry: the returned provider-name is the spec
 // name (so key resolution reads the right env var), an OpenAI-protocol provider
