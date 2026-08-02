@@ -4,10 +4,11 @@
 // Responses API (POST {base_url}/responses) via the official
 // github.com/openai/openai-go SDK.
 //
-// This milestone covers non-streaming text: a plain prompt in, assistant text
-// out, mapped into pigo's AssistantMessage the same way OpenAIDecoder does
-// (API/Provider tags, Usage, ResponseID/ResponseModel, StopReason=end_turn).
-// Streaming (#540), tools (#541), and images/reasoning (#542) layer on later.
+// This milestone covers streaming text: a plain prompt in, assistant text out,
+// consumed from the Responses SSE stream and mapped into pigo's AssistantMessage
+// the same way OpenAIDecoder does (API/Provider tags, Usage,
+// ResponseID/ResponseModel, StopReason=end_turn). Tools (#541) and
+// images/reasoning (#542) layer on later.
 //
 // Failure model (FR-13): only the earliest "cannot build the stream" case
 // (missing API key) is a returned error. Every runtime failure — including a
@@ -63,9 +64,9 @@ func NewOpenAIResponsesProvider(name, baseURL string, models []Model) *responses
 func (d *responsesDriver) Name() string    { return d.name }
 func (d *responsesDriver) Models() []Model { return d.models }
 
-// StreamCompletion issues a Responses API call and surfaces the result on an
-// AssistantMessageEventStream. For this milestone the call is non-streaming: the
-// stream carries a start, one text event, and a terminal done event.
+// StreamCompletion issues a streaming Responses API call and surfaces the result
+// on an AssistantMessageEventStream: a start event, incremental text events as
+// deltas arrive, and a terminal done event carrying the aggregated message.
 func (d *responsesDriver) StreamCompletion(ctx context.Context, req CompletionRequest) (*AssistantMessageEventStream, error) {
 	if d.requiresAuth && strings.TrimSpace(req.Config.APIKey) == "" {
 		// Early "cannot build the stream": reference the provider, never a value.
@@ -89,9 +90,17 @@ func (d *responsesDriver) StreamCompletion(ctx context.Context, req CompletionRe
 	return stream, nil
 }
 
-// pump runs the blocking SDK call and translates its outcome into stream events.
-// It always closes the stream. A failed call becomes a terminal error event
-// (dual failure model), not a returned error.
+// pump consumes the Responses SSE stream and translates events into pigo stream
+// events. It always closes the stream. Every runtime failure (transport error,
+// context cancellation, or an upstream error/failed event) becomes a terminal
+// StreamErrorEvent (dual failure model), not a returned error.
+//
+// Incremental text.delta events emit a StreamTextEvent carrying the accumulated
+// text so far, so the TUI renders tokens as they arrive. The terminal message is
+// built from the authoritative response.completed payload via mapResponse, so
+// the final aggregation matches the non-streamed result exactly. If no completed
+// event arrives (a truncated stream that still ended cleanly), the accumulated
+// delta text is used as a fallback.
 func (d *responsesDriver) pump(ctx context.Context, stream *AssistantMessageEventStream, client *openai.Client, params responses.ResponseNewParams) {
 	defer stream.Close()
 
@@ -99,32 +108,66 @@ func (d *responsesDriver) pump(ctx context.Context, stream *AssistantMessageEven
 		return
 	}
 
-	resp, err := client.Responses.New(ctx, params)
-	if err != nil {
-		stream.Emit(context.Background(), StreamErrorEvent{
-			Message: agentcore.AssistantMessage{
-				RoleField:    agentcore.RoleAssistant,
-				API:          "openai",
-				Provider:     d.name,
-				StopReason:   agentcore.StopReasonError,
-				ErrorMessage: err.Error(),
-			},
-			Err: fmt.Errorf("%s: %w", d.name, err),
-		})
-		return
-	}
+	sse := client.Responses.NewStreaming(ctx, params)
+	defer sse.Close()
 
-	// Build the final message once; derive the interim text partial from it so
-	// the streamed delta and the terminal message can never diverge.
-	msg := d.mapResponse(resp)
-	if text := textContent(msg); text != "" {
-		partial := d.newPartial()
-		partial.Content = append(partial.Content, agentcore.NewTextContent(text))
-		if err := stream.Emit(ctx, StreamTextEvent{Partial: partial}); err != nil {
+	var text strings.Builder
+	var completed *responses.Response
+	for sse.Next() {
+		if ctx.Err() != nil {
+			d.emitError(stream, ctx.Err())
+			return
+		}
+		switch variant := sse.Current().AsAny().(type) {
+		case responses.ResponseTextDeltaEvent:
+			text.WriteString(variant.Delta)
+			partial := d.newPartial()
+			partial.Content = append(partial.Content, agentcore.NewTextContent(text.String()))
+			if err := stream.Emit(ctx, StreamTextEvent{Partial: partial}); err != nil {
+				return
+			}
+		case responses.ResponseCompletedEvent:
+			r := variant.Response
+			completed = &r
+		case responses.ResponseFailedEvent:
+			d.emitError(stream, fmt.Errorf("response failed"))
+			return
+		case responses.ResponseErrorEvent:
+			d.emitError(stream, fmt.Errorf("%s", variant.Message))
 			return
 		}
 	}
+	if err := sse.Err(); err != nil {
+		d.emitError(stream, err)
+		return
+	}
+
+	var msg agentcore.AssistantMessage
+	if completed != nil {
+		msg = d.mapResponse(completed)
+	} else {
+		msg = d.newPartial()
+		msg.StopReason = agentcore.StopReasonEndTurn
+		if t := text.String(); t != "" {
+			msg.Content = append(msg.Content, agentcore.NewTextContent(t))
+		}
+	}
 	stream.Emit(ctx, StreamDoneEvent{Message: msg})
+}
+
+// emitError emits a terminal StreamErrorEvent tagged for this provider. Uses a
+// background context so the emit isn't dropped when ctx is already cancelled.
+func (d *responsesDriver) emitError(stream *AssistantMessageEventStream, err error) {
+	stream.Emit(context.Background(), StreamErrorEvent{
+		Message: agentcore.AssistantMessage{
+			RoleField:    agentcore.RoleAssistant,
+			API:          "openai",
+			Provider:     d.name,
+			StopReason:   agentcore.StopReasonError,
+			ErrorMessage: err.Error(),
+		},
+		Err: fmt.Errorf("%s: %w", d.name, err),
+	})
 }
 
 // newPartial builds an empty assistant message tagged for this provider, the
@@ -213,11 +256,4 @@ func collectText(b *strings.Builder, content agentcore.ContentList) {
 			b.WriteString(tc.Text)
 		}
 	}
-}
-
-// textContent returns the concatenated text blocks of an assistant message.
-func textContent(m agentcore.AssistantMessage) string {
-	var b strings.Builder
-	collectText(&b, m.Content)
-	return b.String()
 }
