@@ -8,6 +8,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,7 +130,7 @@ func TestCwdChdirRootsEnv(t *testing.T) {
 		t.Fatalf("EvalSymlinks: %v", err)
 	}
 
-	env, err := run.SetupEnv("openrouter/free", "", "", "", "", true /*noTools*/, true /*noSkills*/, "", nil, false /*memEnabled*/)
+	env, err := run.SetupEnv("openrouter/free", "", "", "", "", true /*noTools*/, true /*noSkills*/, "", nil, false /*memEnabled*/, run.ToolPolicy{})
 	if err != nil {
 		t.Fatalf("SetupEnv: %v", err)
 	}
@@ -253,6 +255,61 @@ func TestApplyFileConfigPrompts(t *testing.T) {
 	applyFileConfig(&opts, cfg, func(string) bool { return false })
 	if len(opts.configPrompts) != 2 || opts.configPrompts[0] != "./my-prompts" || opts.configPrompts[1] != "/abs/x.md" {
 		t.Errorf("opts.configPrompts = %v, want [./my-prompts /abs/x.md]", opts.configPrompts)
+	}
+}
+
+// The tool boundary follows CLI > file > default like the other scalar flags,
+// rather than the additive treatment `prompts` gets: merging would prevent a CLI
+// flag from widening a boundary the config file narrowed.
+func TestApplyFileConfigToolPolicy(t *testing.T) {
+	t.Run("fills unset flags", func(t *testing.T) {
+		var opts cliOptions
+		cfg := config.FileConfig{
+			AllowedTools:    []string{"read", "grep"},
+			DisallowedTools: []string{"bash"},
+		}
+		applyFileConfig(&opts, cfg, changedSet())
+		if len(opts.allowedTools) != 2 || opts.allowedTools[0] != "read" {
+			t.Errorf("allowedTools = %v, want [read grep]", opts.allowedTools)
+		}
+		if len(opts.disallowedTools) != 1 || opts.disallowedTools[0] != "bash" {
+			t.Errorf("disallowedTools = %v, want [bash]", opts.disallowedTools)
+		}
+	})
+
+	t.Run("CLI replaces file value wholesale", func(t *testing.T) {
+		opts := cliOptions{allowedTools: []string{"bash"}}
+		cfg := config.FileConfig{AllowedTools: []string{"read"}, DisallowedTools: []string{"write"}}
+		applyFileConfig(&opts, cfg, changedSet("allowed-tools"))
+		if len(opts.allowedTools) != 1 || opts.allowedTools[0] != "bash" {
+			t.Errorf("CLI --allowed-tools must win outright, got %v", opts.allowedTools)
+		}
+		if len(opts.disallowedTools) != 1 || opts.disallowedTools[0] != "write" {
+			t.Errorf("unset --disallowed-tools should take the config value, got %v", opts.disallowedTools)
+		}
+	})
+
+	t.Run("absent config leaves the boundary open", func(t *testing.T) {
+		var opts cliOptions
+		applyFileConfig(&opts, config.FileConfig{}, changedSet())
+		if opts.allowedTools != nil || opts.disallowedTools != nil {
+			t.Errorf("empty config must not constrain tools, got %v / %v", opts.allowedTools, opts.disallowedTools)
+		}
+	})
+}
+
+// setupExitCode maps a bad tool policy to the usage exit code (2) and everything
+// else to a runtime failure (1), so a typo is distinguishable from e.g. a
+// provider-resolution error.
+func TestSetupExitCode(t *testing.T) {
+	if got := setupExitCode(&run.ToolPolicyError{UnknownAllowed: []string{"raed"}}); got != 2 {
+		t.Errorf("setupExitCode(ToolPolicyError) = %d, want 2 (usage error)", got)
+	}
+	if got := setupExitCode(errors.New("provider boom")); got != 1 {
+		t.Errorf("setupExitCode(generic) = %d, want 1", got)
+	}
+	if got := setupExitCode(fmt.Errorf("wrapped: %w", &run.ToolPolicyError{})); got != 2 {
+		t.Errorf("setupExitCode must unwrap, got %d, want 2", got)
 	}
 }
 

@@ -48,6 +48,7 @@ pigo 可以读写文件、执行命令、检索代码、抓取网页，并借助
 - **stream-json 输出**：逐行 JSON 事件，首个事件携带 `session_id`，便于调用方关联。
 - **系统提示词分层组装**：base 指令 + 环境块 + `AGENTS.md`（general→specific）+ `--append-system-prompt`。
 - **项目信任**：副作用工具（bash/write/edit）在未信任目录需确认，`--approve` 一次性授权。
+- **工具级准入**：`--allowed-tools` / `--disallowed-tools` 划定工具边界（黑名单优先、子 Agent 继承、`--approve` 不可绕过）。
 - **技能与插件**：`~/.agents/skills` 下的 `/slash` 命令、`~/.pigo/plugins` 下的外部插件。
 - **提示词模板**：`~/.pigo/prompts`、项目 `.pigo/prompts`（受信任时）、config `prompts`、`--prompt-template` 下的可复用 `/name` 模板，支持 `$1`/`$@`/`${1:-default}`/`${@:N}` 等参数语法。
 - **上下文自动压缩**：接近上下文窗口上限时自动摘要，亦可 `/compact` 手动触发。
@@ -159,6 +160,8 @@ pigo -m ollama/qwen2.5-coder -u http://localhost:11434/v1 -p "解释 main.go 做
 | `--protocol` | `-P` | `""` | 强制线路协议：`openai` \| `anthropic`（默认由 model id 推断） |
 | `--output-format` | `-o` | `text` | 输出格式：`text` \| `stream-json` |
 | `--no-tools` | `-n` | `false` | 禁用内置文件/shell 工具（同时跳过插件发现） |
+| `--allowed-tools` | | `nil` | 工具白名单：只把这些工具交给模型；可重复、可逗号分隔、大小写不敏感；为空表示不限制 |
+| `--disallowed-tools` | | `nil` | 工具黑名单：从模型的工具集中移除这些工具；同名冲突时**优先于** `--allowed-tools` |
 | `--list-sessions` | `-l` | `false` | 列出已存储的会话并退出 |
 | `--resume` | `-r` | `""` | 续跑指定 id 的会话 |
 | `--continue` | `-c` | `false` | 续跑最近一次的会话 |
@@ -259,7 +262,7 @@ pigo -P anthropic -m claude-3-5-sonnet-20241022 -p "..."
 
 ## 内置工具
 
-工具集根植于当前工作目录，`--no-tools` 可整体禁用。
+工具集根植于当前工作目录，`--no-tools` 可整体禁用，`--allowed-tools` / `--disallowed-tools` 可做工具级准入（见下方[工具级准入](#工具级准入)）。
 
 | 工具 | 说明 |
 |------|------|
@@ -268,12 +271,50 @@ pigo -P anthropic -m claude-3-5-sonnet-20241022 -p "..."
 | `edit` | 精确字符串替换（`old_string` 需唯一，除非 `replace_all`），返回 diff |
 | `grep` | 正则检索文件内容，支持 glob 过滤，跳过 `.gitignore` 路径 |
 | `find` | 按文件名 glob 查找文件，跳过 `.gitignore` 路径 |
-| `bash` | 执行 shell 命令，流式 stdout/stderr，支持超时与取消 |
+| `bash` | 执行 shell 命令，流式 stdout/stderr，支持超时与取消；`run_in_background` 可转入后台 |
+| `bash_output` | 读取后台 bash 任务的增量输出 |
+| `kill_bash` | 终止后台 bash 任务 |
 | `todo` | 记录/更新结构化任务清单，每次提交整份列表（pending/in_progress/completed） |
 | `webfetch` | 抓取 URL 并转为精简 Markdown 正文，HTTP 自动升级 HTTPS |
 | `websearch` | 联网搜索并返回标题/URL/摘要，按凭证自动选后端（`TAVILY_API_KEY`→Tavily，`BRAVE_API_KEY`→Brave，否则回落无 key 的 DuckDuckGo），支持 `allowed_domains`/`blocked_domains` 过滤 |
+| `memory_search` | 检索持久化记忆（`memory.enabled = false` 或 `--no-tools` 时不注册） |
+| `task` | 派发通用子 Agent，子 Agent 继承父级工具边界且不能再次派发 |
 
 > `bash` / `write` / `edit` 属于"副作用工具"，在未信任目录下需确认（见[项目信任](#项目信任)）。
+
+### 工具级准入
+
+`--no-tools` 是全有或全无，`--allowed-tools` / `--disallowed-tools` 提供中间态：
+
+```bash
+# 只准读：白名单
+pigo --allowed-tools read,grep -p "这个仓库的架构是什么"
+
+# 什么都行，就是别碰 shell：黑名单
+pigo --disallowed-tools bash,bash_output,kill_bash -p "帮我改下 README"
+
+# 大小写不敏感，Claude Code 的写法直接可用
+pigo --allowed-tools Read,Grep -p "..."
+
+# 也可重复传参
+pigo --allowed-tools read --allowed-tools grep -p "..."
+```
+
+语义要点：
+
+- **黑名单优先。** 同一工具同时出现在两侧时被移除（fail-closed）。
+- **白名单是硬边界，`--approve` 不能绕过。** 过滤发生在工具注册层，早于副作用确认门，所以边界外的工具从未被宣传给模型、也无法被调用。`--approve` 只免掉逐次确认，不放行边界外工具。
+- **子 Agent 继承边界。** `task` 派发的子 Agent 同样受约束，否则"让子 Agent 去跑 bash"就是一条现成的逃逸路径。
+- **拼错立即报错。** 未知工具名会打印全部可用名并以退出码 2 终止，绝不静默忽略——静默忽略会让你以为限制住了而其实没有。
+- **暂不支持参数级匹配。** `Bash(git log:*)`、`Read(src/**)` 这类 Claude Code 语法本期不支持，写成该形式会被当作未知工具名报错。
+- 屏蔽 `read` 时系统提示不再注入 `<available_skills>`，因为模型需要 `read` 才能加载技能正文。
+
+也可在 `config.toml` 中声明默认边界（命令行传入时整体替换文件值，而非合并）：
+
+```toml
+allowed_tools = ["read", "grep"]
+disallowed_tools = ["bash"]
+```
 
 ---
 
@@ -322,6 +363,7 @@ REPL 中的内置斜杠命令包括 `/model`、`/models`、`/think`、`/help`、
 
 - 首次在某目录启动 REPL 时会提示是否信任。
 - `--approve` / `-a` 为本次运行一次性授予会话级信任，跳过首次提示并免逐次确认。
+- `--approve` **只免掉确认，不放大权限**：`--allowed-tools` / `--disallowed-tools` 划定的边界是硬边界（见[工具级准入](#工具级准入)），边界外的工具不在工具集中，`-a` 也无法调用。
 
 ---
 

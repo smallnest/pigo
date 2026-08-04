@@ -62,9 +62,12 @@ type Env struct {
 // value is literal text) and layered onto the end of the prompt (mirrors pi's
 // --append-system-prompt). apiKey is the resolved credential (CLI --api-key or
 // config.toml) used as the override for sub-agent credential resolution so
-// dispatched task children authenticate the same way the parent does. It
-// returns an error rather than exiting so the caller owns exit-code mapping.
-func SetupEnv(model, baseURL, protocol, providerName, apiKey string, noTools, noSkills bool, systemPrompt string, appendSystemPrompt []string, memEnabled bool) (Env, error) {
+// dispatched task children authenticate the same way the parent does. policy is
+// the --allowed-tools/--disallowed-tools boundary; it is validated against the
+// fully assembled tool set and then applied, so an unknown tool name is a usage
+// error rather than a silently ineffective boundary. It returns an error rather
+// than exiting so the caller owns exit-code mapping.
+func SetupEnv(model, baseURL, protocol, providerName, apiKey string, noTools, noSkills bool, systemPrompt string, appendSystemPrompt []string, memEnabled bool, policy ToolPolicy) (Env, error) {
 	cwd, _ := os.Getwd()
 	prov, resolvedName, err := provider.ResolveProvider(model, baseURL, protocol, providerName, os.Getenv)
 	if err != nil {
@@ -103,7 +106,7 @@ func SetupEnv(model, baseURL, protocol, providerName, apiKey string, noTools, no
 		childCreds := provider.NewCredentialStore(nil)
 		childCreds.SetOverride(resolvedName, apiKey)
 		factory := func() runtime.RunConfig {
-			childTools := BuiltinToolsExcept(cwd, false, "task")
+			childTools := ChildToolSet(cwd, policy)
 			return runtime.RunConfig{
 				LoopConfig: runtime.LoopConfig{
 					Model:     model,
@@ -127,6 +130,20 @@ func SetupEnv(model, baseURL, protocol, providerName, apiKey string, noTools, no
 		} else {
 			fmt.Fprintf(os.Stderr, "pigo: plugin discovery failed: %v\n", err)
 		}
+	}
+	// Enforce the --allowed-tools/--disallowed-tools boundary now that the set is
+	// complete. Validation must happen here rather than at flag-parse time: plugin
+	// and memory tool names only exist at runtime, so an earlier check would reject
+	// legitimate names. Filtering here — at the registration layer, before the
+	// BeforeToolCall confirmation gate — is what makes the boundary structural: a
+	// removed tool is never advertised and never dispatchable, so --approve cannot
+	// widen it.
+	if err := ValidateToolPolicy(tools, policy); err != nil {
+		return Env{}, err
+	}
+	tools = ApplyToolPolicy(tools, policy)
+	if len(tools) == 0 && !noTools && !policy.IsZero() {
+		fmt.Fprintln(os.Stderr, "pigo: warning: the tool policy removed every tool; the model will run without tools")
 	}
 	// Load skills once (shared between prompt injection and /skill-name
 	// registration). A partial parse error still yields the skills that DID load,

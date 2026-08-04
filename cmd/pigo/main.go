@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -136,6 +137,16 @@ type cliOptions struct {
 	// defaults applied. The interactive REPL consumes it to decide the startup
 	// background auto-consolidation (US-008). Like memory it has no CLI flags.
 	dreamCfg dream.Config
+	// allowedTools and disallowedTools are the --allowed-tools/--disallowed-tools
+	// values: the tool-level admission boundary for the run, filling the gap
+	// between "all tools" and --no-tools. Each is repeatable and each value may be
+	// comma-separated. Names match case-insensitively, and deny wins over allow
+	// when a name appears on both sides (fail-closed). The boundary is enforced at
+	// the tool-registration layer in run.SetupEnv, strictly before the
+	// BeforeToolCall confirmation gate, so --approve waives confirmation prompts
+	// but can never widen the boundary.
+	allowedTools    []string
+	disallowedTools []string
 }
 
 func main() {
@@ -164,6 +175,8 @@ func main() {
 	flag.StringVar(&opts.provider, "provider", "", "select a built-in provider by name (e.g. deepseek, minimax); uses its default base URL, protocol, and API-key env var (see --help provider list)")
 	flag.StringVarP(&opts.outputFmt, "output-format", "o", "text", "output format: text | stream-json")
 	flag.BoolVarP(&opts.noTools, "no-tools", "n", false, "disable the built-in file/shell tools")
+	flag.StringArrayVar(&opts.allowedTools, "allowed-tools", nil, "restrict the model to these tools (repeatable, comma-separated, case-insensitive); empty means no restriction and --disallowed-tools wins on conflict")
+	flag.StringArrayVar(&opts.disallowedTools, "disallowed-tools", nil, "remove these tools from the model's set (repeatable, comma-separated, case-insensitive); takes precedence over --allowed-tools")
 	flag.BoolVarP(&opts.listSessions, "list-sessions", "l", false, "list stored interactive sessions and exit")
 	flag.StringVarP(&opts.resumeID, "resume", "r", "", "resume the interactive session with this id")
 	flag.BoolVarP(&opts.continueLast, "continue", "c", false, "resume the most recent interactive session")
@@ -266,6 +279,17 @@ func applyFileConfig(opts *cliOptions, cfg config.FileConfig, changed func(strin
 	if cfg.SystemPrompt != "" && !changed("system-prompt") {
 		opts.systemPrompt = cfg.SystemPrompt
 	}
+	// The tool boundary follows the standard precedence (CLI > file > default)
+	// rather than the additive treatment prompts get below. Merging would be the
+	// wrong semantics for a security boundary: a user passing --allowed-tools to
+	// widen what the file narrowed must actually get the wider set, not the
+	// intersection.
+	if len(cfg.AllowedTools) > 0 && !changed("allowed-tools") {
+		opts.allowedTools = cfg.AllowedTools
+	}
+	if len(cfg.DisallowedTools) > 0 && !changed("disallowed-tools") {
+		opts.disallowedTools = cfg.DisallowedTools
+	}
 	// prompts (settings tier) are additive with --prompt-template (CLI tier,
 	// wired in #339), so they are always passed through when present.
 	if len(cfg.Prompts) > 0 {
@@ -339,10 +363,10 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			fmt.Fprintln(errOut, "pigo: no prompt (use -p \"...\" or positional args)")
 			return 2
 		}
-		env, err := run.SetupEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.apiKey, opts.noTools, opts.noSkills, opts.systemPrompt, opts.appendSystemPrompt, opts.memory.Memory.Enabled)
+		env, err := run.SetupEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.apiKey, opts.noTools, opts.noSkills, opts.systemPrompt, opts.appendSystemPrompt, opts.memory.Memory.Enabled, run.NewToolPolicy(opts.allowedTools, opts.disallowedTools))
 		if err != nil {
 			fmt.Fprintf(errOut, "pigo: %v\n", err)
-			return 1
+			return setupExitCode(err)
 		}
 		if env.Plugins != nil {
 			defer env.Plugins.Close()
@@ -415,10 +439,10 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		return 2
 	}
 
-	env, err := run.SetupEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.apiKey, opts.noTools, opts.noSkills, opts.systemPrompt, opts.appendSystemPrompt, opts.memory.Memory.Enabled)
+	env, err := run.SetupEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.apiKey, opts.noTools, opts.noSkills, opts.systemPrompt, opts.appendSystemPrompt, opts.memory.Memory.Enabled, run.NewToolPolicy(opts.allowedTools, opts.disallowedTools))
 	if err != nil {
 		fmt.Fprintf(errOut, "pigo: %v\n", err)
-		return 1
+		return setupExitCode(err)
 	}
 	if env.Plugins != nil {
 		defer env.Plugins.Close()
@@ -435,6 +459,17 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		ThinkingLevel: opts.thinkingLevel,
 		ResumeID:      resumeID,
 	}, out, errOut)
+}
+
+// setupExitCode maps a run.SetupEnv failure to a process exit code. A bad tool
+// policy is a usage error (2), matching --cwd and --output-format; everything
+// else — provider resolution, prompt assembly — is a runtime failure (1).
+func setupExitCode(err error) int {
+	var policyErr *run.ToolPolicyError
+	if errors.As(err, &policyErr) {
+		return 2
+	}
+	return 1
 }
 
 // runDream executes the subprocess memory-consolidation pass (SPEC §4.1/§4.2).

@@ -23,6 +23,22 @@ approve = false
 # Disable the built-in file/shell tools.
 no_tools = false
 
+# Tool-level admission control (the middle ground between "all tools" and
+# no_tools). Names match case-insensitively, so "Read" hits the built-in "read".
+# disallowed_tools wins when a name appears in both lists (fail-closed).
+#
+# A boundary declared here is a HARD boundary: filtering happens at the tool-
+# registration layer, so `approve = true` waives per-call confirmation but can
+# never let the model reach a tool outside the boundary. Task sub-agents inherit
+# it too. An unknown tool name aborts startup with exit code 2 rather than being
+# silently ignored.
+#
+# Passing --allowed-tools/--disallowed-tools on the command line REPLACES these
+# values wholesale (it does not merge), so a CLI flag can widen what the file
+# narrowed. Parameter-level forms such as Bash(git log:*) are not supported yet.
+# allowed_tools = ["read", "grep"]
+# disallowed_tools = ["bash", "bash_output", "kill_bash"]
+
 # Disable skill discovery (do not load skills under ~/.agents/skills as /skill-name commands).
 no_skills = false
 

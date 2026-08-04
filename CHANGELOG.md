@@ -12,6 +12,15 @@ interactive REPL/TUI.
 ## [Unreleased]
 
 ### Added
+- **Tool-level admission control**: `--allowed-tools` / `--disallowed-tools`
+  (repeatable, comma-separated, case-insensitive) narrow the tool set handed to
+  the model, filling the gap between the full set and `--no-tools`. Deny wins
+  over allow on conflict; task sub-agents inherit the boundary; an unknown tool
+  name aborts with exit code 2 instead of being silently ignored. Because
+  filtering happens at the tool-registration layer — before the side-effect
+  confirmation gate — `--approve` waives confirmation prompts but cannot widen
+  the boundary. Also configurable as `allowed_tools` / `disallowed_tools` in
+  `config.toml`.
 - **Self-update**: `pigo update` with no package name (or flags-only calls such
   as `pigo update --check`) now upgrades the pigo binary itself to the latest
   GitHub Release, replacing the executable in place (with a `sudo` hint when the

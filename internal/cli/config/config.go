@@ -39,6 +39,13 @@ type FileConfig struct {
 	NoSkills      bool   `toml:"no_skills"`
 	Approve       bool   `toml:"approve"`
 	SystemPrompt  string `toml:"system_prompt"`
+	// AllowedTools and DisallowedTools are the tool-level admission boundary:
+	// the config-file tier of --allowed-tools / --disallowed-tools. Names match
+	// case-insensitively and DisallowedTools wins when a name appears in both.
+	// A CLI flag replaces the file value wholesale rather than merging with it,
+	// so passing --allowed-tools can widen a boundary the file narrowed.
+	AllowedTools    []string `toml:"allowed_tools"`
+	DisallowedTools []string `toml:"disallowed_tools"`
 	// Prompts is the config.toml `prompts` array: paths (files or dirs) to load
 	// prompt templates from at the settings tier (mirrors pi's settings prompts).
 	Prompts []string `toml:"prompts"`

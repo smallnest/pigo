@@ -116,12 +116,17 @@ pigo -u http://localhost:11434/v1 -m qwen3
           <tr><td><code>grep</code></td><td data-en="Search file contents by regex" data-zh="按正则搜索文件内容"></td></tr>
           <tr><td><code>find</code></td><td data-en="Locate files by glob pattern" data-zh="按 glob 模式查找文件"></td></tr>
           <tr><td><code>bash</code></td><td data-en="Run shell commands (gated by approval policy)" data-zh="执行 shell 命令（受批准策略约束）"></td></tr>
+          <tr><td><code>bash_output</code></td><td data-en="Drain incremental output from a background bash job" data-zh="读取后台 bash 任务的增量输出"></td></tr>
+          <tr><td><code>kill_bash</code></td><td data-en="Terminate a background bash job" data-zh="终止后台 bash 任务"></td></tr>
           <tr><td><code>todo</code></td><td data-en="Track a live task list across the turn" data-zh="跨轮次跟踪实时任务清单"></td></tr>
           <tr><td><code>webfetch</code></td><td data-en="Fetch a URL and convert to text" data-zh="抓取网页并转为文本"></td></tr>
+          <tr><td><code>websearch</code></td><td data-en="Search the web (backend auto-selected from available credentials)" data-zh="联网搜索（按可用凭证自动选择后端）"></td></tr>
         </tbody>
       </table>
       <p data-en="Tools carry an approval policy. By default pigo asks before running <code>bash</code> or writing files; pass <code>--approve</code> to auto-approve in trusted contexts, or <code>--no-tools</code> to run the model with no tools at all (pure chat)."
          data-zh="工具带有批准策略。默认情况下 pigo 在执行 <code>bash</code> 或写文件前会先询问；在可信场景下用 <code>--approve</code> 自动批准，或用 <code>--no-tools</code> 让模型完全不带工具运行（纯对话）。"></p>
+      <p data-en="For anything between the full set and nothing, <code>--allowed-tools</code> and <code>--disallowed-tools</code> gate admission per tool (repeatable, comma-separated, case-insensitive, so <code>Read</code> hits <code>read</code>). Deny wins over allow on conflict, task sub-agents inherit the boundary, and a misspelled tool name aborts startup with exit code 2 rather than being silently ignored. The boundary is enforced at the tool-registration layer &mdash; before the approval gate &mdash; so <code>--approve</code> waives confirmation prompts but can never widen it. Parameter-level forms such as <code>Bash(git log:*)</code> are not supported yet."
+         data-zh="要在全部工具与完全没有工具之间取中间态，用 <code>--allowed-tools</code> 与 <code>--disallowed-tools</code> 做工具级准入（可重复、可逗号分隔、大小写不敏感，因此 <code>Read</code> 能命中 <code>read</code>）。同名冲突时黑名单优先，task 子 Agent 继承同一边界，拼错工具名会以退出码 2 终止启动而非被静默忽略。该边界在工具注册层生效 —— 早于批准门 —— 所以 <code>--approve</code> 只免掉确认弹窗，永远无法放大边界。<code>Bash(git log:*)</code> 这类参数级写法暂不支持。"></p>
       <div class="note" data-en="<strong>vs. competitors:</strong> Aider focuses on edit/commit; pigo's built-ins span search, shell, task tracking, and web fetch in one binary — and plugin- and skill-provided tools use the exact same schema-validated contract, so extensions are first-class, not bolted on."
            data-zh="<strong>与竞品对比：</strong>Aider 聚焦于编辑与提交；pigo 的内置工具在单个二进制里覆盖搜索、shell、任务跟踪与网页抓取 —— 且插件与 skill 提供的工具遵循完全相同的 schema 校验契约，因此扩展是一等公民，而非外挂。"></div>
 
