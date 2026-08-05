@@ -121,7 +121,7 @@ func TestRegistryContainsAllExpectedProviders(t *testing.T) {
 		"anthropic", "openai", "ant-ling", "deepseek", "nvidia", "google",
 		"groq", "cerebras", "xai", "openrouter", "vercel-ai-gateway", "zai",
 		"zai-coding-cn", "mistral", "minimax", "minimax-cn", "moonshotai",
-		"moonshotai-cn", "huggingface", "fireworks", "together", "opencode",
+		"moonshotai-cn", "huggingface", "fireworks", "together", "novita", "opencode",
 		"opencode-go", "kimi-coding", "xiaomi", "xiaomi-token-plan-cn",
 		"xiaomi-token-plan-ams", "xiaomi-token-plan-sgp",
 		"qianfan", "volcengine", "dashscope", "hunyuan",

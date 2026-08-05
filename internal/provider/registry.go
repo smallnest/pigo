@@ -212,6 +212,13 @@ var providerRegistry = []ProviderSpec{
 		AuthScheme:     AuthBearer,
 	},
 	{
+		Name:           "novita",
+		EnvVars:        []string{"NOVITA_API_KEY"},
+		DefaultBaseURL: "https://api.novita.ai/openai/v1",
+		Protocol:       ProtocolOpenAI,
+		AuthScheme:     AuthBearer,
+	},
+	{
 		Name:           "opencode",
 		EnvVars:        []string{"OPENCODE_API_KEY"},
 		DefaultBaseURL: "https://opencode.ai/zen",

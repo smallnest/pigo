@@ -51,6 +51,7 @@ var PresetProviders = []struct {
 	{Name: "zai", EnvVar: "ZAI_API_KEY"},
 	{Name: "fireworks", EnvVar: "FIREWORKS_API_KEY"},
 	{Name: "together", EnvVar: "TOGETHER_API_KEY"},
+	{Name: "novita", EnvVar: "NOVITA_API_KEY"},
 	{Name: "minimax", EnvVar: "MINIMAX_API_KEY"},
 	{Name: "xiaomi", EnvVar: "XIAOMI_API_KEY"},
 	{Name: "qianfan", EnvVar: "QIANFAN_API_KEY"},
@@ -147,6 +148,11 @@ var PresetCatalog = []PresetModel{
 	{Provider: "together", ID: "deepseek-ai/DeepSeek-V4-Pro", DisplayName: "DeepSeek V4 Pro (Together)"},
 	{Provider: "together", ID: "Qwen/Qwen3.7-Max", DisplayName: "Qwen3.7 Max (Together)"},
 	{Provider: "together", ID: "meta-llama/Llama-3.3-70B-Instruct-Turbo", DisplayName: "Llama 3.3 70B Turbo (Together)"},
+
+	// --- Novita AI (OpenAI-compatible gateway; ids from novita.ai/docs/guides/llm-recommended) ---
+	{Provider: "novita", ID: "deepseek/deepseek-v4-pro", DisplayName: "DeepSeek V4 Pro (Novita)"},
+	{Provider: "novita", ID: "qwen/qwen3.5-397b-a17b", DisplayName: "Qwen3.5 397B (Novita)"},
+	{Provider: "novita", ID: "meta-llama/llama-3.1-8b-instruct", DisplayName: "Llama 3.1 8B (Novita)"},
 
 	// --- MiniMax (Anthropic-protocol; ids from pi minimax.models.ts) ---
 	{Provider: "minimax", ID: "MiniMax-M2.7", DisplayName: "MiniMax-M2.7"},
