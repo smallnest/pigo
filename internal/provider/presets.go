@@ -150,9 +150,9 @@ var PresetCatalog = []PresetModel{
 	{Provider: "together", ID: "meta-llama/Llama-3.3-70B-Instruct-Turbo", DisplayName: "Llama 3.3 70B Turbo (Together)"},
 
 	// --- Novita AI (OpenAI-compatible gateway; ids from novita.ai/docs/guides/llm-recommended) ---
-	{Provider: "novita", ID: "moonshotai/kimi-k3", DisplayName: "Kimi K3 (Novita)"},
+	{Provider: "novita", ID: "deepseek/deepseek-v4-pro", DisplayName: "DeepSeek V4 Pro (Novita)"},
 	{Provider: "novita", ID: "zai-org/glm-5.2", DisplayName: "GLM 5.2 (Novita)"},
-	{Provider: "novita", ID: "deepseek/deepseek-v4-flash-0731", DisplayName: "DeepSeek V4 Flash 0731 (Novita)"},
+	{Provider: "novita", ID: "moonshotai/kimi-k3", DisplayName: "Kimi K3 (Novita)"},
 
 	// --- MiniMax (Anthropic-protocol; ids from pi minimax.models.ts) ---
 	{Provider: "minimax", ID: "MiniMax-M2.7", DisplayName: "MiniMax-M2.7"},
