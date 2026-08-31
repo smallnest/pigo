@@ -1,9 +1,9 @@
 // Package agent is the public, embeddable SDK for driving a pigo agent from
 // your own Go program. It wraps pigo's internal run-assembly, provider, and
-// agent-loop packages behind a small surface whose every exported type is a Go
-// primitive (string, []string, bool, func) — so importing this package never
-// pulls an internal type into your code, and pigo can evolve its internals
-// without breaking you.
+// agent-loop packages behind a stable public surface of SDK-owned values and
+// callbacks. No exported signature mentions a pigo internal type, so pigo can
+// evolve its implementation packages without forcing consumers to depend on
+// them.
 //
 // # Quick start
 //
@@ -38,14 +38,22 @@
 // working directory and run shell commands on the host. This is the right
 // default for an automated SDK, but it means you should only send prompts you
 // trust, and run in a directory (and, ideally, a sandbox) you are willing to let
-// the agent modify. To constrain or remove that capability use [WithTools] (an
+// the agent modify. To constrain or remove built-ins use [WithTools] (an
 // allowlist), [WithDisallowedTools] (a denylist, which always wins), or
-// [WithoutTools] (a pure text completion with no tools at all).
+// [WithoutTools]. Explicit caller-owned tools can be added with [WithCustomTools];
+// combining WithoutTools with WithCustomTools creates a custom-only session.
+//
+// # Streaming
+//
+// [Session.Stream] reports incremental assistant text. [Session.StreamEvents]
+// reports SDK-owned structured message, thinking, tool, and usage events while
+// returning the same final assistant text as Prompt.
 //
 // # Conversation state
 //
-// A [Session] keeps the running conversation: each [Session.Prompt] or
-// [Session.Stream] call appends to the same history, so follow-up prompts see
+// A [Session] keeps the running conversation: each [Session.Prompt],
+// [Session.Stream], or [Session.StreamEvents] call appends to the same history,
+// so follow-up prompts see
 // what came before. Call [Session.Reset] to start a fresh conversation on the
 // same session, or [Session.Close] when you are done. A Session is NOT safe for
 // concurrent use — drive it from one goroutine, or create one Session per

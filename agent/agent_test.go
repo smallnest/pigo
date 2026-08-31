@@ -214,6 +214,8 @@ func TestCustomToolNamesAreUniqueCaseInsensitively(t *testing.T) {
 	}
 }
 
+var _ func(*agent.Session, context.Context, string, func(agent.Event)) (string, error) = (*agent.Session).StreamEvents
+
 func TestInvalidCustomToolsFailConstruction(t *testing.T) {
 	cases := []struct {
 		name string

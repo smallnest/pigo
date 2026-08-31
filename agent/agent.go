@@ -100,6 +100,14 @@ func New(opts ...Option) (*Session, error) {
 	}, nil
 }
 
+func structuredStreamHandler(onEvent func(Event)) runtime.StreamHandler {
+	if onEvent == nil {
+		return runtime.StreamHandler{}
+	}
+	mapper := &eventMapper{emit: onEvent}
+	return runtime.StreamHandler{OnEvent: mapper.handle}
+}
+
 // Prompt sends one user message, runs the agent loop to completion (executing
 // any tool calls the model makes along the way), and returns the assistant's
 // final text. The exchange is appended to the session history so later prompts
@@ -113,6 +121,18 @@ func (s *Session) Prompt(ctx context.Context, prompt string) (string, error) {
 // also returned. Tool calls still run automatically between text chunks. A nil
 // onText makes Stream behave exactly like Prompt.
 func (s *Session) Stream(ctx context.Context, prompt string, onText func(string)) (string, error) {
+	return s.run(ctx, prompt, runtime.StreamHandler{OnText: onText})
+}
+
+// StreamEvents is Prompt with stable structured events. onEvent, if non-nil,
+// receives message/thinking deltas, tool execution lifecycle events, message
+// completion, and usage in agent-loop order. The complete final assistant text
+// is also returned. A nil onEvent behaves exactly like Prompt.
+func (s *Session) StreamEvents(ctx context.Context, prompt string, onEvent func(Event)) (string, error) {
+	return s.run(ctx, prompt, structuredStreamHandler(onEvent))
+}
+
+func (s *Session) run(ctx context.Context, prompt string, handler runtime.StreamHandler) (string, error) {
 	// The loop expects the initiating user message already appended; it then
 	// mutates agentCtx.Messages in place (assistant + tool results), which is
 	// what carries the conversation forward across calls.
@@ -122,7 +142,7 @@ func (s *Session) Stream(ctx context.Context, prompt string, onText func(string)
 	})
 
 	stream := runtime.StartRun(ctx, s.agentCtx, s.runCfg)
-	final, err := runtime.DrainStream(ctx, stream, runtime.StreamHandler{OnText: onText})
+	final, err := runtime.DrainStream(ctx, stream, handler)
 	if err != nil {
 		return "", err
 	}
