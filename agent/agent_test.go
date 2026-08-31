@@ -1,6 +1,8 @@
 package agent_test
 
 import (
+	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -156,5 +158,88 @@ func TestCloseHermetic(t *testing.T) {
 	}
 	if err := sess.Close(); err != nil {
 		t.Errorf("Close() = %v, want nil", err)
+	}
+}
+
+func publicEchoTool(name string) agent.Tool {
+	return agent.Tool{
+		Name:        name,
+		Description: "echo arguments",
+		Schema:      json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"}}}`),
+		Execute: func(_ context.Context, call agent.ToolCall, _ func(agent.ToolResult)) (agent.ToolResult, error) {
+			return agent.ToolResult{
+				Content: []agent.ToolResultContent{{Type: agent.ToolResultContentText, Text: string(call.Arguments)}},
+			}, nil
+		},
+	}
+}
+
+func TestWithoutToolsKeepsOnlyExplicitCustomTools(t *testing.T) {
+	hermetic(t)
+	sess, err := agent.New(
+		agent.WithModel("openrouter/free"),
+		agent.WithoutTools(),
+		agent.WithCustomTools(publicEchoTool("piflow_echo")),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer sess.Close()
+
+	if got := strings.Join(sess.ToolNames(), ","); got != "piflow_echo" {
+		t.Fatalf("ToolNames() = %q, want %q", got, "piflow_echo")
+	}
+}
+
+func TestCustomToolCannotShadowEnabledBuiltin(t *testing.T) {
+	hermetic(t)
+	_, err := agent.New(
+		agent.WithModel("openrouter/free"),
+		agent.WithCustomTools(publicEchoTool("READ")),
+	)
+	if err == nil {
+		t.Fatal("New succeeded, want case-insensitive built-in collision error")
+	}
+}
+
+func TestCustomToolNamesAreUniqueCaseInsensitively(t *testing.T) {
+	hermetic(t)
+	_, err := agent.New(
+		agent.WithModel("openrouter/free"),
+		agent.WithoutTools(),
+		agent.WithCustomTools(publicEchoTool("lookup"), publicEchoTool("LOOKUP")),
+	)
+	if err == nil {
+		t.Fatal("New succeeded, want duplicate custom-tool error")
+	}
+}
+
+func TestInvalidCustomToolsFailConstruction(t *testing.T) {
+	cases := []struct {
+		name string
+		edit func(*agent.Tool)
+	}{
+		{name: "blank name", edit: func(tool *agent.Tool) { tool.Name = "" }},
+		{name: "surrounding whitespace", edit: func(tool *agent.Tool) { tool.Name = " lookup " }},
+		{name: "nil execute", edit: func(tool *agent.Tool) { tool.Execute = nil }},
+		{name: "invalid schema", edit: func(tool *agent.Tool) { tool.Schema = json.RawMessage(`{"type":`) }},
+		{name: "non object schema", edit: func(tool *agent.Tool) { tool.Schema = json.RawMessage(`[]`) }},
+		{name: "invalid execution mode", edit: func(tool *agent.Tool) { tool.ExecutionMode = agent.ToolExecutionMode("serial") }},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			hermetic(t)
+			tool := publicEchoTool("lookup")
+			tc.edit(&tool)
+			_, err := agent.New(
+				agent.WithModel("openrouter/free"),
+				agent.WithoutTools(),
+				agent.WithCustomTools(tool),
+			)
+			if err == nil {
+				t.Fatal("New succeeded, want invalid custom-tool error")
+			}
+		})
 	}
 }

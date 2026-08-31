@@ -16,6 +16,7 @@ type config struct {
 	noTools            bool
 	allowedTools       []string
 	disallowedTools    []string
+	customTools        []Tool
 	skills             bool
 	memory             bool
 }
@@ -85,26 +86,39 @@ func WithThinkingLevel(level string) Option {
 
 // WithTools restricts the session to the named built-in tools (an allowlist,
 // e.g. WithTools("read", "grep")). Names are matched case-insensitively, so
-// "Read" and "read" are equivalent. A name that matches no tool makes New
+// "Read" and "read" are equivalent. A name that matches no built-in makes New
 // return an error rather than silently ignoring it. Combine with
-// [WithDisallowedTools]; deny always wins over allow.
+// [WithDisallowedTools]; deny always wins over allow. Explicit custom tools
+// registered with [WithCustomTools] are separate from this built-in allowlist.
 func WithTools(names ...string) Option {
 	return func(c *config) { c.allowedTools = append(c.allowedTools, names...) }
 }
 
 // WithDisallowedTools removes the named built-in tools (a denylist, e.g.
-// WithDisallowedTools("bash")). Deny always wins: a tool named here is removed
-// even if it also appears in [WithTools]. As with WithTools, an unknown name
-// makes New return an error.
+// WithDisallowedTools("bash")). Deny always wins: a built-in named here is
+// removed even if it also appears in [WithTools]. As with WithTools, an unknown
+// built-in name makes New return an error. Explicit custom tools registered with
+// [WithCustomTools] are not filtered by this built-in denylist.
 func WithDisallowedTools(names ...string) Option {
 	return func(c *config) { c.disallowedTools = append(c.disallowedTools, names...) }
 }
 
-// WithoutTools removes every tool, producing a pure text-completion session that
-// cannot touch the filesystem or run commands. It overrides [WithTools] and
-// [WithDisallowedTools], which become inert once the tool set is empty.
+// WithoutTools removes every built-in tool. It overrides [WithTools] and
+// [WithDisallowedTools], which become inert once the built-in set is empty.
+// Explicit tools registered with [WithCustomTools] remain available, so
+// WithoutTools plus WithCustomTools is the custom-only embedding pattern.
 func WithoutTools() Option {
 	return func(c *config) { c.noTools = true }
+}
+
+// WithCustomTools explicitly registers caller-owned tools. Custom tools are
+// installed after built-in policy resolution, so they remain available when
+// [WithoutTools] is used. New validates tool names, schemas, execution modes,
+// duplicate names, and collisions with any surviving built-in tool.
+func WithCustomTools(tools ...Tool) Option {
+	return func(c *config) {
+		c.customTools = append(c.customTools, tools...)
+	}
 }
 
 // WithSkills enables discovery of on-disk skills, which are advertised to the

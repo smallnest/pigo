@@ -64,6 +64,18 @@ func New(opts ...Option) (*Session, error) {
 		return nil, err
 	}
 
+	allTools, err := adaptCustomTools(c.customTools, env.Tools)
+	if err != nil {
+		if env.Plugins != nil {
+			_ = env.Plugins.Close()
+		}
+		if env.Memory != nil {
+			_ = env.Memory.Close()
+		}
+		return nil, err
+	}
+	env.Tools = allTools
+
 	// Resolve the API key by provider name: an explicit WithAPIKey overrides the
 	// provider's environment variable. The key is held only in the credential
 	// store and never logged.
@@ -127,9 +139,9 @@ func (s *Session) Reset() {
 }
 
 // ToolNames returns the names of the tools available to this session, in the
-// order they are advertised to the model. It reflects the applied tool policy,
-// so it is a convenient way to confirm WithTools/WithDisallowedTools did what
-// you intended. The result is empty for a WithoutTools session.
+// order they are advertised to the model. It reflects both the applied built-in
+// tool policy and explicitly registered custom tools. A WithoutTools session is
+// empty unless WithCustomTools supplied an explicit custom set.
 func (s *Session) ToolNames() []string {
 	names := make([]string, len(s.env.Tools))
 	for i, t := range s.env.Tools {
