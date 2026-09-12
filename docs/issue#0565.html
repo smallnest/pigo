@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0565</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/565">#565</a> &mdash; feat: 会话级定时提醒（schedule_create/list/delete 工具组） &mdash; 2026-09-12</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Delivery rides the existing <code>GetFollowUpMessages</code> seam, not a timer goroutine</h3>
+      <p><strong>Ambiguity:</strong> The spec said reminders are delivered "when the agent is fully idle" but not by which mechanism.</p>
+      <p><strong>Choice:</strong> <code>Schedule.FollowUpMessages</code> is wired as <code>RunConfig.GetFollowUpMessages</code>; the outer loop already consults that seam exactly when a run is about to settle, which is pigo's definition of "idle".</p>
+      <p><strong>Rationale:</strong> Zero new goroutine lifecycle, deterministic delivery points, and the delivered reminder enters <code>AgentContext.Messages</code> as a real user turn — persisted and compacted like any other turn, which a background-timer injection could not guarantee.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Store and tools live in <code>agenttool</code>, surfaced via <code>ScheduleFromTools</code></h3>
+      <p><strong>Ambiguity:</strong> The spec did not say which package owns the scheduler.</p>
+      <p><strong>Choice:</strong> The store and three tools live in <code>internal/agenttool</code> (no import cycle with <code>runtime</code>); <code>SetupEnv</code> puts the store on <code>Env.Schedule</code> and front-ends extract it from the tool set via <code>agenttool.ScheduleFromTools</code>.</p>
+      <p><strong>Rationale:</strong> Mirrors the established <code>MemoryStoreFromTools</code> / <code>BashJobStoreFromTools</code> extraction pattern, so REPL/TUI/headless/SDK wiring stays symmetric and the tool-policy filter automatically disables the scheduler when it removes <code>schedule_create</code>.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Strict time grammar: <code>at</code> XOR <code>{date,time,time_zone}</code> XOR <code>every_seconds</code></h3>
+      <p><strong>Ambiguity:</strong> The spec listed the accepted shapes but not how mixed or partial input should behave.</p>
+      <p><strong>Choice:</strong> Exactly one shape must be present; a partial <code>date/time/time_zone</code> triple is an error; <code>"Local"</code> is rejected as a zone; DST spring-forward gaps are rejected via a wall-clock round-trip check; fall-back overlaps resolve to the first instant; every stored target is normalized to UTC.</p>
+      <p><strong>Rationale:</strong> Matches dsh's documented strictness; Go's <code>time.Date</code> normalization silently shifts gap times, so the round-trip check is the only reliable gap detector.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> dsh's <code>after_seconds</code> form omitted</h3>
+      <p><strong>Spec:</strong> dsh's overlay accepts <code>after_seconds</code> (relative delay), an absolute <code>at</code>, or <code>every_seconds</code>.</p>
+      <p><strong>Implemented:</strong> Two shapes — absolute (<code>at</code> / date+time+time_zone) and fixed-rate (<code>every_seconds</code>) — per the issue text.</p>
+      <p><strong>Why:</strong> <code>after_seconds</code> is sugar for an absolute instant computed client-side; the model can pass <code>at</code> directly. Trivial to add later without breaking the tool contract.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> "REPL 端到端演示" acceptance satisfied by a loop-level integration test</h3>
+      <p><strong>Spec:</strong> Acceptance asked for a REPL end-to-end demo of create → due → follow-up injection.</p>
+      <p><strong>Implemented:</strong> <code>TestLoopDeliversDueScheduleReminder</code> drives the real loop + real executor + real delivery seam against a scripted provider, asserting the reminder lands in the third request's context. REPL/TUI/headless/SDK are fully wired (<code>deps.schedule</code> → <code>cfg.GetFollowUpMessages</code>).</p>
+      <p><strong>Why:</strong> An interactive REPL demo needs a live LLM key and human observation; the loop seam is the component that actually implements delivery, so the automated proof lives there.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Embedded <code>time/tzdata</code> (~450KB) vs Windows correctness</h3>
+      <p><strong>Alternatives:</strong> (a) embed the IANA database; (b) rely on the system zone database; (c) document IANA zones as unsupported on Windows.</p>
+      <p><strong>Chosen:</strong> (a). goreleaser ships windows targets where the system tz database does not exist, so (b) breaks <code>schedule_create</code> at runtime and (c) ships a silent platform gap.</p>
+      <p><strong>Why:</strong> ~450KB binary growth is cheap for correct DST rules on every release target (review finding, fixed).</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Extended <code>NewConfig</code> signature vs an options struct</h3>
+      <p><strong>Alternatives:</strong> add an eighth parameter, or refactor <code>NewConfig</code> to take an options object.</p>
+      <p><strong>Chosen:</strong> parameter, with the scheduler optional (nil = seam unwired).</p>
+      <p><strong>Why:</strong> Two call sites; an options-struct refactor would touch every driver for one field. Revisit if the config keeps growing.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should repeating reminders cap total deliveries?</h3>
+      <p>dsh does not cap them within a session; pigo currently re-arms forever while the session lives. A <code>max_fires</code> argument or an idle-bounce guard (skip delivery when the previous turn was also this reminder) could be added if long sessions see noise.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should <code>/status</code> or the system prompt surface active reminders?</h3>
+      <p>dsh shows a reminder catalog in the Web UI header. pigo currently exposes reminders only through <code>schedule_list</code>. A <code>/status</code> line would be user-facing; a prompt hint would be model-facing. Both are additive follow-ups.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>

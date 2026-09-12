@@ -83,7 +83,7 @@ func Run(ctx context.Context, p RunParams, out, errOut io.Writer) int {
 	// An explicit --api-key overrides env/config for the resolved provider.
 	creds := provider.NewCredentialStore(nil)
 	creds.SetOverride(env.ProviderName, p.APIKey)
-	runCfg := run.NewConfig(p.Model, env.ProviderName, thinking, env.Provider, creds, run.ToolRegistry(env.Tools), run.TodoReminders(env.Tools))
+	runCfg := run.NewConfig(p.Model, env.ProviderName, thinking, env.Provider, creds, run.ToolRegistry(env.Tools), run.TodoReminders(env.Tools), env.Schedule)
 	runCfg.SessionID = hs.header.ID
 	// Route auto-compaction checkpoints to the shared memory root so a rebuild can
 	// recover the pre-watermark prefix (no-op when memory is disabled → empty root).

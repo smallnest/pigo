@@ -49,6 +49,7 @@ type runSession struct {
 	live      *cli.LiveConfig
 	reg       *agenttool.ToolRegistry
 	reminders *runtime.ReminderRegistry
+	schedule  *agenttool.Schedule
 	creds     *provider.CredentialStore
 
 	// cwd is the directory pigo was launched in, captured once at session
@@ -210,19 +211,20 @@ func newRunSessionWithStore(store *session.Store, opts Options) (*runSession, []
 	}
 
 	s := &runSession{
-		store:     store,
-		header:    header,
-		agentCtx:  agentCtx,
-		live:      live,
-		reg:       run.ToolRegistry(opts.Tools),
-		reminders: run.TodoReminders(opts.Tools),
-		creds:     creds,
-		cwd:       cwd,
-		trust:     mgr,
-		slash:     newSlashRegistry(opts, live),
-		telemetry: cli.NewTelemetryHolder(),
-		curLeaf:   curLeaf,
-		persisted: len(history),
+		store:      store,
+		header:     header,
+		agentCtx:   agentCtx,
+		live:       live,
+		reg:        run.ToolRegistry(opts.Tools),
+		reminders:  run.TodoReminders(opts.Tools),
+		schedule:   agenttool.ScheduleFromTools(opts.Tools),
+		creds:      creds,
+		cwd:        cwd,
+		trust:      mgr,
+		slash:      newSlashRegistry(opts, live),
+		telemetry:  cli.NewTelemetryHolder(),
+		curLeaf:    curLeaf,
+		persisted:  len(history),
 		memoryRoot: run.MemoryRootFromTools(opts.Tools),
 		memstore:   run.MemoryStoreFromTools(opts.Tools),
 	}
@@ -308,14 +310,19 @@ func (s *runSession) buildConfig() runtime.RunConfig {
 				Registry: s.reg,
 			},
 		},
-		Reminders: s.reminders,
-		SessionID: s.header.ID,
+		Reminders:  s.reminders,
+		SessionID:  s.header.ID,
 		MemoryRoot: s.memoryRoot,
 	}
 	// Per-turn wiring of the tool-execution + Stop seams; nil dispatcher is a
 	// no-op so the hot path pays nothing when no hooks are configured (FR-18).
 	if s.dispatcher != nil {
 		run.InstallSeams(&cfg, s.dispatcher, s.hookDeps)
+	}
+	// Due session-local reminders ride the follow-up seam (issue #565); a nil
+	// scheduler (no schedule_* tools) leaves the seam unwired.
+	if s.schedule != nil {
+		cfg.GetFollowUpMessages = s.schedule.FollowUpMessages
 	}
 	// When remote control is active, route side-effect tool-call confirmations to
 	// the paired browser (no-op when no client is connected or the cwd is trusted,
@@ -377,7 +384,6 @@ func (s *runSession) rebuild() (string, error) {
 	return fmt.Sprintf("context rebuilt from %s: %d → %d tokens, collapsed %d messages, kept %d",
 		source, res.TokensBefore, res.TokensAfter, res.SummarizedCount, res.KeptCount), nil
 }
-
 
 // prompt to the growing context as a user message, then hands the context and a
 // freshly-built config to the event bridge (bridge.startRun → runtime.StartRun +

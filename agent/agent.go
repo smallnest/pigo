@@ -86,7 +86,7 @@ func New(opts ...Option) (*Session, error) {
 
 	runCfg := run.NewConfig(
 		c.model, env.ProviderName, thinking, env.Provider, creds,
-		run.ToolRegistry(env.Tools), run.TodoReminders(env.Tools),
+		run.ToolRegistry(env.Tools), run.TodoReminders(env.Tools), env.Schedule,
 	)
 
 	return &Session{

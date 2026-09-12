@@ -56,8 +56,13 @@ type replDeps struct {
 	// when no todo tool is present; when set, streamRun wires it so ephemeral
 	// <system-reminder> context is injected into each turn's request.
 	reminders *runtime.ReminderRegistry
-	slash     *runtime.SlashRegistry
-	creds     *provider.CredentialStore
+
+	// schedule is the session-local reminder scheduler (issue #565). It is nil
+	// when the schedule_* tools are not wired in (e.g. --no-tools); when set,
+	// streamRun wires it so due reminders are delivered as follow-up user turns.
+	schedule *agenttool.Schedule
+	slash    *runtime.SlashRegistry
+	creds    *provider.CredentialStore
 
 	// notifier delivers agent lifecycle events to subscribed plugins (US-017,
 	// #133). It is nil when no plugin subscribes; DrainStream's OnEvent stays
@@ -601,8 +606,8 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 				BeforeToolCall: beforeToolCall(deps, out),
 			},
 		},
-		Reminders: deps.reminders,
-		SessionID: deps.header.ID,
+		Reminders:  deps.reminders,
+		SessionID:  deps.header.ID,
 		MemoryRoot: deps.memoryRoot,
 	}
 	// Per-turn wiring of the tool-execution + Stop seams (PreToolUse/PostToolUse/
@@ -610,6 +615,12 @@ func streamRun(ctx context.Context, out io.Writer, deps replDeps, prompt string)
 	// hot path pays nothing when no hooks are configured (FR-18).
 	if deps.dispatcher != nil {
 		run.InstallSeams(&cfg, deps.dispatcher, deps.hookDeps)
+	}
+	// Due session-local reminders ride the follow-up seam (issue #565): when the
+	// run is about to settle, the scheduler queues each due reminder as a normal
+	// user turn. A nil scheduler (no schedule_* tools) leaves the seam unwired.
+	if deps.schedule != nil {
+		cfg.GetFollowUpMessages = deps.schedule.FollowUpMessages
 	}
 	stream := runtime.StartRun(ctx, deps.agentCtx, cfg)
 

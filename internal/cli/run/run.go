@@ -52,6 +52,13 @@ type Env struct {
 	// per-turn memory reminder provider, so this field exists mainly so the owner
 	// can close the DB — downstream wiring reaches the store via the tool.
 	Memory *memory.Store
+
+	// Schedule is the session-local reminder scheduler (issue #565), or nil when
+	// tools are disabled. Its schedule_* tools are already in Tools; the store is
+	// surfaced so run assembly can wire due-reminder delivery into the loop's
+	// GetFollowUpMessages seam (see NewConfig) and front-ends can reach it via
+	// agenttool.ScheduleFromTools.
+	Schedule *agenttool.Schedule
 }
 
 // SetupEnv resolves the provider for model/baseURL, builds the tool set rooted
@@ -119,6 +126,16 @@ func SetupEnv(model, baseURL, protocol, providerName, apiKey string, noTools, no
 		}
 		tools = append(tools, runtime.NewTaskTool(factory, sem))
 	}
+	// Wire the session-local reminder scheduler (issue #565) unless tools are
+	// disabled: three schedule_* tools over one in-memory store, whose due
+	// reminders are delivered as follow-up user turns through the loop's
+	// GetFollowUpMessages seam. The store is surfaced on Env so run assembly
+	// (NewConfig) and front-ends (ScheduleFromTools) can wire delivery.
+	var sched *agenttool.Schedule
+	if !noTools {
+		sched = agenttool.NewSchedule()
+		tools = append(tools, agenttool.ScheduleTools(sched)...)
+	}
 	// Discover external plugins (US-016) and append their tools. Plugin loading
 	// is fault-tolerant: a plugin that fails to start is logged and skipped, and
 	// disabling tools (--no-tools) skips plugin discovery entirely.
@@ -181,6 +198,7 @@ func SetupEnv(model, baseURL, protocol, providerName, apiKey string, noTools, no
 		Skills:       skills,
 		Plugins:      mgr,
 		Memory:       memStore,
+		Schedule:     sched,
 	}, nil
 }
 
@@ -577,8 +595,8 @@ func Trusted(cwd string) bool {
 // stream, the dynamic API-key resolver, and the tool registry. It is the single
 // definition of "how a run is wired", so the REPL (streamRun) and the headless
 // driver cannot drift apart.
-func NewConfig(model, providerName string, thinking agentcore.ThinkingLevel, prov provider.Provider, creds *provider.CredentialStore, reg *agenttool.ToolRegistry, reminders *runtime.ReminderRegistry) runtime.RunConfig {
-	return runtime.RunConfig{
+func NewConfig(model, providerName string, thinking agentcore.ThinkingLevel, prov provider.Provider, creds *provider.CredentialStore, reg *agenttool.ToolRegistry, reminders *runtime.ReminderRegistry, sched *agenttool.Schedule) runtime.RunConfig {
+	cfg := runtime.RunConfig{
 		LoopConfig: runtime.LoopConfig{
 			Model:         model,
 			Provider:      providerName,
@@ -591,4 +609,11 @@ func NewConfig(model, providerName string, thinking agentcore.ThinkingLevel, pro
 		},
 		Reminders: reminders,
 	}
+	// Due session-local reminders ride the follow-up seam (issue #565): when the
+	// run is about to settle, the loop consults the scheduler and queues each due
+	// reminder as a normal user turn. A nil scheduler leaves the seam unwired.
+	if sched != nil {
+		cfg.GetFollowUpMessages = sched.FollowUpMessages
+	}
+	return cfg
 }
