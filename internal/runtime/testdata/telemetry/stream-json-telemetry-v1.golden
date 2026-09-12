@@ -1,0 +1,19 @@
+{
+  "compactionCount": 2,
+  "contextTokens": 96000,
+  "contextUtilization": 0.75,
+  "contextWindow": 128000,
+  "toolDurationsMs": {
+    "bash": {
+      "count": 4,
+      "totalMs": 1230
+    },
+    "read": {
+      "count": 12,
+      "totalMs": 87
+    }
+  },
+  "truncationCount": 1,
+  "turns": 7,
+  "type": "telemetry"
+}

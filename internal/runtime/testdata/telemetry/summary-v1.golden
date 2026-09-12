@@ -1,0 +1,19 @@
+{
+  "schema_version": "pigo.telemetry/v1",
+  "turns": 7,
+  "truncation_count": 1,
+  "compaction_count": 2,
+  "context_tokens": 96000,
+  "context_window": 128000,
+  "context_utilization": 0.75,
+  "tool_durations_ms": {
+    "bash": {
+      "count": 4,
+      "total_ms": 1230
+    },
+    "read": {
+      "count": 12,
+      "total_ms": 87
+    }
+  }
+}
