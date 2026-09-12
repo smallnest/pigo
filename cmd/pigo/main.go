@@ -125,6 +125,11 @@ type cliOptions struct {
 	// showVersion prints build metadata (version/commit/date, injected at release
 	// time by goreleaser) and exits, without running the agent.
 	showVersion bool
+	// credentialRef is the config.toml `credential` value (issue #568): a named
+	// reference into ~/.pigo/.credentials.yaml (0600). It resolves to opts.apiKey
+	// when no --api-key / config api_key is present; the literal secret never
+	// touches config files.
+	credentialRef string
 	// noTUI forces the line-based REPL instead of the full-screen TUI (US-001).
 	// When set — or when stdout is not a TTY — the no-prompt path falls back to
 	// repl.Run rather than launching tui.Run.
@@ -248,6 +253,23 @@ func main() {
 	// model id instead of routing the literal name to OpenRouter.
 	opts.model = provider.CanonicalizeModel(opts.model)
 
+	// Resolve a credential reference into an API key (issue #568): the config
+	// carries only a NAME; the literal secret lives in
+	// $PIGO_HOME/.credentials.yaml (0600). A missing reference warns rather
+	// than aborts — the provider may authenticate from the ambient environment.
+	if opts.credentialRef != "" && opts.apiKey == "" {
+		path := provider.CredentialFilePath()
+		if provider.CredentialFilePermissionsWarn(path) {
+			fmt.Fprintf(os.Stderr, "pigo: warning: %s is readable by group/other; chmod 600 recommended\n", path)
+		}
+		key, err := provider.ResolveCredentialReference(path, opts.credentialRef)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "pigo: credential %q: %v\n", opts.credentialRef, err)
+		} else {
+			opts.apiKey = key
+		}
+	}
+
 	// --version is a standalone action: print build metadata and exit.
 	if opts.showVersion {
 		fmt.Printf("pigo %s (commit %s, built %s)\n", version, commit, date)
@@ -275,6 +297,13 @@ func applyFileConfig(opts *cliOptions, cfg config.FileConfig, changed func(strin
 	}
 	if cfg.APIKey != "" && !changed("api-key") {
 		opts.apiKey = cfg.APIKey
+	}
+	if cfg.Credential != "" && !changed("api-key") {
+		// A direct api_key in the file wins over a reference when both are set;
+		// a reference only fills the gap (issue #568).
+		if cfg.APIKey == "" {
+			opts.credentialRef = cfg.Credential
+		}
 	}
 	if cfg.Protocol != "" && !changed("protocol") {
 		opts.protocol = cfg.Protocol

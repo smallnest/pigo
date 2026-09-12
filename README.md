@@ -213,6 +213,14 @@ pigo -a -p "运行 go test ./... 并修复失败的用例"
 
 > **优先级**：显式 flag（`--provider` > `--protocol`）> 预置目录 > `ollama/`/`nvidia/` 前缀 > 模型名推断 > OpenRouter 默认。显式 `--provider` 始终胜出；给了 `--base-url` 会被视为自定义端点信号，跳过第 6 步推断。
 
+**凭证引用**：config.toml 可以只写凭据的**名字**而非明文——`credential = "deepseek-main"`，真实 key 存放在 `~/.pigo/.credentials.yaml`（权限应为 0600）：
+
+```yaml
+deepseek-main: sk-xxx
+```
+
+解析优先级：`--api-key` > config `api_key` > config `credential` 引用 > 环境变量。子进程（进程隔离子 Agent）默认继承**已清洗**的环境：凭证形态的变量（`*_API_KEY`/`*_TOKEN`/`*_SECRET` 等）与 `PIGO_*` 内部变量不会传给子进程。
+
 **默认模型**：在 `~/.config/pigo/config.toml` 写 `model = "zai"`（裸 Provider 名，取其默认模型）或具体 id 如 `model = "glm-4.7"`，启动即生效；命令行 `--model` 仍可临时覆盖。对应 Provider 的 API Key 环境变量需提前设好（如智谱 `ZAI_API_KEY`、DeepSeek `DEEPSEEK_API_KEY`）。缺 Key 的报错会指明应设置的环境变量名。
 
 **按模型名推断的前缀对照**（仅推断能唯一确定 Provider 的前缀；`llama-*`、`qwq-*`、`gemma-*`、`mixtral-*` 等被多家网关服务的家族，以及形如 `provider/model` 的 routed id，不推断，回落到 OpenRouter 默认）：

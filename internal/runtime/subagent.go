@@ -32,6 +32,7 @@ import (
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/jsonrpc"
+	"github.com/smallnest/pigo/internal/provider"
 )
 
 // SubAgentIsolation selects how a sub-agent runs relative to its parent.
@@ -408,10 +409,19 @@ func defaultProcessCall(ctx context.Context, cfg SubAgentProcessConfig, params S
 		command = exe
 	}
 	args := append([]string{SubAgentRPCFlag}, cfg.Args...)
+	// Credential hygiene (issue #568): when the caller does not build the child
+	// environment explicitly, default to a scrubbed one — the child must not
+	// inherit credential-shaped variables it did not ask for. A parent that
+	// knows the child needs a specific key builds cfg.Env from
+	// provider.ScrubEnv with an allow entry.
+	env := cfg.Env
+	if env == nil {
+		env = provider.ScrubEnv(os.Environ(), nil)
+	}
 	client, err := jsonrpc.NewClient(jsonrpc.Config{
 		Command: command,
 		Args:    args,
-		Env:     cfg.Env,
+		Env:     env,
 		Dir:     cfg.Dir,
 		Stderr:  cfg.Stderr,
 	})

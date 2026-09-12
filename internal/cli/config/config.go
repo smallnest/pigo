@@ -28,9 +28,14 @@ import (
 // absent (zero-value) field leaves the corresponding default/flag untouched.
 // Keys are snake_case to read naturally in TOML.
 type FileConfig struct {
-	Model         string `toml:"model"`
-	BaseURL       string `toml:"base_url"`
-	APIKey        string `toml:"api_key"`
+	Model   string `toml:"model"`
+	BaseURL string `toml:"base_url"`
+	APIKey  string `toml:"api_key"`
+	// Credential is a named credential REFERENCE (issue #568): the literal key
+	// lives in $PIGO_HOME/.credentials.yaml (mode 0600) under this name, and
+	// config.toml carries only the name. It resolves to the API-key tier, below
+	// an explicit --api-key flag. Empty means no reference.
+	Credential    string `toml:"credential"`
 	Protocol      string `toml:"protocol"`
 	Provider      string `toml:"provider"`
 	ThinkingLevel string `toml:"thinking_level"`
