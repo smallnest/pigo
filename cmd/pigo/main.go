@@ -35,6 +35,7 @@ import (
 	"github.com/smallnest/pigo/internal/cli/pkgcmd"
 	"github.com/smallnest/pigo/internal/cli/repl"
 	"github.com/smallnest/pigo/internal/cli/run"
+	"github.com/smallnest/pigo/internal/cli/sessioncmd"
 	"github.com/smallnest/pigo/internal/cli/tui"
 	"github.com/smallnest/pigo/internal/cli/ui"
 	"github.com/smallnest/pigo/internal/dream"
@@ -166,6 +167,17 @@ type cliOptions struct {
 }
 
 func main() {
+	// Session subcommands (pigo session export|list, issue #570) dispatch early
+	// like the package-management ones: they are standalone actions that never
+	// touch the interactive/headless flag surface.
+	if len(os.Args) > 1 && os.Args[1] == "session" {
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: pigo session export <session-id> [flags] | pigo session list")
+			os.Exit(2)
+		}
+		os.Exit(sessioncmd.Run(os.Args[2], os.Args[3:], os.Stdout, os.Stderr))
+	}
+
 	// Package-management subcommands (pigo install|list|uninstall|update ...) are
 	// positional and distinct from the flag-driven agent modes, so peel them off
 	// before pflag parsing — the agent flags don't apply to them.
