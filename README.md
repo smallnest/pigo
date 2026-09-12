@@ -795,6 +795,7 @@ git push origin v0.2.0
 - pigo 会向解析出的 Provider 端点发起外部网络请求。
 - `bash` / `write` / `edit` 会在本地产生副作用，仅由项目信任机制把关；`--approve` 会跳过逐次确认，请在受信任的目录中使用，权衡便利与安全。
 - 处理来自文件、命令输出、网页等外部来源的内容时应视为不可信数据。
+- 需要操作系统级隔离时，参见 [docs/sandboxing.md](docs/sandboxing.md)：Docker 整进程、micro-VM、进程级策略沙箱三种模式与 trust/tool-policy 的组合矩阵。
 
 ---
 
