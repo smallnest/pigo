@@ -340,6 +340,19 @@ pigo --resume 20260720-1530-abcd  # 续跑指定会话（无头/REPL 均可）
 pigo --continue                   # 续跑最近一次会话
 ```
 
+### GitHub PR Review Webhook
+
+```
+export PIGO_GITHUB_WEBHOOK_SECRET="$(openssl rand -hex 32)"
+pigo --github-review --github-webhook-repo smallnest/pigo
+```
+
+Opt-in 模式：GitHub webhook 收到 PR `ready_for_review` 事件后，自动创建一个**只读 review 会话**（仅 read/grep/find 工具，不能写文件、不能执行命令）并运行 review。部署前置条件：
+
+- 监听地址默认 `127.0.0.1:3081`，端点是**纯 HTTP**，必须放在 TLS 反向代理或隧道（如 ngrok、cloudflared、Caddy）之后才能暴露公网；
+- webhook secret 通过**环境变量名间接引用**（`--github-webhook-secret-env`），高熵值（`openssl rand -hex 32`），与 GitHub webhook 配置中的 secret 一致；
+- 事件验签（HMAC-SHA256）、按 delivery id 去重防重放；只处理 `pull_request` 的 `ready_for_review` action，其余事件 202 忽略。
+
 REPL 中的内置斜杠命令包括 `/model`、`/models`、`/think`、`/help`、`/compact`、`/fork`、`/clone`、`/tree`、`/rewind`、`/export`、`/import`、`/copy`、`/session`、`/status`、`/exit` 等。其中 `/think [off|minimal|low|medium|high|xhigh|max]` 可在运行时查看或切换推理强度（reasoning effort），空参展示当前级别，切换后自下一轮生效。`/rewind [n]` 是编辑回滚（对标 Claude Code 的 Esc-Esc）：空参列出各轮产生的还原点，`/rewind n` 会把 write/edit 工具改动的文件恢复到该轮之前的内容，并同时把对话回退到那一轮之前（暂不含 bash 改动的文件）。`/status` 一次性展示运行时模型配置、上下文占用与压缩、项目环境（信任 / 技能 / 插件）、凭据连通性，以及遥测数据（累计与最近一次 run 的轮次、工具耗时、上下文利用率）。
 
 在交互终端输入时，pigo 会用灰色文字提示最近匹配的输入或斜杠命令；

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0567</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #FAF9F6; color: #1a1a1a; padding: 2.5rem 2rem; line-height: 1.7; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 { font-size: 1rem; font-weight: 600; margin-top: 2rem; margin-bottom: 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #E8E4DE; display: flex; align-items: center; gap: 0.5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item { background: #FFFFFF; border: 1px solid #E8E4DE; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label { display: inline-block; font-size: 0.6875rem; font-weight: 500; padding: 0.125rem 0.5rem; border-radius: 4px; margin-right: 0.375rem; }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .footer { text-align: center; margin-top: 2.5rem; color: #B0AAA4; font-size: 0.6875rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="https://github.com/smallnest/pigo/issues/567">#567</a> &mdash; feat: GitHub PR ready-for-review 自动创建只读 review 会话（webhook） &mdash; 2026-09-12</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Pluggable <code>Runner</code> with a default real runner</h3>
+      <p><strong>Ambiguity:</strong> The spec required session creation + prompt injection + read-only toolset, but not how (or whether) the webhook process should itself run the LLM.</p>
+      <p><strong>Choice:</strong> <code>Server.Runner</code> is injectable; <code>DefaultRunner</code> resumes the just-created session, drives the loop with the read-only registry, and appends the reply. <code>cmd/pigo --github-review</code> wires the default; tests inject fakes.</p>
+      <p><strong>Rationale:</strong> Keeps the webhook handler testable end-to-end without a live LLM, while the shipped mode performs the full review.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Session persisted before the runner starts</h3>
+      <p><strong>Choice:</strong> <code>createReviewSession</code> writes the header + review prompt to disk first; the runner resumes from the store and appends its reply to the same session.</p>
+      <p><strong>Rationale:</strong> The review input is durable even if the process dies mid-run, and the session can be reopened interactively with <code>/resume</code> — matching dsh's "root Session under the Web Workspace".</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> Secret by env-var-name indirection</h3>
+      <p><strong>Choice:</strong> <code>--github-webhook-secret-env</code> names the environment variable carrying the secret (default <code>PIGO_GITHUB_WEBHOOK_SECRET</code>); the process refuses to start when it is unset.</p>
+      <p><strong>Rationale:</strong> Mirrors dsh's credential-reference pattern — the secret never appears in config files, argv, or logs.</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Delivery-id dedupe instead of timestamp replay window</h3>
+      <p><strong>Spec:</strong> "并发/重放防护" without prescribing a mechanism.</p>
+      <p><strong>Implemented:</strong> HMAC-SHA256 constant-time verification plus <code>X-GitHub-Delivery</code> id dedupe with a 24h TTL cache. GitHub does not send timestamps, so the delivery id is the natural replay token; a missing id is 202-ignored.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> Default listener binds loopback (127.0.0.1:3081), plain HTTP</h3>
+      <p><strong>Why:</strong> Same as dsh's default; TLS terminates at the reverse proxy/tunnel documented in README. Binding loopback by default avoids accidentally exposing a plain-HTTP endpoint.</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Read-only via tool-set allowlist, not a trust mode</h3>
+      <p><strong>Alternatives:</strong> a new "review trust level" threaded through the trust manager, or a filtered tool set.</p>
+      <p><strong>Chosen:</strong> static allowlist (<code>read/grep/find</code>) in <code>ReadOnlyTools</code>.</p>
+      <p><strong>Why:</strong> Structurally simple — the tools are never advertised, so the model cannot call them — and matches how the tool-policy boundary already works. A trust-level redesign would be over-engineering for one mode.</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should concurrent review runs be queued/capped?</h3>
+      <p>Each accepted event currently spawns its own goroutine; a flood of ready-for-review events would run reviews in parallel (bounded only by the webhook source being GitHub + secret). A semaphore or work queue is a natural follow-up if a busy monorepo enables this mode.</p>
+    </div>
+
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Should the review result post back to GitHub?</h3>
+      <p>Today the review lands in a local session (readable via <code>/resume</code>). Posting a summary comment back to the PR would need a GitHub token and write scope — deliberately out of scope for this issue.</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
