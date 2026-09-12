@@ -37,7 +37,7 @@ func TestFormatHelpLine(t *testing.T) {
 // prompt template with its argument-hint, description, and source tier.
 func TestHelpActionIncludesTemplateLabelAndTier(t *testing.T) {
 	reg := runtime.NewSlashRegistry()
-	prompts.RegisterLiveCommands(reg, &cli.LiveConfig{Model: "test", ProviderName: "test"})
+	prompts.RegisterLiveCommands(reg, &cli.LiveConfig{Model: "test", ProviderName: "test"}, nil)
 	reg.AddUser(runtime.SlashCommand{
 		Name:         "review",
 		ArgumentHint: "<PR-URL>",

@@ -64,7 +64,7 @@ func TestBuildSlashRegistryLoadsSettingsPrompts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, nil,
 		PromptTemplateSources{Settings: []string{settingsDir}})
 	if err != nil {
 		t.Fatalf("BuildSlashRegistry: %v", err)
@@ -90,7 +90,7 @@ func TestBuildSlashRegistryGlobalOverridesSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, nil,
 		PromptTemplateSources{Settings: []string{settingsFile}})
 	if err != nil {
 		t.Fatalf("BuildSlashRegistry: %v", err)

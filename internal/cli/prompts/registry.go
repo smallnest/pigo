@@ -15,7 +15,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/cli"
@@ -85,10 +87,11 @@ func LoadPromptPaths(paths []string) []runtime.SlashCommand {
 // error. Names that collide with a built-in are shadowed (the built-in wins) and
 // reported on stderr. The skills slice is loaded once by setupAgentEnv (empty
 // under --no-skills), so no /skill-name commands are registered when it is
-// empty. mgr may be nil (no plugins loaded).
-func BuildSlashRegistry(live *cli.LiveConfig, skills []*runtime.Skill, mgr *plugin.Manager, srcs PromptTemplateSources) (*runtime.SlashRegistry, error) {
+// empty. mgr may be nil (no plugins loaded). creds may be nil, which disables
+// "/models fetch" online discovery.
+func BuildSlashRegistry(live *cli.LiveConfig, creds *provider.CredentialStore, skills []*runtime.Skill, mgr *plugin.Manager, srcs PromptTemplateSources) (*runtime.SlashRegistry, error) {
 	reg := runtime.NewSlashRegistry()
-	RegisterLiveCommands(reg, live)
+	RegisterLiveCommands(reg, live, creds)
 	RegisterPluginCommands(reg, mgr)
 	// --no-prompt-templates disables all prompt-template discovery (global,
 	// settings, CLI); built-in slash commands and skills are unaffected.
@@ -197,6 +200,42 @@ func RegisterPluginCommands(reg *runtime.SlashRegistry, mgr *plugin.Manager) {
 // formatNotifications renders a plugin command's notifications into a single
 // block to surface to the user, one per line, prefixed by their type (when set)
 // so severity is visible. Returns "" when there are none.
+// fetchModelCatalog implements "/models fetch" (issue #566): query the live
+// provider's endpoint for its real model catalog, cache the ids on live for
+// /model switching, and summarize the result. Errors degrade gracefully — the
+// static preset listing remains the source of truth for switching.
+func fetchModelCatalog(live *cli.LiveConfig, creds *provider.CredentialStore) string {
+	if creds == nil {
+		return "models: fetch unavailable (no credential store); /models shows the static presets"
+	}
+	spec, ok := provider.LookupProviderSpec(live.ProviderName)
+	if !ok {
+		return fmt.Sprintf("models: fetch unavailable: unknown provider %q; /models shows the static presets", live.ProviderName)
+	}
+	baseURL := live.BaseURL
+	if strings.TrimSpace(baseURL) == "" {
+		baseURL = spec.DefaultBaseURL
+	}
+	protocol := live.Protocol
+	if strings.TrimSpace(protocol) == "" {
+		protocol = spec.Protocol
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	ids, err := provider.FetchRemoteModels(ctx, baseURL, protocol, creds.GetAPIKey(ctx, live.ProviderName))
+	if err != nil {
+		return fmt.Sprintf("models: fetch failed: %v\nrun /models for the static presets", err)
+	}
+	live.FetchedModels = ids
+	live.FetchedAt = time.Now()
+	preview := ids
+	if len(preview) > 8 {
+		preview = ids[:8]
+	}
+	return fmt.Sprintf("models: fetched %d models from %s (%s):\n  %s\nswitch with /model <id>; run /models for the static presets",
+		len(ids), strings.TrimRight(baseURL, "/"), live.ProviderName, strings.Join(preview, "\n  "))
+}
+
 func formatNotifications(notes []plugin.CommandNotification) string {
 	if len(notes) == 0 {
 		return ""
@@ -220,8 +259,10 @@ func formatNotifications(notes []plugin.CommandNotification) string {
 // runtime state. /model views or switches the active model; /help lists the
 // available commands. These are instance built-ins (AddBuiltin) because their
 // closures must capture live and the registry — state unreachable from an
-// init()-time global registration.
-func RegisterLiveCommands(reg *runtime.SlashRegistry, live *cli.LiveConfig) {
+// init()-time global registration. creds resolves the API key for "/models
+// fetch" online discovery; it may be nil, which disables fetching (the static
+// preset listing still works).
+func RegisterLiveCommands(reg *runtime.SlashRegistry, live *cli.LiveConfig, creds *provider.CredentialStore) {
 	reg.AddBuiltin(runtime.SlashCommand{
 		Name:        "model",
 		Description: "view or switch the active model: /model [model-id] (see /models for presets)",
@@ -233,6 +274,20 @@ func RegisterLiveCommands(reg *runtime.SlashRegistry, live *cli.LiveConfig) {
 			// A bare provider name ("zai") selects that provider's default
 			// model (issue #564): carry the canonical id into live.Model so
 			// the wire request and status bar show a real model id.
+			// An id from the fetched online catalog (issue #566) stays on the
+			// gateway that served it: resolve with the live provider name
+			// explicit instead of the heuristic chain, which could route a
+			// gateway-specific id to OpenRouter.
+			if providerName := live.ProviderName; len(live.FetchedModels) > 0 && slices.Contains(live.FetchedModels, id) {
+				prov, name, err := provider.ResolveProvider(id, live.BaseURL, live.Protocol, providerName, os.Getenv)
+				if err != nil {
+					return fmt.Sprintf("model: cannot switch to %q: %v", id, err)
+				}
+				live.Model = id
+				live.ProviderName = name
+				live.Provider = prov
+				return fmt.Sprintf("model switched to %s (provider: %s, from fetched catalog)", id, name)
+			}
 			model := provider.CanonicalizeModel(id)
 			prov, providerName, err := provider.ResolveProvider(model, live.BaseURL, live.Protocol, "", os.Getenv)
 			if err != nil {
@@ -246,8 +301,13 @@ func RegisterLiveCommands(reg *runtime.SlashRegistry, live *cli.LiveConfig) {
 	})
 	reg.AddBuiltin(runtime.SlashCommand{
 		Name:        "models",
-		Description: "list preset providers and models you can switch to",
-		Action:      func(args string) string { return presetListing(strings.TrimSpace(args)) },
+		Description: "list preset providers and models you can switch to; /models fetch queries the live endpoint for its real catalog",
+		Action: func(args string) string {
+			if strings.TrimSpace(args) == "fetch" {
+				return fetchModelCatalog(live, creds)
+			}
+			return presetListing(strings.TrimSpace(args))
+		},
 	})
 	// thinkAction views or switches the reasoning-effort level. It backs both
 	// /think and its alias /effect, so the two commands share identical behavior.

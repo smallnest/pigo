@@ -1,10 +1,13 @@
 package prompts
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/smallnest/pigo/internal/cli"
+	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
 )
 
@@ -15,7 +18,7 @@ import (
 func TestModelCommandSwitchesToBareProviderName(t *testing.T) {
 	live := &cli.LiveConfig{Model: "openrouter/free", ProviderName: "openrouter"}
 	reg := runtime.NewSlashRegistry()
-	RegisterLiveCommands(reg, live)
+	RegisterLiveCommands(reg, live, provider.NewCredentialStore(nil))
 
 	out, err := reg.ResolveOutcome("/model zai")
 	if err != nil {
@@ -38,7 +41,7 @@ func TestModelCommandSwitchesToBareProviderName(t *testing.T) {
 func TestModelCommandConcreteIdUnchanged(t *testing.T) {
 	live := &cli.LiveConfig{Model: "openrouter/free", ProviderName: "openrouter"}
 	reg := runtime.NewSlashRegistry()
-	RegisterLiveCommands(reg, live)
+	RegisterLiveCommands(reg, live, provider.NewCredentialStore(nil))
 
 	out, err := reg.ResolveOutcome("/model glm-5.2")
 	if err != nil {
@@ -58,5 +61,85 @@ func TestModelCommandConcreteIdUnchanged(t *testing.T) {
 	}
 	if live.Model != "deepseek-v4-pro" || live.ProviderName != "deepseek" {
 		t.Errorf("live = (%q, %q), want (deepseek-v4-pro, deepseek)", live.Model, live.ProviderName)
+	}
+}
+
+// TestModelsFetchCommandAndSwitch drives "/models fetch" against an
+// httptest endpoint (issue #566): the catalog lands on live.FetchedModels,
+// and switching to a fetched id stays on the gateway that served it instead
+// of falling through the heuristic chain.
+func TestModelsFetchCommandAndSwitch(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"data":[{"id":"m-b"},{"id":"m-a"},{"id":"m-b"}]}`))
+	}))
+	defer srv.Close()
+
+	live := &cli.LiveConfig{Model: "openrouter/free", ProviderName: "openai", BaseURL: srv.URL + "/v1"}
+	creds := provider.NewCredentialStore(nil)
+	creds.SetOverride("openai", "test-key")
+	reg := runtime.NewSlashRegistry()
+	RegisterLiveCommands(reg, live, creds)
+
+	out, err := reg.ResolveOutcome("/models fetch")
+	if err != nil {
+		t.Fatalf("ResolveOutcome /models fetch: %v", err)
+	}
+	if gotAuth != "Bearer test-key" {
+		t.Errorf("Authorization = %q, want Bearer test-key", gotAuth)
+	}
+	if len(live.FetchedModels) != 2 || live.FetchedModels[0] != "m-a" || live.FetchedModels[1] != "m-b" {
+		t.Fatalf("live.FetchedModels = %v, want [m-a m-b]", live.FetchedModels)
+	}
+	if live.FetchedAt.IsZero() {
+		t.Error("FetchedAt not stamped")
+	}
+	if !strings.Contains(out.Message, "2 models") {
+		t.Errorf("message = %q, want it to mention 2 models", out.Message)
+	}
+
+	// Switching to a fetched id pins the live provider.
+	out, err = reg.ResolveOutcome("/model m-b")
+	if err != nil {
+		t.Fatalf("ResolveOutcome /model m-b: %v", err)
+	}
+	if live.Model != "m-b" || live.ProviderName != "openai" {
+		t.Fatalf("live = (%q, %q), want (m-b, openai)", live.Model, live.ProviderName)
+	}
+	if models := live.Provider.Models(); len(models) != 1 || models[0].ID != "m-b" || models[0].Provider != "openai" {
+		t.Fatalf("wire models = %+v, want one openai/m-b entry", models)
+	}
+	if !strings.Contains(out.Message, "fetched catalog") {
+		t.Errorf("message = %q, want the fetched-catalog note", out.Message)
+	}
+}
+
+// TestModelsFetchDegrades verifies a failing endpoint degrades gracefully:
+// the error is reported and the static preset listing still works.
+func TestModelsFetchDegrades(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	live := &cli.LiveConfig{Model: "openrouter/free", ProviderName: "openai", BaseURL: srv.URL}
+	creds := provider.NewCredentialStore(nil)
+	creds.SetOverride("openai", "test-key")
+	reg := runtime.NewSlashRegistry()
+	RegisterLiveCommands(reg, live, creds)
+
+	out, err := reg.ResolveOutcome("/models fetch")
+	if err != nil {
+		t.Fatalf("ResolveOutcome /models fetch: %v", err)
+	}
+	if live.FetchedModels != nil {
+		t.Errorf("live.FetchedModels = %v, want nil after failed fetch", live.FetchedModels)
+	}
+	if !strings.Contains(out.Message, "fetch failed") {
+		t.Errorf("message = %q, want the fetch-failed note", out.Message)
+	}
+	if live.Model != "openrouter/free" {
+		t.Errorf("live.Model = %q, want unchanged", live.Model)
 	}
 }

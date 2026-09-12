@@ -148,7 +148,7 @@ func TestBuildSlashRegistryRegistersPluginCommand(t *testing.T) {
 	mgr := loadTestManager(t)
 	defer mgr.Close()
 
-	reg, err := prompts.BuildSlashRegistry(&cli.LiveConfig{Model: "faux", ProviderName: "faux"}, nil, mgr, prompts.PromptTemplateSources{})
+	reg, err := prompts.BuildSlashRegistry(&cli.LiveConfig{Model: "faux", ProviderName: "faux"}, nil, nil, mgr, prompts.PromptTemplateSources{})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestREPLPluginCommandInjectsPrompt(t *testing.T) {
 	mgr := loadTestManager(t)
 	defer mgr.Close()
 
-	reg, err := prompts.BuildSlashRegistry(&cli.LiveConfig{Model: "faux", ProviderName: "faux"}, nil, mgr, prompts.PromptTemplateSources{})
+	reg, err := prompts.BuildSlashRegistry(&cli.LiveConfig{Model: "faux", ProviderName: "faux"}, nil, nil, mgr, prompts.PromptTemplateSources{})
 	if err != nil {
 		t.Fatalf("buildSlashRegistry: %v", err)
 	}

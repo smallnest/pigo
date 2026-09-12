@@ -23,6 +23,7 @@ import (
 
 	"github.com/smallnest/pigo/internal/cli"
 	"github.com/smallnest/pigo/internal/cli/prompts"
+	"github.com/smallnest/pigo/internal/provider"
 	"github.com/smallnest/pigo/internal/runtime"
 )
 
@@ -38,7 +39,11 @@ const maxMenuRows = 8
 // error is non-fatal — BuildSlashRegistry still returns a registry with the
 // built-ins, so the TUI stays usable and the failure is surfaced on stderr.
 func newSlashRegistry(opts Options, live *cli.LiveConfig) *runtime.SlashRegistry {
-	reg, err := prompts.BuildSlashRegistry(live, opts.Skills, opts.Plugins, prompts.PromptTemplateSources{
+	// A credentials store resolved from the same flags the run uses, so
+	// "/models fetch" (issue #566) can authenticate against the live endpoint.
+	creds := provider.NewCredentialStore(nil)
+	creds.SetOverride(opts.ProviderName, opts.APIKey)
+	reg, err := prompts.BuildSlashRegistry(live, creds, opts.Skills, opts.Plugins, prompts.PromptTemplateSources{
 		Settings: opts.ConfigPrompts,
 		CLI:      opts.CliPrompts,
 		Disable:  opts.NoPromptTemplates,

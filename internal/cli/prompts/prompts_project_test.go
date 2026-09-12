@@ -21,7 +21,7 @@ func TestBuildSlashRegistryLoadsProjectPromptsTrusted(t *testing.T) {
 	cwdTmp := t.TempDir()
 	testutil.WritePrompt(t, cwdTmp, filepath.Join(".pigo", "prompts"), "review.md", "Review: $ARGUMENTS")
 
-	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, nil,
 		PromptTemplateSources{
 			ProjectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
 			ProjectTrusted: true,
@@ -46,7 +46,7 @@ func TestBuildSlashRegistryProjectPromptsUntrustedSkipped(t *testing.T) {
 	cwdTmp := t.TempDir()
 	testutil.WritePrompt(t, cwdTmp, filepath.Join(".pigo", "prompts"), "review.md", "Review: $ARGUMENTS")
 
-	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, nil,
 		PromptTemplateSources{
 			ProjectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
 			ProjectTrusted: false,
@@ -66,7 +66,7 @@ func TestBuildSlashRegistryProjectMissingDirNoError(t *testing.T) {
 	t.Setenv("PIGO_HOME", home)
 	cwdTmp := t.TempDir() // no .pigo/prompts created
 
-	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, nil,
 		PromptTemplateSources{
 			ProjectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
 			ProjectTrusted: true,
@@ -90,7 +90,7 @@ func TestBuildSlashRegistryProjectOverridesGlobal(t *testing.T) {
 	cwdTmp := t.TempDir()
 	testutil.WritePrompt(t, cwdTmp, filepath.Join(".pigo", "prompts"), "dup.md", "FROM PROJECT")
 
-	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, nil,
 		PromptTemplateSources{
 			ProjectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
 			ProjectTrusted: true,
@@ -124,7 +124,7 @@ func TestBuildSlashRegistryNoPromptTemplatesDisablesProject(t *testing.T) {
 	cwdTmp := t.TempDir()
 	testutil.WritePrompt(t, cwdTmp, filepath.Join(".pigo", "prompts"), "review.md", "Review: $ARGUMENTS")
 
-	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, nil,
 		PromptTemplateSources{
 			Disable:        true,
 			ProjectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),

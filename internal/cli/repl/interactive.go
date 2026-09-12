@@ -186,7 +186,7 @@ func Run(opts Options) error {
 	// ~/.agents/skills. A load error is non-fatal — the REPL still runs with the
 	// built-ins. Instance built-ins that need live state (/model, /help) are
 	// registered against `live`.
-	slash, err := prompts.BuildSlashRegistry(live, opts.Skills, opts.Plugins, prompts.PromptTemplateSources{
+	slash, err := prompts.BuildSlashRegistry(live, creds, opts.Skills, opts.Plugins, prompts.PromptTemplateSources{
 		Settings:       opts.ConfigPrompts,
 		CLI:            opts.CliPrompts,
 		Disable:        opts.NoPromptTemplates,

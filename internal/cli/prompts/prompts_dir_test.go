@@ -19,7 +19,7 @@ func TestBuildSlashRegistryLoadsLegacyCommandsDir(t *testing.T) {
 	t.Setenv("PIGO_HOME", home)
 	testutil.WritePrompt(t, home, "commands", "legacy.md", "Legacy: $ARGUMENTS")
 
-	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, PromptTemplateSources{})
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, nil, PromptTemplateSources{})
 	if err != nil {
 		t.Fatalf("BuildSlashRegistry: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestBuildSlashRegistryLoadsPromptsDir(t *testing.T) {
 	t.Setenv("PIGO_HOME", home)
 	testutil.WritePrompt(t, home, "prompts", "review.md", "Review: $ARGUMENTS")
 
-	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, PromptTemplateSources{})
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, nil, PromptTemplateSources{})
 	if err != nil {
 		t.Fatalf("BuildSlashRegistry: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestBuildSlashRegistryPromptsOverridesCommands(t *testing.T) {
 	testutil.WritePrompt(t, home, "commands", "dup.md", "FROM COMMANDS")
 	testutil.WritePrompt(t, home, "prompts", "dup.md", "FROM PROMPTS")
 
-	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, PromptTemplateSources{})
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, nil, PromptTemplateSources{})
 	if err != nil {
 		t.Fatalf("BuildSlashRegistry: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestBuildSlashRegistryPromptsOverridesCommands(t *testing.T) {
 // nor prompts/ present, BuildSlashRegistry returns no error (built-ins only).
 func TestBuildSlashRegistryMissingDirsNoError(t *testing.T) {
 	t.Setenv("PIGO_HOME", t.TempDir())
-	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, PromptTemplateSources{})
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, nil, PromptTemplateSources{})
 	if err != nil {
 		t.Fatalf("BuildSlashRegistry with no prompt dirs: %v", err)
 	}

@@ -222,7 +222,7 @@ func TestREPLModelSwitchTakesEffect(t *testing.T) {
 	deps, _ := newTestDeps(t, p)
 	// Register the real live action commands (/model, /models, /help) against the
 	// same live config the REPL runs on, so /model mutates it.
-	prompts.RegisterLiveCommands(deps.slash, deps.live)
+	prompts.RegisterLiveCommands(deps.slash, deps.live, nil)
 
 	var out bytes.Buffer
 	// /model with no arg reports the current model; /model <id> switches to an

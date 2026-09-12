@@ -32,7 +32,7 @@ func TestBuildSlashRegistryLoadsCLIPrompts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, nil,
 		PromptTemplateSources{CLI: []string{filePath, dirPath}})
 	if err != nil {
 		t.Fatalf("BuildSlashRegistry: %v", err)
@@ -64,7 +64,7 @@ func TestBuildSlashRegistryNoPromptTemplatesDisables(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, nil,
 		PromptTemplateSources{Disable: true, CLI: []string{cliFile}})
 	if err != nil {
 		t.Fatalf("BuildSlashRegistry: %v", err)
@@ -92,7 +92,7 @@ func TestBuildSlashRegistryGlobalOverridesCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
+	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, nil,
 		PromptTemplateSources{CLI: []string{cliFile}})
 	if err != nil {
 		t.Fatalf("BuildSlashRegistry: %v", err)

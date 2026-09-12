@@ -9,6 +9,8 @@
 package cli
 
 import (
+	"time"
+
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/provider"
 )
@@ -29,6 +31,15 @@ type LiveConfig struct {
 	// disabled; the REPL seeds it with a conservative default so long sessions
 	// still compact rather than overflow.
 	ContextWindow int
+
+	// FetchedModels is the online model catalog pulled from the live provider's
+	// endpoint by an explicit "/models fetch" (issue #566), sorted and
+	// deduplicated. It is session-lifetime state: /model prefers it over the
+	// heuristic chain for ids it contains (so a fetched id stays on the gateway
+	// that serves it) and /models fetch refreshes it. Nil until the first
+	// successful fetch; never persisted.
+	FetchedModels []string
+	FetchedAt     time.Time
 }
 
 // DefaultContextWindow is the fallback context-token budget used when a model's

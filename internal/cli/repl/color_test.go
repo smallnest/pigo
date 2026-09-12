@@ -15,7 +15,7 @@ import (
 func runtimeHelpRegistry(t *testing.T) *runtime.SlashRegistry {
 	t.Helper()
 	reg := runtime.NewSlashRegistry()
-	prompts.RegisterLiveCommands(reg, &cli.LiveConfig{Model: "faux", ProviderName: "faux"})
+	prompts.RegisterLiveCommands(reg, &cli.LiveConfig{Model: "faux", ProviderName: "faux"}, nil)
 	return reg
 }
 
