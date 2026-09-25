@@ -55,6 +55,7 @@ var PresetProviders = []struct {
 	{Name: "fireworks", EnvVar: "FIREWORKS_API_KEY"},
 	{Name: "together", EnvVar: "TOGETHER_API_KEY"},
 	{Name: "novita", EnvVar: "NOVITA_API_KEY"},
+	{Name: "requesty", EnvVar: "REQUESTY_API_KEY"},
 	{Name: "minimax", EnvVar: "MINIMAX_API_KEY"},
 	{Name: "xiaomi", EnvVar: "XIAOMI_API_KEY"},
 	{Name: "qianfan", EnvVar: "QIANFAN_API_KEY"},
@@ -188,6 +189,11 @@ var PresetCatalog = []PresetModel{
 	{Provider: "novita", ID: "deepseek/deepseek-v4-pro", DisplayName: "DeepSeek V4 Pro (Novita)"},
 	{Provider: "novita", ID: "zai-org/glm-5.2", DisplayName: "GLM 5.2 (Novita)"},
 	{Provider: "novita", ID: "moonshotai/kimi-k3", DisplayName: "Kimi K3 (Novita)"},
+
+	// --- Requesty (OpenAI-compatible router; ids from router.requesty.ai/v1/models) ---
+	{Provider: "requesty", ID: "anthropic/claude-sonnet-4-5", DisplayName: "Claude Sonnet 4.5 (Requesty)"},
+	{Provider: "requesty", ID: "openai/gpt-5.4-mini", DisplayName: "GPT-5.4 mini (Requesty)"},
+	{Provider: "requesty", ID: "google/gemini-3.5-flash", DisplayName: "Gemini 3.5 Flash (Requesty)"},
 
 	// --- MiniMax (Anthropic-protocol; ids from pi minimax.models.ts) ---
 	{Provider: "minimax", ID: "MiniMax-M2.7", DisplayName: "MiniMax-M2.7"},

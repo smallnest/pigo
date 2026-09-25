@@ -221,6 +221,13 @@ var providerRegistry = []ProviderSpec{
 		AuthScheme:     AuthBearer,
 	},
 	{
+		Name:           "requesty",
+		EnvVars:        []string{"REQUESTY_API_KEY"},
+		DefaultBaseURL: "https://router.requesty.ai/v1",
+		Protocol:       ProtocolOpenAI,
+		AuthScheme:     AuthBearer,
+	},
+	{
 		Name:           "opencode",
 		EnvVars:        []string{"OPENCODE_API_KEY"},
 		DefaultBaseURL: "https://opencode.ai/zen",
