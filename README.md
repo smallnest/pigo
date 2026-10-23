@@ -767,6 +767,7 @@ git push origin v0.2.0
 | `fireworks` | `FIREWORKS_API_KEY` | `https://api.fireworks.ai/inference` | openai |
 | `together` | `TOGETHER_API_KEY` | `https://api.together.ai/v1` | openai |
 | `novita` | `NOVITA_API_KEY` | `https://api.novita.ai/openai/v1` | openai |
+| `cheaperinference` | `CHEAPER_INFERENCE_API_KEY` | `https://api.cheaperinference.com/v1` | openai |
 | `opencode` | `OPENCODE_API_KEY` | `https://opencode.ai/zen` | openai |
 | `opencode-go` | `OPENCODE_API_KEY` | `https://opencode.ai/zen/go` | openai |
 | `kimi-coding` | `KIMI_API_KEY` | `https://api.kimi.com/coding` | openai |

@@ -221,6 +221,13 @@ var providerRegistry = []ProviderSpec{
 		AuthScheme:     AuthBearer,
 	},
 	{
+		Name:           "cheaperinference",
+		EnvVars:        []string{"CHEAPER_INFERENCE_API_KEY"},
+		DefaultBaseURL: "https://api.cheaperinference.com/v1",
+		Protocol:       ProtocolOpenAI,
+		AuthScheme:     AuthBearer,
+	},
+	{
 		Name:           "opencode",
 		EnvVars:        []string{"OPENCODE_API_KEY"},
 		DefaultBaseURL: "https://opencode.ai/zen",
