@@ -37,6 +37,7 @@ var openAIProviderCases = []openAIWiringCase{
 	{"moonshotai-cn", "https://api.moonshot.cn/v1", "MOONSHOT_API_KEY"},
 	{"fireworks", "https://api.fireworks.ai/inference", "FIREWORKS_API_KEY"},
 	{"together", "https://api.together.ai/v1", "TOGETHER_API_KEY"},
+	{"runcrate", "https://api.runcrate.ai/v1", "RUNCRATE_API_KEY"},
 	{"openrouter", "https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"},
 	{"nvidia", "https://integrate.api.nvidia.com/v1", "NVIDIA_API_KEY"},
 	{"zai", "https://api.z.ai/api/coding/paas/v4", "ZAI_API_KEY"},

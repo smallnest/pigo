@@ -221,6 +221,13 @@ var providerRegistry = []ProviderSpec{
 		AuthScheme:     AuthBearer,
 	},
 	{
+		Name:           "runcrate",
+		EnvVars:        []string{"RUNCRATE_API_KEY"},
+		DefaultBaseURL: "https://api.runcrate.ai/v1",
+		Protocol:       ProtocolOpenAI,
+		AuthScheme:     AuthBearer,
+	},
+	{
 		Name:           "opencode",
 		EnvVars:        []string{"OPENCODE_API_KEY"},
 		DefaultBaseURL: "https://opencode.ai/zen",

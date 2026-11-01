@@ -55,6 +55,7 @@ var PresetProviders = []struct {
 	{Name: "fireworks", EnvVar: "FIREWORKS_API_KEY"},
 	{Name: "together", EnvVar: "TOGETHER_API_KEY"},
 	{Name: "novita", EnvVar: "NOVITA_API_KEY"},
+	{Name: "runcrate", EnvVar: "RUNCRATE_API_KEY"},
 	{Name: "minimax", EnvVar: "MINIMAX_API_KEY"},
 	{Name: "xiaomi", EnvVar: "XIAOMI_API_KEY"},
 	{Name: "qianfan", EnvVar: "QIANFAN_API_KEY"},
@@ -188,6 +189,11 @@ var PresetCatalog = []PresetModel{
 	{Provider: "novita", ID: "deepseek/deepseek-v4-pro", DisplayName: "DeepSeek V4 Pro (Novita)"},
 	{Provider: "novita", ID: "zai-org/glm-5.2", DisplayName: "GLM 5.2 (Novita)"},
 	{Provider: "novita", ID: "moonshotai/kimi-k3", DisplayName: "Kimi K3 (Novita)"},
+
+	// --- Runcrate (OpenAI-compatible inference for open-weight models; ids from api.runcrate.ai/v1/models) ---
+	{Provider: "runcrate", ID: "deepseek-ai/DeepSeek-V4-Flash", DisplayName: "DeepSeek V4 Flash (Runcrate)"},
+	{Provider: "runcrate", ID: "moonshotai/Kimi-K2.6", DisplayName: "Kimi K2.6 (Runcrate)"},
+	{Provider: "runcrate", ID: "Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo", DisplayName: "Qwen3 Coder 480B (Runcrate)"},
 
 	// --- MiniMax (Anthropic-protocol; ids from pi minimax.models.ts) ---
 	{Provider: "minimax", ID: "MiniMax-M2.7", DisplayName: "MiniMax-M2.7"},
