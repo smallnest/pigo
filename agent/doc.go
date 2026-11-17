@@ -43,6 +43,25 @@
 // [WithoutTools]. Explicit caller-owned tools can be added with [WithCustomTools];
 // combining WithoutTools with WithCustomTools creates a custom-only session.
 //
+// # Working directory
+//
+// By default a session is rooted at the process working directory, exactly
+// like the CLI. [WithWorkingDir] overrides that per session: the built-in
+// file tools bound their workspace at the given directory, bash runs there,
+// and the system prompt's Environment block and AGENTS.md discovery anchor
+// there. [Session.WorkingDir] reports the effective root. Combined with one
+// Session per goroutine, this gives concurrent sessions separate file-tool
+// workspaces (for example one checkout directory per task in a multi-tenant
+// agent service). The directory must exist; an invalid path fails at New.
+//
+// Know the boundary: only the file tools are confined to the session root.
+// bash is not sandboxed — Dir is merely the command's starting directory, so
+// shell commands can touch anything the host process can. Confining bash
+// requires an OS-level sandbox (container, seatbelt, etc.), not this option.
+// Also note that task sub-agents inherit the root for tool access, but their
+// system prompt is a fixed sub-agent instruction: they do not receive the
+// session's Environment block or AGENTS.md content.
+//
 // # Streaming
 //
 // [Session.Stream] reports incremental assistant text. [Session.StreamEvents]
