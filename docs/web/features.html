@@ -18,7 +18,6 @@
         <a href="features.html" data-en="Features" data-zh="特性"></a>
         <a href="configuration.html" class="hide-sm" data-en="Config" data-zh="配置"></a>
         <a href="slash-commands.html" class="hide-sm" data-en="Commands" data-zh="命令"></a>
-        <a href="plugins.html" class="hide-sm" data-en="Plugins" data-zh="插件"></a>
         <a href="architecture.html" class="hide-sm" data-en="Architecture" data-zh="架构"></a>
         <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
         <button class="nav-btn" data-lang-toggle aria-label="切换到中文">中文</button>
@@ -54,7 +53,6 @@
         </li>
         <li><a href="configuration.html" data-en="Configuration" data-zh="配置"></a></li>
         <li><a href="slash-commands.html" data-en="Slash commands" data-zh="Slash 命令"></a></li>
-        <li><a href="plugins.html" data-en="Plugin development" data-zh="插件开发"></a></li>
         <li><a href="architecture.html" data-en="Architecture" data-zh="架构"></a></li>
       </ul>
     </aside>
@@ -272,8 +270,6 @@ esac</code></pre>
       <h2 id="plugins" data-en="Plugins" data-zh="插件"></h2>
       <p data-en="Extend pigo with plugins that add new tools, commands, and skills. Plugins are compatible with the Claude Code plugin ecosystem, so a large body of existing plugins works out of the box — and anything new you build for pigo is portable back."
          data-zh="用插件为 pigo 扩展新的工具、命令与 skills。插件兼容 Claude Code 插件生态，因此大量现有插件开箱即用 —— 你为 pigo 新写的东西也能反向移植回去。"></p>
-      <p data-en="See <a href='plugins.html'>Plugin development</a> for the wire protocol, a runnable example, packaging and best practices."
-         data-zh="完整的通信协议、可运行示例、打包方式与最佳实践见 <a href='plugins.html'>插件开发教程</a>。"></p>
       <div class="note" data-en="<strong>The through-line:</strong> stream-json, layered prompts (CLAUDE.md/AGENTS.md), hooks, and plugins are all deliberately Claude-Code-compatible. pigo is a fast, hackable Go binary that drops into an ecosystem you may already use."
            data-zh="<strong>贯穿主线：</strong>stream-json、分层提示词（CLAUDE.md/AGENTS.md）、hooks 与插件都刻意兼容 Claude Code。pigo 是一个快速、可深度定制的 Go 二进制，能直接融入你可能已在使用的生态。"></div>
 
