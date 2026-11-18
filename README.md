@@ -500,8 +500,11 @@ Review the PR at $1. Focus on:
 外部插件从 `$PIGO_HOME/plugins`（默认 `~/.pigo/plugins`）发现：
 
 - 容错发现——启动失败的插件会被记录并跳过。
-- 插件可提供额外工具，并订阅 Agent 生命周期事件。
+- 插件可提供额外工具、斜杠命令，并订阅 Agent 生命周期事件。
+- 插件通过 stdio 上的行分隔 JSON-RPC 2.0 与 pigo 通信，任何语言都能写。
 - `--no-tools` 会整体跳过插件发现。
+
+完整开发教程（协议、可运行示例、调试、打包与最佳实践）：https://pigo.rpcx.io/web/plugins.html
 
 ---
 

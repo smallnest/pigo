@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-en="Plugin development — pigo" data-zh="插件开发 — pigo">Plugin development — pigo</title>
+  <meta name="description" content="Build pigo plugins: a detailed tutorial covering the JSON-RPC protocol, manifest, tools, slash commands, lifecycle events, debugging, packaging and best practices.">
+  <link rel="stylesheet" href="assets/site.css">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+  <script defer src="assets/i18n.js"></script>
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="../index.html"><span class="nav-logo">𝞹</span> pigo</a>
+      <div class="nav-links">
+        <a href="quickstart.html" data-en="Quickstart" data-zh="快速开始"></a>
+        <a href="features.html" data-en="Features" data-zh="特性"></a>
+        <a href="configuration.html" class="hide-sm" data-en="Config" data-zh="配置"></a>
+        <a href="slash-commands.html" class="hide-sm" data-en="Commands" data-zh="命令"></a>
+        <a href="plugins.html" class="hide-sm" data-en="Plugins" data-zh="插件"></a>
+        <a href="architecture.html" class="hide-sm" data-en="Architecture" data-zh="架构"></a>
+        <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
+        <button class="nav-btn" data-lang-toggle aria-label="切换到中文">中文</button>
+        <button class="nav-btn" data-theme-toggle aria-label="Toggle theme">🌙</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="docs">
+    <aside class="doc-sidebar">
+      <h4 data-en="Docs" data-zh="文档"></h4>
+      <ul>
+        <li><a href="quickstart.html" data-en="Quickstart" data-zh="快速开始"></a></li>
+        <li><a href="install.html" data-en="Installation" data-zh="安装"></a></li>
+        <li><a href="features.html" data-en="Features" data-zh="特性"></a></li>
+        <li><a href="configuration.html" data-en="Configuration" data-zh="配置"></a></li>
+        <li><a href="slash-commands.html" data-en="Slash commands" data-zh="Slash 命令"></a></li>
+        <li><a href="plugins.html" class="active" data-en="Plugin development" data-zh="插件开发"></a>
+          <ul class="doc-toc">
+            <li><a href="#overview" data-en="How plugins work" data-zh="插件如何工作"></a></li>
+            <li><a href="#quickstart" data-en="5-minute quickstart" data-zh="5 分钟快速开始"></a></li>
+            <li><a href="#protocol" data-en="Protocol reference" data-zh="协议参考"></a></li>
+            <li><a href="#example" data-en="Full example" data-zh="完整示例"></a></li>
+            <li><a href="#lifecycle" data-en="Lifecycle &amp; timeouts" data-zh="生命周期与超时"></a></li>
+            <li><a href="#debug" data-en="Debugging" data-zh="调试"></a></li>
+            <li><a href="#distribution" data-en="Packaging" data-zh="分发与安装"></a></li>
+            <li><a href="#best-practices" data-en="Best practices" data-zh="最佳实践"></a></li>
+            <li><a href="#faq" data-en="FAQ" data-zh="常见问题"></a></li>
+          </ul>
+        </li>
+        <li><a href="architecture.html" data-en="Architecture" data-zh="架构"></a></li>
+      </ul>
+    </aside>
+
+    <main class="doc-content">
+      <h1 data-en="Plugin development" data-zh="插件开发"></h1>
+      <p class="doc-sub"
+         data-en="A plugin is a small executable that adds tools, slash commands and lifecycle observers to pigo — in any language, without touching pigo's source."
+         data-zh="插件就是一个可执行文件：用任意语言给 pigo 增加工具、斜杠命令和生命周期观察者，无需修改 pigo 源码。"></p>
+
+      <h2 id="overview" data-en="How plugins work" data-zh="插件如何工作"></h2>
+      <p data-en="pigo launches the plugin as a child process and talks to it over <strong>line-delimited JSON-RPC 2.0 on stdio</strong>. At startup it calls <code>initialize</code>; the plugin answers with a manifest that declares its tools, slash commands and the lifecycle events it wants. After that pigo forwards tool calls and command invocations to the plugin, and pushes the events the plugin subscribed to."
+         data-zh="pigo 把插件作为子进程启动，通过 <strong>stdio 上的行分隔 JSON-RPC 2.0</strong> 通信。启动时调用一次 <code>initialize</code>，插件返回一份 manifest，声明自己提供的工具、斜杠命令以及想订阅的生命周期事件。之后 pigo 把工具调用和命令调用转发给插件，并把订阅的事件推送过去。"></p>
+      <pre><code>pigo process                     plugin process (any language)
+    │  ── initialize ──────────────▶  │
+    │  ◀────────────── manifest ───  │   tools / commands / events
+    │  ── tools/call {name,args} ──▶  │
+    │  ◀────── {content,isError} ──  │
+    │  ── commands/call ──────────▶  │
+    │  ◀──── {prompt,notifications}  │
+    │  ── event {type,data} ──────▶  │   fire-and-forget, no reply
+    │  ── shutdown ───────────────▶  │
+</code></pre>
+      <p data-en="A plugin is any <strong>executable regular file directly inside</strong> <code>$PIGO_HOME/plugins</code> (default <code>~/.pigo/plugins</code>). Subdirectories are ignored, executables are loaded in name order, and a plugin that fails to start or handshake is logged and skipped — the rest still load. <code>--no-tools</code> skips plugin discovery entirely."
+         data-zh="插件就是放在 <code>$PIGO_HOME/plugins</code>（默认 <code>~/.pigo/plugins</code>）<strong>目录下、直接位于该层</strong>的任意可执行普通文件。子目录会被忽略，按文件名顺序加载；启动或握手失败的插件只记日志并跳过，不影响其它插件；<code>--no-tools</code> 会整体跳过插件发现。"></p>
+      <div class="note" data-en="The file name is what pigo logs; the <code>manifest.name</code> is the plugin's identity in diagnostics. Keep tool and command names unique across plugins — pigo registers them globally."
+           data-zh="文件名用于日志，<code>manifest.name</code> 是诊断里的插件身份。不同插件的工具名、命令名请保持全局唯一 —— pigo 会直接注册这些名称。"></div>
+
+      <h2 id="quickstart" data-en="5-minute quickstart" data-zh="5 分钟快速开始"></h2>
+      <p data-en="Write a Python plugin with one tool. No SDK, no build step — just stdio."
+         data-zh="用 Python 写一个只有单个工具的插件。不需要 SDK、不需要构建，只要 stdio。"></p>
+      <pre><code>#!/usr/bin/env python3
+# ~/.pigo/plugins/wordcount.py   (chmod +x)
+import json, sys
+
+def reply(id_, result):
+    print(json.dumps({"jsonrpc": "2.0", "id": id_, "result": result}), flush=True)
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    req = json.loads(line)
+    method, rid = req.get("method"), req.get("id")
+
+    if method == "initialize":
+        reply(rid, {
+            "name": "wordcount",
+            "version": "0.1.0",
+            "tools": [{
+                "name": "word_count",
+                "description": "Count words in a piece of text",
+                "schema": {
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}},
+                    "required": ["text"]
+                }
+            }]
+        })
+
+    elif method == "tools/call":
+        args = req["params"]["arguments"]
+        text = args.get("text", "")
+        reply(rid, {"content": str(len(text.split()))})
+
+    elif method == "shutdown":
+        break
+</code></pre>
+      <pre><code>mkdir -p ~/.pigo/plugins
+cp wordcount.py ~/.pigo/plugins/wordcount.py
+chmod +x ~/.pigo/plugins/wordcount.py
+
+# 让模型调用这个工具；也可以直接问它 "use word_count on: hello pigo world"
+pigo -p "count the words in: hello pigo world"
+</code></pre>
+      <p data-en="That is the whole contract: answer <code>initialize</code> with a manifest, then answer <code>tools/call</code>. Everything else is optional."
+         data-zh="核心契约只有两条：用 manifest 回答 <code>initialize</code>，然后处理 <code>tools/call</code>。其余都是可选项。"></p>
+
+      <h2 id="protocol" data-en="Protocol reference" data-zh="协议参考"></h2>
+      <p data-en="Transport: one UTF-8 JSON object per line, written to stdout; pigo writes one JSON-RPC request per line to your stdin. Requests carry an <code>id</code> and expect exactly one reply with the same <code>id</code>. Notifications have no <code>id</code> and must not be answered."
+         data-zh="传输格式：stdout 每行一个 UTF-8 JSON；pigo 也按行把 JSON-RPC 请求写进你的 stdin。请求带 <code>id</code>，必须回一条同 <code>id</code> 的响应；通知没有 <code>id</code>，不要回复。"></p>
+
+      <h3 data-en="Methods" data-zh="方法一览"></h3>
+      <table>
+        <tr>
+          <th data-en="Method" data-zh="方法"></th>
+          <th data-en="Kind" data-zh="类型"></th>
+          <th data-en="Params" data-zh="参数"></th>
+          <th data-en="Result" data-zh="返回"></th>
+        </tr>
+        <tr>
+          <td><code>initialize</code></td>
+          <td data-en="request" data-zh="请求"></td>
+          <td data-en="none (may be null)" data-zh="无（可能为 null）"></td>
+          <td><code>Manifest</code></td>
+        </tr>
+        <tr>
+          <td><code>tools/call</code></td>
+          <td data-en="request" data-zh="请求"></td>
+          <td><code>{name, arguments}</code></td>
+          <td><code>{content, isError?}</code></td>
+        </tr>
+        <tr>
+          <td><code>commands/call</code></td>
+          <td data-en="request" data-zh="请求"></td>
+          <td><code>{name, arguments}</code></td>
+          <td><code>{prompt?, notifications?}</code></td>
+        </tr>
+        <tr>
+          <td><code>event</code></td>
+          <td data-en="notification" data-zh="通知"></td>
+          <td><code>{type, data?}</code></td>
+          <td data-en="none" data-zh="无"></td>
+        </tr>
+        <tr>
+          <td><code>shutdown</code></td>
+          <td data-en="notification" data-zh="通知"></td>
+          <td data-en="none" data-zh="无"></td>
+          <td data-en="none" data-zh="无"></td>
+        </tr>
+      </table>
+
+      <h3 data-en="Manifest" data-zh="Manifest"></h3>
+      <pre><code>{
+  "name": "demo",                  // required, used in logs/diagnostics
+  "version": "0.1.0",              // optional
+  "tools": [
+    {
+      "name": "word_count",
+      "description": "Count words in a piece of text",
+      "schema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] }
+    }
+  ],
+  "commands": [
+    { "name": "demo", "description": "Show plugin status", "prompt": "optional static prompt" }
+  ],
+  "events": ["turn_end", "tool_execution_end"]
+}
+</code></pre>
+      <table>
+        <tr>
+          <th data-en="Field" data-zh="字段"></th>
+          <th data-en="Meaning" data-zh="含义"></th>
+        </tr>
+        <tr><td><code>name</code></td><td data-en="Plugin identity (must not be empty)." data-zh="插件身份（不能为空）。"></td></tr>
+        <tr><td><code>version</code></td><td data-en="Free-form string for diagnostics." data-zh="自由格式版本号，用于诊断。"></td></tr>
+        <tr><td><code>tools[]</code></td><td data-en="Each tool: <code>name</code>, <code>description</code>, and a JSON Schema in <code>schema</code> that is passed to the model verbatim." data-zh="每个工具：<code>name</code>、<code>description</code>，以及原样交给模型的 JSON Schema <code>schema</code>。"></td></tr>
+        <tr><td><code>commands[]</code></td><td data-en="Slash commands exposed by the plugin. <code>prompt</code> is optional static text." data-zh="插件暴露的斜杠命令；<code>prompt</code> 是可选的静态提示词。"></td></tr>
+        <tr><td><code>events[]</code></td><td data-en="Lifecycle event types to subscribe to; empty means none." data-zh="订阅的生命周期事件类型；空数组表示不订阅。"></td></tr>
+      </table>
+
+      <h3 data-en="Tool call result" data-zh="工具调用结果"></h3>
+      <pre><code>{ "content": "3", "isError": false }</code></pre>
+      <p data-en="<code>content</code> is the text the model sees. Set <code>isError: true</code> for a tool-level failure (the model can react). Never exit the process to report a business error — a crash is a transport error and the call fails hard."
+         data-zh="<code>content</code> 是模型看到的文本。<code>isError: true</code> 表示工具级失败（模型可以据此调整）。业务错误不要靠退出进程表达 —— 崩溃属于传输错误，调用会直接失败。"></p>
+
+      <h3 data-en="Command call result" data-zh="命令调用结果"></h3>
+      <pre><code>{
+  "prompt": "Summarize the last turn.",          // optional: injected as the next user turn
+  "notifications": [ { "message": "ok", "type": "info" } ]   // optional: surfaced to the user
+}</code></pre>
+      <p data-en="When a plugin declares a command, pigo exposes it as a slash command. On invocation it forwards the text after the command as raw JSON in <code>arguments</code>; return a <code>prompt</code> to steer the next turn, or only notifications to just print something."
+         data-zh="插件声明命令后，pigo 会把它暴露为斜杠命令。调用时把命令后面的文本作为原始 JSON 放进 <code>arguments</code>；返回 <code>prompt</code> 可以引导下一轮，只返回 notifications 则仅打印信息。"></p>
+
+      <h3 data-en="Lifecycle events" data-zh="生命周期事件"></h3>
+      <p data-en="Subscribe in the manifest, then handle <code>event</code> notifications. Delivery is one-way and fire-and-forget: a slow plugin is dropped after the per-event timeout, and pigo never waits for a reply."
+         data-zh="在 manifest 里订阅后，处理 <code>event</code> 通知。事件是单向、发后即忘的：插件太慢会在单个事件超时后被丢弃，pigo 从不等待回复。"></p>
+      <table>
+        <tr><th data-en="Event type" data-zh="事件类型"></th><th data-en="data payload" data-zh="data 内容"></th></tr>
+        <tr><td><code>agent_start</code></td><td data-en="{}" data-zh="{}"></td></tr>
+        <tr><td><code>agent_end</code></td><td><code>{messageCount}</code></td></tr>
+        <tr><td><code>turn_start</code></td><td data-en="{}" data-zh="{}"></td></tr>
+        <tr><td><code>turn_end</code></td><td><code>{stopReason, text?, toolCalls?}</code></td></tr>
+        <tr><td><code>message_start</code> / <code>message_update</code> / <code>message_end</code></td><td data-en="{} (streamed message events)" data-zh="{}（消息流事件）"></td></tr>
+        <tr><td><code>tool_execution_start</code></td><td><code>{toolCallId, toolName}</code></td></tr>
+        <tr><td><code>tool_execution_update</code></td><td data-en="{}" data-zh="{}"></td></tr>
+        <tr><td><code>tool_execution_end</code></td><td><code>{toolCallId, toolName, isError}</code></td></tr>
+        <tr><td><code>compaction</code></td><td><code>{reason, tokensBefore, tokensAfter, summarizedCount, keptCount}</code></td></tr>
+        <tr><td><code>compaction_start</code> / <code>telemetry</code> / <code>subagent_progress</code></td><td data-en="{} or small observable fields" data-zh="{} 或少量可观察字段"></td></tr>
+      </table>
+      <div class="note" data-en="Event payloads only carry observable fields (ids, names, counts, stop reasons, streamed text). Never expect secrets or raw credentials — they are not sent."
+           data-zh="事件负载只包含可观察字段（id、名称、计数、stop reason、流式文本）。不会发送密钥或原始凭证，别指望从事件里拿到。"></div>
+
+      <h2 id="example" data-en="Full example: tool + command + events" data-zh="完整示例：工具 + 命令 + 事件"></h2>
+      <p data-en="This plugin adds a tool, a slash command and logs the end of each turn to stderr."
+         data-zh="这个插件同时提供工具、斜杠命令，并把每轮结束事件写到 stderr。"></p>
+      <pre><code>#!/usr/bin/env python3
+# ~/.pigo/plugins/demo.py   (chmod +x)
+import json, sys
+
+def send(obj):
+    print(json.dumps(obj), flush=True)
+
+def reply(rid, result):
+    send({"jsonrpc": "2.0", "id": rid, "result": result})
+
+def log(msg):
+    print(f"[demo] {msg}", file=sys.stderr, flush=True)   # stderr is for logs
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    req = json.loads(line)
+    method, rid = req.get("method"), req.get("id")
+
+    if method == "initialize":
+        reply(rid, {
+            "name": "demo",
+            "version": "0.1.0",
+            "tools": [{
+                "name": "demo_echo",
+                "description": "Echo the input text",
+                "schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}
+            }],
+            "commands": [{"name": "demo", "description": "Print demo status"}],
+            "events": ["turn_end"]
+        })
+
+    elif method == "tools/call":
+        text = req["params"]["arguments"].get("text", "")
+        reply(rid, {"content": text})
+
+    elif method == "commands/call":
+        reply(rid, {
+            "notifications": [{"message": "demo plugin is alive", "type": "info"}],
+            "prompt": "Continue with the user's original request."
+        })
+
+    elif method == "event":
+        ev = req["params"]
+        if ev["type"] == "turn_end":
+            log(f"turn ended: {ev.get('data', {})}")
+        # notifications must not be answered
+
+    elif method == "shutdown":
+        log("bye")
+        break
+</code></pre>
+      <pre><code>pigo                      # 进入 TUI
+/demo                     # 触发 commands/call，打印通知并注入 prompt
+</code></pre>
+
+      <h2 id="lifecycle" data-en="Lifecycle &amp; timeouts" data-zh="生命周期与超时"></h2>
+      <table>
+        <tr><th data-en="Stage" data-zh="阶段"></th><th data-en="Behaviour" data-zh="行为"></th></tr>
+        <tr><td data-en="Discovery" data-zh="发现"></td><td data-en="Executables directly under <code>$PIGO_HOME/plugins</code>, loaded in name order." data-zh="<code>$PIGO_HOME/plugins</code> 下直接位于该层的可执行文件，按文件名顺序加载。"></td></tr>
+        <tr><td><code>initialize</code></td><td data-en="Bounded at 10s. Failure logs the plugin and skips it; other plugins still load." data-zh="超时 10 秒。失败会记录并跳过该插件，其它插件照常加载。"></td></tr>
+        <tr><td data-en="Tool calls" data-zh="工具调用"></td><td data-en="Forwarded over JSON-RPC; a dead plugin returns an error result, never a panic." data-zh="通过 JSON-RPC 转发；插件进程已死时返回错误结果，不会 panic。"></td></tr>
+        <tr><td data-en="Events" data-zh="事件"></td><td data-en="Fire-and-forget, each delivery bounded at 2s; a slow plugin's event is dropped." data-zh="发后即忘，单次投递超时 2 秒；慢插件的该事件会被丢弃。"></td></tr>
+        <tr><td><code>shutdown</code></td><td data-en="Sent on exit (best effort), then stdin closes and the child is reaped." data-zh="退出时尽力发送，然后关闭 stdin 并回收子进程。"></td></tr>
+      </table>
+      <p data-en="Handle stdin EOF as shutdown too: pigo may close the pipe without the notification arriving. Always flush after each line."
+         data-zh="也要把 stdin EOF 当作关闭信号：pigo 可能直接关管道而不发通知。每行输出后务必 flush。"></p>
+
+      <h2 id="debug" data-en="Debugging" data-zh="调试"></h2>
+      <p data-en="You can drive the plugin by hand — it is just JSON lines:"
+         data-zh="可以手工驱动插件 —— 它只是逐行 JSON："></p>
+      <pre><code>printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize"}' | ~/.pigo/plugins/demo.py
+# → {"jsonrpc": "2.0", "id": 1, "result": {"name": "demo", ...}}
+</code></pre>
+      <ul>
+        <li data-en="Logs go to <strong>stderr</strong>; stdout is the protocol. A stray <code>print()</code> breaks the handshake."
+            data-zh="日志写 <strong>stderr</strong>；stdout 是协议通道。多打一行 <code>print()</code> 就会破坏握手。"></li>
+        <li data-en="Load failures show up as <code>pigo: plugin \"…\" failed to load: …</code> in the terminal."
+            data-zh="加载失败会在终端出现 <code>pigo: plugin \"…\" failed to load: …</code>。"></li>
+        <li data-en="<code>/status</code> in the REPL lists discovered plugins, skills and trust state."
+            data-zh="REPL 里的 <code>/status</code> 会列出发现的插件、技能与信任状态。"></li>
+        <li data-en="If the tool never appears, check the executable bit, that the file is directly under the plugins dir, and that you did not pass <code>--no-tools</code>."
+            data-zh="工具没出现时，先检查可执行位、文件是否直接位于插件目录、以及是否传了 <code>--no-tools</code>。"></li>
+      </ul>
+
+      <h2 id="distribution" data-en="Packaging &amp; installation" data-zh="分发与安装"></h2>
+      <ul>
+        <li data-en="Ship one executable file. Any language works as long as the file is executable and speaks the protocol; document extra runtime dependencies (Python, Node, …)."
+            data-zh="发布一个可执行文件即可。任何语言都行，只要文件可执行并能说这套协议；额外的运行时依赖（Python、Node 等）要在文档里写明。"></li>
+        <li data-en="Install by copying into <code>$PIGO_HOME/plugins</code> and <code>chmod +x</code>. Set <code>PIGO_HOME</code> to relocate everything (plugins, prompts, commands)."
+            data-zh="安装就是复制到 <code>$PIGO_HOME/plugins</code> 并 <code>chmod +x</code>。用 <code>PIGO_HOME</code> 可以把插件、prompts、commands 整体换位置。"></li>
+        <li data-en="<code>pigo install &lt;pkg&gt;</code> installs pi packages; extensions (including MCP adapters) land in the same plugins directory and are discovered the same way. <code>pigo list</code>, <code>pigo update</code>, <code>pigo uninstall</code> manage them."
+            data-zh="<code>pigo install &lt;pkg&gt;</code> 安装 pi 包；扩展（含 MCP 适配器）会落到同一个插件目录，用同样的方式被发现。用 <code>pigo list</code>、<code>pigo update</code>、<code>pigo uninstall</code> 管理。"></li>
+        <li data-en="Plugins are compatible with the Claude Code plugin ecosystem, so existing plugins and anything you build here can move between the two."
+            data-zh="插件兼容 Claude Code 插件生态，已有插件与你新写的插件都可以在两边迁移。"></li>
+      </ul>
+
+      <h2 id="best-practices" data-en="Best practices" data-zh="最佳实践"></h2>
+      <ul>
+        <li data-en="<strong>stdout is protocol, stderr is logs.</strong> Never print diagnostics to stdout."
+            data-zh="<strong>stdout 是协议，stderr 是日志。</strong> 诊断信息绝不能写 stdout。"></li>
+        <li data-en="<strong>Never log secrets.</strong> Tool arguments may contain user data; stderr is captured in pigo's logs."
+            data-zh="<strong>不要打印密钥。</strong> 工具参数可能包含用户数据，而 stderr 会被 pigo 的日志收集。"></li>
+        <li data-en="<strong>Keep initialize fast.</strong> Declare the manifest immediately; do expensive setup lazily on the first call."
+            data-zh="<strong>initialize 要快。</strong> 立即返回 manifest，重活留到第一次调用时再做。"></li>
+        <li data-en="<strong>Report business errors with <code>isError</code></strong>, not by crashing. A crash fails the call and loses isolation for that request."
+            data-zh="<strong>业务错误用 <code>isError</code> 表达</strong>，不要靠崩溃。崩溃会让调用失败，也失去该次请求的隔离。"></li>
+        <li data-en="<strong>Treat events as best effort.</strong> They can be dropped under load; never make correctness depend on receiving one."
+            data-zh="<strong>把事件当作尽力而为。</strong> 高负载时可能被丢弃，不要让正确性依赖收到某个事件。"></li>
+        <li data-en="<strong>Stay stateless across calls when you can</strong>, and make commands repeatable; pigo may restart the process between sessions."
+            data-zh="<strong>尽量让每次调用无状态</strong>，命令做成可重复执行；pigo 可能在会话之间重启插件进程。"></li>
+        <li data-en="<strong>Use unique names</strong> for tools and commands — they are registered globally and collisions confuse the model."
+            data-zh="<strong>工具名、命令名保持唯一</strong> —— 它们在全局注册，重名会让模型困惑。"></li>
+      </ul>
+
+      <h2 id="faq" data-en="FAQ" data-zh="常见问题"></h2>
+      <p data-en="<strong>The plugin is not discovered.</strong> The file must be executable and directly under <code>$PIGO_HOME/plugins</code>; check <code>--no-tools</code> and the load error line."
+         data-zh="<strong>插件没被发现。</strong> 文件必须可执行且直接位于 <code>$PIGO_HOME/plugins</code>；检查 <code>--no-tools</code> 和加载错误行。"></p>
+      <p data-en="<strong>Handshake hangs.</strong> You have 10 seconds; make sure <code>initialize</code> writes exactly one line and flushes. A stdout banner or debug print breaks it."
+         data-zh="<strong>握手卡住。</strong> 限时 10 秒；确认 <code>initialize</code> 只输出一行并 flush。stdout 上的横幅或调试输出都会破坏它。"></p>
+      <p data-en="<strong>The model never calls my tool.</strong> Describe what it does clearly in <code>description</code>, and give a strict JSON Schema for the arguments."
+         data-zh="<strong>模型从不调用我的工具。</strong> 在 <code>description</code> 里把用途写清楚，并给参数一个严格的 JSON Schema。"></p>
+      <p data-en="<strong>Command does nothing.</strong> Plugin commands are slash commands; invoke <code>/name</code> and return a <code>prompt</code> if you want the agent to continue working."
+         data-zh="<strong>命令没反应。</strong> 插件命令是斜杠命令；用 <code>/name</code> 调用，想让 agent 继续工作就返回 <code>prompt</code>。"></p>
+
+      <div class="doc-next">
+        <a href="slash-commands.html"><span data-en="Previous" data-zh="上一页"></span><strong data-en="← Slash commands" data-zh="← Slash 命令"></strong></a>
+        <a href="architecture.html"><span data-en="Next" data-zh="下一页"></span><strong data-en="Architecture →" data-zh="架构 →"></strong></a>
+      </div>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div><strong>pigo</strong> · <span data-en="A command-line coding agent in Go." data-zh="用 Go 打造的命令行编码 Agent。"></span></div>
+      <div class="footer-links">
+        <a href="../index.html" data-en="Home" data-zh="首页"></a>
+        <a href="https://github.com/smallnest/pigo" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
