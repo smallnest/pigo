@@ -39,9 +39,17 @@ func TestSelectSearchBackend(t *testing.T) {
 		{map[string]string{"BRAVE_API_KEY": "b"}, "brave"},
 		{map[string]string{"TAVILY_API_KEY": "t", "BRAVE_API_KEY": "b"}, "tavily"},
 		{map[string]string{}, "duckduckgo"},
+		{map[string]string{"PIGO_WEBSEARCH_BACKEND": "parallel", "TAVILY_API_KEY": "t", "BRAVE_API_KEY": "b"}, "parallel"},
+		{map[string]string{"PIGO_WEBSEARCH_BACKEND": " Parallel "}, "parallel"},
+		{map[string]string{"PIGO_WEBSEARCH_BACKEND": "auto", "BRAVE_API_KEY": "b"}, "brave"},
+		{map[string]string{"PARALLEL_API_KEY": "unused"}, "duckduckgo"},
 	}
 	for _, c := range cases {
-		got := selectSearchBackend(func(k string) string { return c.env[k] }).name()
+		backend, err := selectSearchBackend(func(k string) string { return c.env[k] })
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := backend.name()
 		if got != c.want {
 			t.Errorf("env %v: backend = %q, want %q", c.env, got, c.want)
 		}

@@ -1,7 +1,8 @@
 // This file implements the websearch tool: run a web search and return the top
 // results (title, URL, snippet) as Markdown. pi has no such tool; this mirrors
 // Claude Code's WebSearch. It is provider-agnostic and auto-detects a backend by
-// available credentials so it works out of the box:
+// available credentials unless PIGO_WEBSEARCH_BACKEND=parallel explicitly selects
+// the keyless Parallel MCP backend:
 //
 //   - Tavily      when TAVILY_API_KEY is set (LLM-optimized results).
 //   - Brave       when BRAVE_API_KEY is set (independent index).
@@ -42,7 +43,7 @@ type WebSearchTool struct {
 	// Client performs backend HTTP requests. When nil, a default client bounded by
 	// webSearchTimeout is built. Injected for tests to serve canned responses.
 	Client *http.Client
-	// getenv reads credentials for backend selection. When nil, os.Getenv is used.
+	// getenv reads the backend selection and credentials. When nil, os.Getenv is used.
 	// Injected for tests so backend selection is deterministic without touching the
 	// process environment.
 	getenv func(string) string
@@ -73,7 +74,7 @@ func (t *WebSearchTool) Name() string { return "websearch" }
 // Description implements AgentTool.
 func (t *WebSearchTool) Description() string {
 	return "Search the web and return the top results (title, URL, snippet). " +
-		"Auto-selects a backend by available credentials (Tavily, Brave, or a " +
+		"Uses the configured backend or auto-selects by credentials (Tavily, Brave, or a " +
 		"keyless DuckDuckGo fallback). Use allowed_domains/blocked_domains to " +
 		"restrict results by host. Follow up with the webfetch tool to read a result."
 }
@@ -128,7 +129,10 @@ func (t *WebSearchTool) Execute(ctx context.Context, id string, args json.RawMes
 		getenv = os.Getenv
 	}
 
-	backend := selectSearchBackend(getenv)
+	backend, err := selectSearchBackend(getenv)
+	if err != nil {
+		return errorResult("websearch: " + err.Error()), nil
+	}
 	// A domain-filtered query can discard most raw hits, so over-fetch before
 	// filtering to still land near the requested count.
 	fetchCount := count

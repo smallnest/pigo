@@ -1,0 +1,13 @@
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"results\": [{\"title\": \"context package - Go Packages\", \"url\": \"https://pkg.go.dev/context\", \"excerpts\": [\"Context carries deadlines.\", \"Cancel the derived context when done.\"]}, {\"title\": \"Other documentation\", \"url\": \"https://example.org/docs\", \"excerpts\": [\"Another source.\"]}, {\"title\": \"Blocked documentation\", \"url\": \"https://internal.pkg.go.dev/context\", \"excerpts\": [\"Blocked subdomain.\"]}]}"
+      }
+    ],
+    "isError": false
+  }
+}

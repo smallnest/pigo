@@ -294,6 +294,40 @@ pigo -P anthropic -m claude-3-5-sonnet-20241022 -p "..."
 
 > `bash` / `write` / `edit` 属于"副作用工具"，在未信任目录下需确认（见[项目信任](#项目信任)）。
 
+### Parallel web search (opt-in)
+
+Set `PIGO_WEBSEARCH_BACKEND=parallel` to use the keyless `web_search` tool at
+`https://mcp.parallel.ai/mcp` through pigo's built-in `websearch` tool. See
+[Parallel MCP setup](https://docs.parallel.ai/integrations/mcp/quickstart) for
+service details. Use it for public queries you authorize; the query is sent to
+Parallel. For example, to find and cite public Go documentation:
+
+```bash
+PIGO_WEBSEARCH_BACKEND=parallel pigo --allowed-tools websearch \
+  -p 'Search for the official Go context package documentation and cite its source URL.'
+```
+
+An explicit Parallel selection takes precedence over `TAVILY_API_KEY` and
+`BRAVE_API_KEY`. Leave the variable unset or set it to `auto` to keep the default
+Tavily → Brave → DuckDuckGo credential precedence. Other values return a
+configuration error. This backend does not read or send API keys.
+
+Results use the existing title/URL/snippet format, with Parallel excerpts as
+snippets. `allowed_domains`, `blocked_domains`, and `count` still apply locally.
+The original source URLs remain in the normal tool response: the executor places
+that text into a `ToolResultMessage`, which the agent loop includes in the next
+turn so the agent can cite those URLs. No separate citation mechanism is needed.
+Tool admission, approval hooks, execution mode, and the 15-second search timeout
+remain in effect. If Parallel is unavailable, the tool returns a backend error;
+it does not silently send the query to another provider.
+
+Offline fixtures exercise the MCP lifecycle and native tool dispatch. To run the
+optional live check, which sends only a fixed public Go documentation query:
+
+```bash
+PIGO_TEST_PARALLEL_LIVE=1 go test ./internal/agenttool -run '^TestWebSearchParallelLive$' -v
+```
+
 ### 工具级准入
 
 `--no-tools` 是全有或全无，`--allowed-tools` / `--disallowed-tools` 提供中间态：

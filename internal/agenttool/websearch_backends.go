@@ -1,6 +1,6 @@
-// This file implements the websearch backends: Tavily and Brave (credentialed
-// JSON APIs) plus a keyless DuckDuckGo HTML fallback. selectSearchBackend picks
-// the first backend whose credential is present, defaulting to DuckDuckGo.
+// This file implements backend selection and the Tavily, Brave, and DuckDuckGo
+// search backends. Parallel MCP is an explicit opt-in; otherwise selection uses
+// the first available credential, defaulting to DuckDuckGo.
 package agenttool
 
 import (
@@ -24,17 +24,26 @@ type searchBackend interface {
 	search(ctx context.Context, client *http.Client, query string, count int) ([]searchResult, error)
 }
 
-// selectSearchBackend returns the first backend whose credential env var is set,
+// selectSearchBackend honors an explicit Parallel selection, otherwise returning
+// the first backend whose credential env var is set,
 // falling back to the keyless DuckDuckGo backend. The order encodes preference:
 // LLM-optimized Tavily first, then Brave, then the keyless fallback.
-func selectSearchBackend(getenv func(string) string) searchBackend {
+func selectSearchBackend(getenv func(string) string) (searchBackend, error) {
+	switch strings.ToLower(strings.TrimSpace(getenv("PIGO_WEBSEARCH_BACKEND"))) {
+	case "parallel":
+		return parallelBackend{}, nil
+	case "", "auto":
+		// Keep the existing credential precedence.
+	default:
+		return nil, fmt.Errorf("PIGO_WEBSEARCH_BACKEND must be auto or parallel")
+	}
 	if k := strings.TrimSpace(getenv("TAVILY_API_KEY")); k != "" {
-		return tavilyBackend{apiKey: k}
+		return tavilyBackend{apiKey: k}, nil
 	}
 	if k := strings.TrimSpace(getenv("BRAVE_API_KEY")); k != "" {
-		return braveBackend{apiKey: k}
+		return braveBackend{apiKey: k}, nil
 	}
-	return duckDuckGoBackend{}
+	return duckDuckGoBackend{}, nil
 }
 
 // searchBodyLimit caps how much of a backend response body is read.
