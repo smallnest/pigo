@@ -130,7 +130,7 @@ func TestCwdChdirRootsEnv(t *testing.T) {
 		t.Fatalf("EvalSymlinks: %v", err)
 	}
 
-	env, err := run.SetupEnv("openrouter/free", "", "", "", "", true /*noTools*/, true /*noSkills*/, "", nil, false /*memEnabled*/, run.ToolPolicy{})
+	env, err := run.SetupEnv("openrouter/free", "", "", "", "", true /*noTools*/, true /*noSkills*/, "", nil, false /*memEnabled*/, run.ToolPolicy{}, "")
 	if err != nil {
 		t.Fatalf("SetupEnv: %v", err)
 	}

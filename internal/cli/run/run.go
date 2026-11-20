@@ -73,9 +73,15 @@ type Env struct {
 // the --allowed-tools/--disallowed-tools boundary; it is validated against the
 // fully assembled tool set and then applied, so an unknown tool name is a usage
 // error rather than a silently ineffective boundary. It returns an error rather
-// than exiting so the caller owns exit-code mapping.
-func SetupEnv(model, baseURL, protocol, providerName, apiKey string, noTools, noSkills bool, systemPrompt string, appendSystemPrompt []string, memEnabled bool, policy ToolPolicy) (Env, error) {
-	cwd, _ := os.Getwd()
+// than exiting so the caller owns exit-code mapping. workingDir, when non-empty,
+// overrides the process working directory as the root of the tool set and the
+// anchor of the system prompt (the SDK's per-session working directory); an
+// empty value keeps the process working directory.
+func SetupEnv(model, baseURL, protocol, providerName, apiKey string, noTools, noSkills bool, systemPrompt string, appendSystemPrompt []string, memEnabled bool, policy ToolPolicy, workingDir string) (Env, error) {
+	cwd := workingDir
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
 	prov, resolvedName, err := provider.ResolveProvider(model, baseURL, protocol, providerName, os.Getenv)
 	if err != nil {
 		return Env{}, err

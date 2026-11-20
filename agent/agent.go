@@ -2,6 +2,9 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/smallnest/pigo/internal/agentcore"
 	"github.com/smallnest/pigo/internal/cli/run"
@@ -51,6 +54,16 @@ func New(opts ...Option) (*Session, error) {
 	// always wins over allow inside run.ApplyToolPolicy.
 	policy := run.NewToolPolicy(c.allowedTools, c.disallowedTools)
 
+	// Resolve the session working directory up front: an explicit WithWorkingDir
+	// is normalized to an absolute path and validated to be an existing
+	// directory, so a configuration mistake fails here rather than surfacing as
+	// a tool error on the first Prompt. Empty keeps the process working
+	// directory (SetupEnv falls back to os.Getwd).
+	workingDir, err := resolveWorkingDir(c.workingDir)
+	if err != nil {
+		return nil, err
+	}
+
 	// SetupEnv resolves the provider, assembles the (policy-filtered) tool set,
 	// builds the system prompt, and — because skills/memory are opt-in here —
 	// leaves the machine's shared state untouched unless WithSkills/WithMemory
@@ -59,6 +72,7 @@ func New(opts ...Option) (*Session, error) {
 	env, err := run.SetupEnv(
 		c.model, c.baseURL, c.protocol, c.provider, c.apiKey,
 		c.noTools, !c.skills, c.systemPrompt, c.appendSystemPrompt, c.memory, policy,
+		workingDir,
 	)
 	if err != nil {
 		return nil, err
@@ -98,6 +112,33 @@ func New(opts ...Option) (*Session, error) {
 		},
 		model: c.model,
 	}, nil
+}
+
+// resolveWorkingDir validates an explicit WithWorkingDir value: the path must
+// exist and be a directory, and is returned as the canonical physical path
+// (absolute, symlinks resolved) so tool roots and the system prompt agree with
+// what the OS reports — os.Getwd, the source of the CLI's root, resolves
+// symlinks, and resolveWithin compares physical forms. An empty value means
+// "process working directory" and passes through untouched.
+func resolveWorkingDir(dir string) (string, error) {
+	if dir == "" {
+		return "", nil
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", fmt.Errorf("resolve working directory %q: %w", dir, err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", fmt.Errorf("working directory %q: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("working directory %q is not a directory", dir)
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	return abs, nil
 }
 
 func structuredStreamHandler(onEvent func(Event)) runtime.StreamHandler {
@@ -172,6 +213,13 @@ func (s *Session) ToolNames() []string {
 
 // Model returns the model id the session was created with.
 func (s *Session) Model() string { return s.model }
+
+// WorkingDir returns the session's working directory: the root of the built-in
+// file tools' workspace, the bash working directory, and the anchor of the
+// system prompt's Environment block. It is the process working directory unless
+// [WithWorkingDir] set it, in which case it is the canonical (symlink-resolved)
+// form of the given directory.
+func (s *Session) WorkingDir() string { return s.env.Cwd }
 
 // Provider returns the resolved provider name (e.g. "anthropic", "openrouter"),
 // which is inferred from the model id unless WithProvider was set.
