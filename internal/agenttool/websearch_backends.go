@@ -1,6 +1,7 @@
-// This file implements the websearch backends: Tavily and Brave (credentialed
-// JSON APIs) plus a keyless DuckDuckGo HTML fallback. selectSearchBackend picks
-// the first backend whose credential is present, defaulting to DuckDuckGo.
+// This file implements the websearch backends: Tavily, Brave, and SpecStream
+// (credentialed JSON APIs) plus a keyless DuckDuckGo HTML fallback.
+// selectSearchBackend picks the first backend whose credential is present,
+// defaulting to DuckDuckGo.
 package agenttool
 
 import (
@@ -33,6 +34,9 @@ func selectSearchBackend(getenv func(string) string) searchBackend {
 	}
 	if k := strings.TrimSpace(getenv("BRAVE_API_KEY")); k != "" {
 		return braveBackend{apiKey: k}
+	}
+	if k := strings.TrimSpace(getenv("SPECSTREAM_API_KEY")); k != "" {
+		return specstreamBackend{apiKey: k}
 	}
 	return duckDuckGoBackend{}
 }
@@ -128,6 +132,56 @@ func (b braveBackend) search(ctx context.Context, client *http.Client, query str
 	out := make([]searchResult, 0, len(decoded.Web.Results))
 	for _, r := range decoded.Web.Results {
 		out = append(out, searchResult{Title: stripHTMLTags(r.Title), URL: r.URL, Snippet: stripHTMLTags(r.Description)})
+	}
+	return out, nil
+}
+
+// --- SpecStream -----------------------------------------------------------
+
+type specstreamBackend struct{ apiKey string }
+
+func (b specstreamBackend) name() string { return "specstream" }
+
+func (b specstreamBackend) search(ctx context.Context, client *http.Client, query string, count int) ([]searchResult, error) {
+	reqBody, _ := json.Marshal(map[string]any{"q": query, "num": count})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.specstream.ai/v1/web-search", bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+b.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, searchBodyLimit))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var decoded struct {
+		Sources []struct {
+			Title   string `json:"title"`
+			URL     string `json:"url"`
+			Snippet string `json:"snippet"`
+			Excerpt string `json:"excerpt"`
+		} `json:"sources"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return nil, fmt.Errorf("decoding response: %w", err)
+	}
+	out := make([]searchResult, 0, len(decoded.Sources))
+	for _, r := range decoded.Sources {
+		snippet := strings.TrimSpace(r.Excerpt)
+		if snippet == "" {
+			snippet = strings.TrimSpace(r.Snippet)
+		}
+		out = append(out, searchResult{Title: r.Title, URL: r.URL, Snippet: snippet})
 	}
 	return out, nil
 }

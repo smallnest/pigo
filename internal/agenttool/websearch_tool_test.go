@@ -37,6 +37,7 @@ func TestSelectSearchBackend(t *testing.T) {
 	}{
 		{map[string]string{"TAVILY_API_KEY": "t"}, "tavily"},
 		{map[string]string{"BRAVE_API_KEY": "b"}, "brave"},
+		{map[string]string{"SPECSTREAM_API_KEY": "s"}, "specstream"},
 		{map[string]string{"TAVILY_API_KEY": "t", "BRAVE_API_KEY": "b"}, "tavily"},
 		{map[string]string{}, "duckduckgo"},
 	}
@@ -156,5 +157,39 @@ func TestWebSearchBackendError(t *testing.T) {
 		}, `{"query":"q"}`)
 	if !strings.Contains(resultText(res), "tavily backend failed") {
 		t.Errorf("want backend-failed error, got:\n%s", resultText(res))
+	}
+}
+
+func TestWebSearchSpecStream(t *testing.T) {
+	body := `{"sources":[{"title":"Go","url":"https://go.dev","snippet":"Short snippet","excerpt":"The Go programming language"},{"title":"Docs","url":"https://pkg.go.dev","snippet":"Go packages"}]}`
+	var gotAuth string
+	var gotReq map[string]any
+	res := execWebSearch(t, map[string]string{"SPECSTREAM_API_KEY": "secret"},
+		func(r *http.Request) (*http.Response, error) {
+			if r.URL.Host != "api.specstream.ai" || r.URL.Path != "/v1/web-search" {
+				t.Errorf("unexpected url %q", r.URL.String())
+			}
+			gotAuth = r.Header.Get("Authorization")
+			if err := json.NewDecoder(r.Body).Decode(&gotReq); err != nil {
+				t.Errorf("decode request body: %v", err)
+			}
+			return makeResp(200, "application/json", body), nil
+		}, `{"query":"go language","count":5}`)
+
+	txt := resultText(res)
+	if gotAuth != "Bearer secret" {
+		t.Errorf("Authorization = %q, want Bearer secret", gotAuth)
+	}
+	if gotReq["q"] != "go language" {
+		t.Errorf("q = %v, want go language", gotReq["q"])
+	}
+	if gotReq["num"] != float64(5) {
+		t.Errorf("num = %v, want 5", gotReq["num"])
+	}
+	if !strings.Contains(txt, "via specstream") || !strings.Contains(txt, "https://go.dev") || !strings.Contains(txt, "The Go programming language") || !strings.Contains(txt, "Go packages") {
+		t.Errorf("unexpected result:\n%s", txt)
+	}
+	if bk, _ := res.Details.(map[string]any)["backend"].(string); bk != "specstream" {
+		t.Errorf("Details.backend = %q, want specstream", bk)
 	}
 }
